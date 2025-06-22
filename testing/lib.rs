@@ -41,6 +41,7 @@ unit_test!(
   microtask_test,
   ops_async_test,
   ops_buffer_test,
+  ops_error_test,
   resource_test,
   serialize_deserialize_test,
   stats_test,
@@ -48,6 +49,7 @@ unit_test!(
   tc39_test,
   timer_test,
   type_test,
+  callsite_test,
 );
 
 // Test the load and run of an entire file within the `checkin` infrastructure.

@@ -3,9 +3,8 @@ import {
   op_async_throw_error_deferred,
   op_async_throw_error_eager,
   op_async_throw_error_lazy,
-  op_error_context_async,
-  op_error_context_sync,
   op_error_custom_sync,
+  op_error_custom_with_code_sync,
 } from "ext:core/ops";
 
 export async function asyncThrow(kind: "lazy" | "eager" | "deferred") {
@@ -21,13 +20,6 @@ export function throwCustomError(message: string) {
   op_error_custom_sync(message);
 }
 
-export function throwErrorWithContextSync(message: string, context: string) {
-  op_error_context_sync(message, context);
-}
-
-export async function throwErrorWithContextAsync(
-  message: string,
-  context: string,
-) {
-  await op_error_context_async(message, context);
+export function throwCustomErrorWithCode(message: string, code: number) {
+  op_error_custom_with_code_sync(message, code);
 }

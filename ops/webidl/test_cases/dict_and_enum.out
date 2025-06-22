@@ -1,0 +1,183 @@
+impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
+    type Options = ();
+    fn convert<'b>(
+        __scope: &mut ::deno_core::v8::HandleScope<'a>,
+        __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
+        __prefix: std::borrow::Cow<'static, str>,
+        __context: ::deno_core::webidl::ContextFn<'b>,
+        __options: &Self::Options,
+    ) -> Result<Self, ::deno_core::webidl::WebIdlError> {
+        ::deno_core::v8_static_strings! {
+            __v8_static_forceFallbackAdapter = "forceFallbackAdapter",
+            __v8_static_powerPreference = "powerPreference"
+        }
+        thread_local! {
+            static __v8_forceFallbackAdapter_eternal: ::deno_core::v8::Eternal<
+                ::deno_core::v8::String,
+            > = ::deno_core::v8::Eternal::empty();
+            static __v8_powerPreference_eternal: ::deno_core::v8::Eternal<
+                ::deno_core::v8::String,
+            > = ::deno_core::v8::Eternal::empty();
+        }
+        let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value
+            .is_undefined() || __value.is_null()
+        {
+            None
+        } else {
+            if let Ok(obj) = __value.try_into() {
+                Some(obj)
+            } else {
+                return Err(
+                    ::deno_core::webidl::WebIdlError::new(
+                        __prefix,
+                        __context.borrowed(),
+                        ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType(
+                            "dictionary",
+                        ),
+                    ),
+                );
+            }
+        };
+        let force_fallback_adapter = {
+            let __key = __v8_forceFallbackAdapter_eternal
+                .with(|__eternal| {
+                    if let Some(__key) = __eternal.get(__scope) {
+                        Ok(__key)
+                    } else {
+                        let __key = __v8_static_forceFallbackAdapter
+                            .v8_string(__scope)
+                            .map_err(|e| ::deno_core::webidl::WebIdlError::other(
+                                __prefix.clone(),
+                                __context.borrowed(),
+                                e,
+                            ))?;
+                        __eternal.set(__scope, __key);
+                        Ok(__key)
+                    }
+                })?
+                .into();
+            if let Some(__value) = __obj
+                .as_ref()
+                .and_then(|__obj| __obj.get(__scope, __key))
+                .and_then(|__value| {
+                    if __value.is_undefined() { None } else { Some(__value) }
+                })
+            {
+                ::deno_core::webidl::WebIdlConverter::convert(
+                    __scope,
+                    __value,
+                    __prefix.clone(),
+                    ::deno_core::webidl::ContextFn::new_borrowed(
+                        &|| {
+                            format!(
+                                "'{}' of '{}' ({})",
+                                "forceFallbackAdapter",
+                                "GPURequestAdapterOptions",
+                                __context.call(),
+                            )
+                                .into()
+                        },
+                    ),
+                    &Default::default(),
+                )?
+            } else {
+                false
+            }
+        };
+        let power_preference = {
+            let __key = __v8_powerPreference_eternal
+                .with(|__eternal| {
+                    if let Some(__key) = __eternal.get(__scope) {
+                        Ok(__key)
+                    } else {
+                        let __key = __v8_static_powerPreference
+                            .v8_string(__scope)
+                            .map_err(|e| ::deno_core::webidl::WebIdlError::other(
+                                __prefix.clone(),
+                                __context.borrowed(),
+                                e,
+                            ))?;
+                        __eternal.set(__scope, __key);
+                        Ok(__key)
+                    }
+                })?
+                .into();
+            if let Some(__value) = __obj
+                .as_ref()
+                .and_then(|__obj| __obj.get(__scope, __key))
+                .and_then(|__value| {
+                    if __value.is_undefined() { None } else { Some(__value) }
+                })
+            {
+                ::deno_core::webidl::WebIdlConverter::convert(
+                    __scope,
+                    __value,
+                    __prefix.clone(),
+                    ::deno_core::webidl::ContextFn::new_borrowed(
+                        &|| {
+                            format!(
+                                "'{}' of '{}' ({})",
+                                "powerPreference",
+                                "GPURequestAdapterOptions",
+                                __context.call(),
+                            )
+                                .into()
+                        },
+                    ),
+                    &Default::default(),
+                )?
+            } else {
+                None
+            }
+        };
+        Ok(Self {
+            force_fallback_adapter,
+            power_preference,
+        })
+    }
+}
+
+impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPUPowerPreference {
+    type Options = ();
+    fn convert<'b>(
+        __scope: &mut ::deno_core::v8::HandleScope<'a>,
+        __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
+        __prefix: std::borrow::Cow<'static, str>,
+        __context: ::deno_core::webidl::ContextFn<'b>,
+        __options: &Self::Options,
+    ) -> Result<Self, ::deno_core::webidl::WebIdlError> {
+        let Ok(str) = __value.try_cast::<::deno_core::v8::String>() else {
+            return Err(
+                ::deno_core::webidl::WebIdlError::new(
+                    __prefix,
+                    __context,
+                    ::deno_core::webidl::WebIdlErrorKind::ConvertToConverterType("enum"),
+                ),
+            );
+        };
+        match str.to_rust_string_lossy(__scope).as_str() {
+            "low-power" => Ok(Self::LowPower),
+            "high-performance" => Ok(Self::HighPerformance),
+            s => {
+                Err(
+                    ::deno_core::webidl::WebIdlError::new(
+                        __prefix,
+                        __context,
+                        ::deno_core::webidl::WebIdlErrorKind::InvalidEnumVariant {
+                            converter: "GPUPowerPreference",
+                            variant: s.to_string(),
+                        },
+                    ),
+                )
+            }
+        }
+    }
+}
+impl GPUPowerPreference {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::LowPower => "low-power",
+            Self::HighPerformance => "high-performance",
+        }
+    }
+}

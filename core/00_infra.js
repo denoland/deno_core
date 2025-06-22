@@ -17,9 +17,10 @@
     Promise,
     PromiseReject,
     PromiseResolve,
-    PromisePrototypeThen,
+    PromisePrototypeCatch,
     RangeError,
     ReferenceError,
+    SafeArrayIterator,
     SafeMap,
     StringPrototypeSplit,
     SymbolFor,
@@ -85,7 +86,7 @@
   registerErrorClass("TypeError", TypeError);
   registerErrorClass("URIError", URIError);
 
-  function buildCustomError(className, message, code) {
+  function buildCustomError(className, message, additionalProperties) {
     let error;
     try {
       error = errorMap[className]?.(message);
@@ -97,8 +98,21 @@
     // Strip buildCustomError() calls from stack trace
     if (typeof error == "object") {
       ErrorCaptureStackTrace(error, buildCustomError);
-      if (code) {
-        error.code = code;
+      if (additionalProperties) {
+        const keys = [];
+        for (const property of new SafeArrayIterator(additionalProperties)) {
+          const key = property[0];
+          if (!(key in error)) {
+            keys.push(key);
+            error[key] = property[1];
+          }
+        }
+        Object.defineProperty(error, SymbolFor("errorAdditionalPropertyKeys"), {
+          value: keys,
+          writable: false,
+          enumerable: false,
+          configurable: false,
+        });
       }
     }
     return error;
@@ -124,18 +138,22 @@
       MapPrototypeSet(promiseMap, oldPromiseId, oldPromise);
     }
 
-    const promise = new Promise((resolve) => {
-      promiseRing[idx] = resolve;
+    const promise = new Promise((resolve, reject) => {
+      promiseRing[idx] = [resolve, reject];
     });
-    const wrappedPromise = PromisePrototypeThen(
+    const wrappedPromise = PromisePrototypeCatch(
       promise,
-      unwrapOpError(),
+      (res) => {
+        // recreate the stacktrace and strip eventLoopTick() calls from stack trace
+        ErrorCaptureStackTrace(res, eventLoopTick);
+        throw res;
+      },
     );
     wrappedPromise[promiseIdSymbol] = promiseId;
     return wrappedPromise;
   }
 
-  function __resolvePromise(promiseId, res) {
+  function __resolvePromise(promiseId, res, isOk) {
     // Check if out of ring bounds, fallback to map
     const outOfBounds = promiseId < nextPromiseId - RING_SIZE;
     if (outOfBounds) {
@@ -144,7 +162,11 @@
         throw "Missing promise in map @ " + promiseId;
       }
       MapPrototypeDelete(promiseMap, promiseId);
-      promise(res);
+      if (isOk) {
+        promise[0](res);
+      } else {
+        promise[1](res);
+      }
     } else {
       // Otherwise take from ring
       const idx = promiseId % RING_SIZE;
@@ -153,7 +175,11 @@
         throw "Missing promise in ring @ " + promiseId;
       }
       promiseRing[idx] = NO_PROMISE;
-      promise(res);
+      if (isOk) {
+        promise[0](res);
+      } else {
+        promise[1](res);
+      }
     }
   }
 
@@ -166,28 +192,6 @@
     // Otherwise check it in ring
     const idx = promiseId % RING_SIZE;
     return promiseRing[idx] != NO_PROMISE;
-  }
-
-  function unwrapOpError() {
-    return (res) => {
-      // .$err_class_name is a special key that should only exist on errors
-      const className = res?.$err_class_name;
-      if (!className) {
-        return res;
-      }
-
-      const errorBuilder = errorMap[className];
-      const err = errorBuilder ? errorBuilder(res.message) : new Error(
-        `Unregistered error class: "${className}"\n  ${res.message}\n  Classes of errors returned from ops should be registered via Deno.core.registerErrorClass().`,
-      );
-      // Set .code if error was a known OS error, see error_codes.rs
-      if (res.code) {
-        err.code = res.code;
-      }
-      // Strip eventLoopTick() calls from stack trace
-      ErrorCaptureStackTrace(err, eventLoopTick);
-      throw err;
-    };
   }
 
   function setUpAsyncStub(opName, originalOp, maybeProto) {

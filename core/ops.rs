@@ -1,24 +1,25 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::GetErrorClassFn;
+use crate::OpDecl;
+use crate::ResourceId;
 use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
-use crate::FeatureChecker;
-use crate::OpDecl;
+use crate::runtime::UnrefedOps;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::ops::DerefMut;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use v8::fast_api::CFunction;
 use v8::Isolate;
+use v8::fast_api::CFunction;
 
 pub type PromiseId = i32;
 pub type OpId = u16;
@@ -48,7 +49,10 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
 
   let current = CURRENT_OP.with(|f| f.get());
   if let Some(current) = current {
-    panic!("op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
+    panic!(
+      "op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}",
+      current.name, decl.name
+    );
   }
   CURRENT_OP.with(|f| f.set(Some(decl)));
   Some(ReentrancyGuard {})
@@ -86,8 +90,6 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
   #[doc(hidden)]
-  pub get_error_class_fn: GetErrorClassFn,
-  #[doc(hidden)]
   pub enable_stack_trace: bool,
 
   pub(crate) decl: OpDecl,
@@ -107,7 +109,6 @@ impl OpCtx {
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: *const JsRuntimeState,
-    get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
     enable_stack_trace: bool,
   ) -> Self {
@@ -124,7 +125,6 @@ impl OpCtx {
     Self {
       id,
       state,
-      get_error_class_fn,
       runtime_state,
       decl,
       op_driver,
@@ -222,11 +222,7 @@ impl ExternalOpsTracker {
       self
         .counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
-          if x == 0 {
-            None
-          } else {
-            Some(x - 1)
-          }
+          if x == 0 { None } else { Some(x - 1) }
         });
   }
 
@@ -242,25 +238,29 @@ pub struct OpState {
   pub resource_table: ResourceTable,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
-  pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
   pub op_stack_trace_callback: Option<OpStackTraceCallback>,
+  /// Reference to the unrefered ops state in `ContextState`.
+  pub(crate) unrefed_ops: UnrefedOps,
+  /// Resources that are not referenced by the event loop. All async
+  /// resource ops on these resources will not keep the event loop alive.
+  ///
+  /// Used to implement `uv_ref` and `uv_unref` methods for Node compat.
+  pub(crate) unrefed_resources: HashSet<ResourceId>,
 }
 
 impl OpState {
-  pub fn new(
-    maybe_feature_checker: Option<Arc<FeatureChecker>>,
-    op_stack_trace_callback: Option<OpStackTraceCallback>,
-  ) -> OpState {
+  pub fn new(op_stack_trace_callback: Option<OpStackTraceCallback>) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
       waker: Arc::new(AtomicWaker::new()),
-      feature_checker: maybe_feature_checker.unwrap_or_default(),
       external_ops_tracker: ExternalOpsTracker {
         counter: Arc::new(AtomicUsize::new(0)),
       },
       op_stack_trace_callback,
+      unrefed_ops: Default::default(),
+      unrefed_resources: Default::default(),
     }
   }
 
@@ -268,6 +268,19 @@ impl OpState {
   pub(crate) fn clear(&mut self) {
     std::mem::take(&mut self.gotham_state);
     std::mem::take(&mut self.resource_table);
+  }
+
+  // Silly but improves readability.
+  pub fn uv_unref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.insert(resource_id);
+  }
+
+  pub fn uv_ref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.remove(&resource_id);
+  }
+
+  pub fn has_ref(&self, resource_id: ResourceId) -> bool {
+    !self.unrefed_resources.contains(&resource_id)
   }
 }
 

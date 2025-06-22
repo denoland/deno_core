@@ -1,5 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::SnapshotStoreDataStore;
+use super::SnapshottedData;
 use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::watch_promise;
@@ -10,29 +12,35 @@ use super::setup;
 use super::snapshot;
 use super::stats::RuntimeActivityStatsFactory;
 use super::v8_static_strings::*;
-use super::SnapshotStoreDataStore;
-use super::SnapshottedData;
+use crate::Extension;
+use crate::ExtensionArguments;
+use crate::ExtensionFileSource;
+use crate::ExtensionFileSourceCode;
+use crate::FastStaticString;
+use crate::FastString;
+use crate::ModuleCodeString;
+use crate::NoopModuleLoader;
+use crate::OpMetadata;
+use crate::OpMetricsEvent;
+use crate::OpStackTraceCallback;
+use crate::OpState;
 use crate::ascii_str;
 use crate::ascii_str_include;
 use crate::cppgc::FunctionTemplateData;
-use crate::error::exception_to_err_result;
-use crate::error::AnyError;
-use crate::error::GetErrorClassFn;
+use crate::error::CoreError;
 use crate::error::JsError;
+use crate::error::exception_to_err_result;
 use crate::extension_set;
 use crate::extension_set::LoadedSources;
 use crate::extensions::GlobalObjectMiddlewareFn;
 use crate::extensions::GlobalTemplateMiddlewareFn;
-use crate::include_js_files;
 use crate::inspector::JsRuntimeInspector;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::default_import_meta_resolve_cb;
-use crate::modules::script_origin;
 use crate::modules::CustomModuleEvaluationCb;
 use crate::modules::EvalContextCodeCacheReadyCb;
 use crate::modules::EvalContextGetCodeCacheCb;
+use crate::modules::ExtCodeCache;
 use crate::modules::ExtModuleLoader;
-use crate::modules::ImportMetaResolveCallback;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleId;
@@ -41,36 +49,22 @@ use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
 use crate::modules::RequestedModuleType;
 use crate::modules::ValidateImportAttributesCb;
-use crate::ops_metrics::dispatch_metrics_async;
+use crate::modules::script_origin;
 use crate::ops_metrics::OpMetricsFactoryFn;
+use crate::ops_metrics::dispatch_metrics_async;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
 use crate::source_map::SourceMapData;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
-use crate::Extension;
-use crate::ExtensionFileSource;
-use crate::ExtensionFileSourceCode;
-use crate::FastStaticString;
-use crate::FastString;
-use crate::FeatureChecker;
-use crate::ModuleCodeString;
-use crate::NoopModuleLoader;
-use crate::OpMetadata;
-use crate::OpMetricsEvent;
-use crate::OpStackTraceCallback;
-use crate::OpState;
-use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Context as _;
-use anyhow::Error;
-use futures::future::poll_fn;
-use futures::task::AtomicWaker;
-use futures::Future;
+use deno_error::JsErrorBox;
 use futures::FutureExt;
+use futures::task::AtomicWaker;
 use smallvec::SmallVec;
 use std::any::Any;
+use std::future::Future;
+use std::future::poll_fn;
 use v8::MessageErrorLevel;
 
 use std::cell::Cell;
@@ -97,12 +91,11 @@ pub type ExtensionTranspiler =
   dyn Fn(
     ModuleName,
     ModuleCodeString,
-  ) -> Result<(ModuleCodeString, Option<SourceMapData>), AnyError>;
+  ) -> Result<(ModuleCodeString, Option<SourceMapData>), JsErrorBox>;
 
 /// Objects that need to live as long as the isolate
 #[derive(Default)]
 pub(crate) struct IsolateAllocations {
-  pub(crate) external_refs: Option<Box<v8::ExternalReferences>>,
   pub(crate) externalized_sources: Box<[v8::OneByteConst]>,
   pub(crate) original_sources: Box<[FastString]>,
   pub(crate) near_heap_limit_callback_data:
@@ -147,14 +140,13 @@ impl<T> DerefMut for ManuallyDropRc<T> {
 /// control dropping more closely here using ManuallyDrop.
 pub(crate) struct InnerIsolateState {
   will_snapshot: bool,
-  extension_count: usize,
+  extensions: Vec<&'static str>,
   op_count: usize,
   source_count: usize,
   addl_refs_count: usize,
   main_realm: ManuallyDrop<JsRealm>,
   pub(crate) state: ManuallyDropRc<JsRuntimeState>,
   v8_isolate: ManuallyDrop<v8::OwnedIsolate>,
-  v8_cpp_heap: ManuallyDrop<v8::UniqueRef<v8::cppgc::Heap>>,
 }
 
 impl InnerIsolateState {
@@ -191,22 +183,12 @@ impl InnerIsolateState {
     debug_assert_eq!(Rc::strong_count(&self.state), 1);
   }
 
-  pub fn cleanup_cpp_heap(&mut self) {
-    self.v8_isolate.detach_cpp_heap();
-    self.v8_cpp_heap.terminate();
-    unsafe {
-      ManuallyDrop::drop(&mut self.v8_cpp_heap);
-    }
-  }
-
   pub fn prepare_for_snapshot(mut self) -> v8::OwnedIsolate {
     self.cleanup();
 
     // SAFETY: We're copying out of self and then immediately forgetting self
     unsafe {
       ManuallyDrop::drop(&mut self.state.0);
-
-      self.cleanup_cpp_heap();
 
       let isolate = ManuallyDrop::take(&mut self.v8_isolate);
 
@@ -223,8 +205,6 @@ impl Drop for InnerIsolateState {
     // SAFETY: We gotta drop these
     unsafe {
       ManuallyDrop::drop(&mut self.state.0);
-
-      self.cleanup_cpp_heap();
 
       if self.will_snapshot {
         // Create the snapshot and just drop it.
@@ -273,7 +253,7 @@ impl InitMode {
 
 #[derive(Default)]
 struct PromiseFuture {
-  resolved: Cell<Option<Result<v8::Global<v8::Value>, Error>>>,
+  resolved: Cell<Option<Result<v8::Global<v8::Value>, CoreError>>>,
   waker: Cell<Option<Waker>>,
 }
 
@@ -281,7 +261,7 @@ struct PromiseFuture {
 struct RcPromiseFuture(Rc<PromiseFuture>);
 
 impl RcPromiseFuture {
-  pub fn new(res: Result<v8::Global<v8::Value>, Error>) -> Self {
+  pub fn new(res: Result<v8::Global<v8::Value>, CoreError>) -> Self {
     Self(Rc::new(PromiseFuture {
       resolved: Some(res).into(),
       ..Default::default()
@@ -290,14 +270,15 @@ impl RcPromiseFuture {
 }
 
 impl Future for RcPromiseFuture {
-  type Output = Result<v8::Global<v8::Value>, Error>;
+  type Output = Result<v8::Global<v8::Value>, CoreError>;
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
-    if let Some(resolved) = this.0.resolved.take() {
-      Poll::Ready(resolved)
-    } else {
-      this.0.waker.set(Some(cx.waker().clone()));
-      Poll::Pending
+    match this.0.resolved.take() {
+      Some(resolved) => Poll::Ready(resolved),
+      _ => {
+        this.0.waker.set(Some(cx.waker().clone()));
+        Poll::Pending
+      }
     }
   }
 }
@@ -333,7 +314,10 @@ pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
 pub(crate) static BUILTIN_ES_MODULES: [ExtensionFileSource; 1] =
-  include_js_files!(core "mod.js",);
+  [ExtensionFileSource::new(
+    "ext:core/mod.js",
+    ascii_str_include!("../mod.js"),
+  )];
 
 /// We have `ext:core/ops` and `ext:core/mod.js` that are always provided.
 #[cfg(test)]
@@ -432,9 +416,10 @@ pub struct JsRuntimeState {
     Option<WaitForInspectorDisconnectCallback>,
   pub(crate) validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
   pub(crate) custom_module_evaluation_cb: Option<CustomModuleEvaluationCb>,
-  pub(crate) eval_context_get_code_cache_cb: Option<EvalContextGetCodeCacheCb>,
+  pub(crate) eval_context_get_code_cache_cb:
+    RefCell<Option<EvalContextGetCodeCacheCb>>,
   pub(crate) eval_context_code_cache_ready_cb:
-    Option<EvalContextCodeCacheReadyCb>,
+    RefCell<Option<EvalContextCodeCacheReadyCb>>,
   pub(crate) cppgc_template: RefCell<Option<v8::Global<v8::FunctionTemplate>>>,
   pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
   pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
@@ -443,20 +428,20 @@ pub struct JsRuntimeState {
   inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
   has_inspector: Cell<bool>,
   import_assertions_support: ImportAssertionsSupport,
+  lazy_extensions: Vec<&'static str>,
 }
 
 #[derive(Default)]
 pub struct RuntimeOptions {
-  /// Allows to map error type to a string "class" used to represent
-  /// error in JavaScript.
-  pub get_error_class_fn: Option<GetErrorClassFn>,
-
   /// Implementation of `ModuleLoader` which will be
   /// called when V8 requests to load ES modules in the main realm.
   ///
   /// If not provided runtime will error if code being
   /// executed tries to load modules.
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
+
+  /// If specified, enables V8 code cache for extension code.
+  pub extension_code_cache: Option<Rc<dyn ExtCodeCache>>,
 
   /// If specified, transpiles extensions before loading.
   pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
@@ -518,10 +503,6 @@ pub struct RuntimeOptions {
   /// this may expose the runtime to security vulnerabilities.
   pub unsafe_expose_natives_and_gc: bool,
 
-  /// An optional instance of `FeatureChecker`. If one is not provided, the
-  /// default instance will be created that has no features enabled.
-  pub feature_checker: Option<Arc<FeatureChecker>>,
-
   /// A callback that can be used to validate import attributes received at
   /// the import site. If no callback is provided, all attributes are allowed.
   ///
@@ -531,12 +512,6 @@ pub struct RuntimeOptions {
   /// To signal validation failure, users should throw an V8 exception inside
   /// the callback.
   pub validate_import_attributes_cb: Option<ValidateImportAttributesCb>,
-
-  /// A callback that can be used to customize behavior of
-  /// `import.meta.resolve()` API. If no callback is provided, a default one
-  /// is used. The default callback returns value of
-  /// `RuntimeOptions::module_loader::resolve()` call.
-  pub import_meta_resolve_callback: Option<ImportMetaResolveCallback>,
 
   /// A callback that is called when the event loop has no more work to do,
   /// but there are active, non-blocking inspector session (eg. Chrome
@@ -745,14 +720,17 @@ impl JsRuntime {
     match Self::try_new(options) {
       Ok(runtime) => runtime,
       Err(err) => {
-        panic!("Failed to initialize a JsRuntime: {:?}", err);
+        panic!(
+          "Failed to initialize a JsRuntime: {}",
+          err.print_with_cause()
+        );
       }
     }
   }
 
   /// Only constructor, configuration is done through `options`.
   /// Returns an error if the runtime cannot be initialized.
-  pub fn try_new(mut options: RuntimeOptions) -> Result<JsRuntime, Error> {
+  pub fn try_new(mut options: RuntimeOptions) -> Result<JsRuntime, CoreError> {
     setup::init_v8(
       options.v8_platform.take(),
       cfg!(test),
@@ -799,7 +777,7 @@ impl JsRuntime {
   fn new_inner(
     mut options: RuntimeOptions,
     will_snapshot: bool,
-  ) -> Result<JsRuntime, Error> {
+  ) -> Result<JsRuntime, CoreError> {
     let init_mode = InitMode::from_options(&options);
     let mut extensions = std::mem::take(&mut options.extensions);
     let mut isolate_allocations = IsolateAllocations::default();
@@ -808,11 +786,11 @@ impl JsRuntime {
       options.maybe_op_stack_trace_callback.is_some();
 
     // First let's create an `OpState` and contribute to it from extensions...
-    let mut op_state = OpState::new(
-      options.feature_checker.take(),
-      options.maybe_op_stack_trace_callback,
-    );
-    extension_set::setup_op_state(&mut op_state, &mut extensions);
+    let mut op_state = OpState::new(options.maybe_op_stack_trace_callback);
+    let unrefed_ops = op_state.unrefed_ops.clone();
+
+    let lazy_extensions =
+      extension_set::setup_op_state(&mut op_state, &mut extensions);
 
     // Load the sources and source maps
     let mut files_loaded = Vec::with_capacity(128);
@@ -822,9 +800,16 @@ impl JsRuntime {
 
     let mut source_mapper = SourceMapper::new(loader.clone());
 
+    let (maybe_startup_snapshot, mut sidecar_data) = options
+      .startup_snapshot
+      .take()
+      .map(snapshot::deconstruct)
+      .unzip();
+
     let mut sources = extension_set::into_sources_and_source_maps(
       options.extension_transpiler.as_deref(),
       &extensions,
+      sidecar_data.as_ref().map(|s| &*s.snapshot_data.extensions),
       |source| {
         mark_as_loaded_from_fs_during_snapshot(&mut files_loaded, &source.code)
       },
@@ -861,8 +846,12 @@ impl JsRuntime {
       op_state: op_state.clone(),
       validate_import_attributes_cb: options.validate_import_attributes_cb,
       custom_module_evaluation_cb: options.custom_module_evaluation_cb,
-      eval_context_get_code_cache_cb,
-      eval_context_code_cache_ready_cb: eval_context_set_code_cache_cb,
+      eval_context_get_code_cache_cb: RefCell::new(
+        eval_context_get_code_cache_cb,
+      ),
+      eval_context_code_cache_ready_cb: RefCell::new(
+        eval_context_set_code_cache_cb,
+      ),
       waker,
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
@@ -871,6 +860,7 @@ impl JsRuntime {
       function_templates: Default::default(),
       callsite_prototype: None.into(),
       import_assertions_support: options.import_assertions_support,
+      lazy_extensions,
     });
 
     // ...now we're moving on to ops; set them up, create `OpCtx` for each op
@@ -880,7 +870,6 @@ impl JsRuntime {
 
     let op_driver = Rc::new(OpDriverImpl::default());
     let op_metrics_factory_fn = options.op_metrics_factory_fn.take();
-    let get_error_class_fn = options.get_error_class_fn.unwrap_or(&|_| "Error");
 
     let (mut op_ctxs, methods_ctx_offset) = extension_set::create_op_ctxs(
       op_decls,
@@ -889,7 +878,6 @@ impl JsRuntime {
       op_driver.clone(),
       op_state.clone(),
       state_rc.clone(),
-      get_error_class_fn,
       enable_stack_trace_in_ops,
     );
 
@@ -901,16 +889,10 @@ impl JsRuntime {
     ) = extension_set::get_middlewares_and_external_refs(&mut extensions);
 
     // Capture the extension, op and source counts
-    let extension_count = extensions.len();
+    let extensions = extensions.iter().map(|e| e.name).collect();
     let op_count = op_ctxs.len();
     let source_count = sources.len();
     let addl_refs_count = additional_references.len();
-
-    let (maybe_startup_snapshot, mut sidecar_data) = options
-      .startup_snapshot
-      .take()
-      .map(snapshot::deconstruct)
-      .unzip();
 
     let ops_in_snapshot = sidecar_data
       .as_ref()
@@ -930,29 +912,21 @@ impl JsRuntime {
       isolate_allocations.original_sources,
     ) = bindings::externalize_sources(&mut sources, snapshot_sources);
 
-    isolate_allocations.external_refs =
-      Some(Box::new(bindings::create_external_references(
-        &op_ctxs,
-        &additional_references,
-        &isolate_allocations.externalized_sources,
-        ops_in_snapshot,
-        sources_in_snapshot,
-      )));
-
-    let external_refs: &v8::ExternalReferences =
-      isolate_allocations.external_refs.as_ref().unwrap();
-    // SAFETY: We attach external_refs to IsolateAllocations which will live as long as the isolate
-    let external_refs_static = unsafe { &*(external_refs as *const _) };
+    let external_references = bindings::create_external_references(
+      &op_ctxs,
+      &additional_references,
+      &isolate_allocations.externalized_sources,
+      ops_in_snapshot,
+      sources_in_snapshot,
+    );
 
     let has_snapshot = maybe_startup_snapshot.is_some();
     let mut isolate = setup::create_isolate(
       will_snapshot,
       options.create_params.take(),
       maybe_startup_snapshot,
-      external_refs_static,
+      external_references.into(),
     );
-    let mut cpp_heap = setup::create_cpp_heap();
-    isolate.attach_cpp_heap(&mut cpp_heap);
 
     if state_rc.import_assertions_support.has_warning() {
       isolate.add_message_listener_with_error_level(
@@ -974,11 +948,11 @@ impl JsRuntime {
     let context_state = Rc::new(ContextState::new(
       op_driver.clone(),
       isolate_ptr,
-      options.get_error_class_fn.unwrap_or(&|_| "Error"),
       op_ctxs,
       op_method_decls,
       methods_ctx_offset,
       op_state.borrow().external_ops_tracker.clone(),
+      unrefed_ops,
     ));
 
     // TODO(bartlomieju): factor out
@@ -1074,14 +1048,10 @@ impl JsRuntime {
     // ...now that JavaScript bindings to ops are available we can deserialize
     // modules stored in the snapshot (because they depend on the ops and external
     // references must match properly) and recreate a module map...
-    let import_meta_resolve_cb = options
-      .import_meta_resolve_callback
-      .unwrap_or_else(|| Box::new(default_import_meta_resolve_cb));
     let exception_state = context_state.exception_state.clone();
     let module_map = Rc::new(ModuleMap::new(
       loader,
       exception_state.clone(),
-      import_meta_resolve_cb,
       will_snapshot,
     ));
 
@@ -1096,6 +1066,11 @@ impl JsRuntime {
         snapshotted_data.module_map_data,
       );
 
+      if let Some(index) = snapshotted_data.ext_import_meta_proto {
+        *context_state.ext_import_meta_proto.borrow_mut() =
+          Some(data_store.get(scope, index));
+      }
+
       state_rc
         .function_templates
         .borrow_mut()
@@ -1109,6 +1084,14 @@ impl JsRuntime {
       for (key, map) in snapshotted_data.ext_source_maps {
         mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
       }
+    }
+
+    if context_state.ext_import_meta_proto.borrow().is_none() {
+      let null = v8::null(scope);
+      let obj =
+        v8::Object::with_prototype_and_properties(scope, null.into(), &[], &[]);
+      *context_state.ext_import_meta_proto.borrow_mut() =
+        Some(v8::Global::new(scope, obj));
     }
 
     // SAFETY: Set the module map slot in the context
@@ -1144,14 +1127,13 @@ impl JsRuntime {
     let mut js_runtime = JsRuntime {
       inner: InnerIsolateState {
         will_snapshot,
-        extension_count,
         op_count,
+        extensions,
         source_count,
         addl_refs_count,
         main_realm: ManuallyDrop::new(main_realm),
         state: ManuallyDropRc(ManuallyDrop::new(state_rc)),
         v8_isolate: ManuallyDrop::new(isolate),
-        v8_cpp_heap: ManuallyDrop::new(cpp_heap),
       },
       allocations: isolate_allocations,
       files_loaded_from_fs_during_snapshot: vec![],
@@ -1189,7 +1171,12 @@ impl JsRuntime {
 
       js_runtime.store_js_callbacks(&realm, will_snapshot);
 
-      js_runtime.init_extension_js(&realm, &module_map, sources)?;
+      js_runtime.init_extension_js(
+        &realm,
+        &module_map,
+        sources,
+        options.extension_code_cache,
+      )?;
     }
 
     if will_snapshot {
@@ -1200,9 +1187,65 @@ impl JsRuntime {
     Ok(js_runtime)
   }
 
+  /// If extensions were initialized with `lazy_init`, they need to be
+  /// fully initialized with this method.
+  pub fn lazy_init_extensions(
+    &self,
+    ext_args: Vec<ExtensionArguments>,
+  ) -> Result<(), CoreError> {
+    if ext_args.len() != self.inner.state.lazy_extensions.len() {
+      return Err(CoreError::ExtensionLazyInitCountMismatch(
+        ext_args.len(),
+        self.inner.state.lazy_extensions.len(),
+      ));
+    }
+
+    let mut state = self.inner.state.op_state.borrow_mut();
+
+    for (mut args, expected_name) in ext_args
+      .into_iter()
+      .zip(self.inner.state.lazy_extensions.iter())
+    {
+      if args.name != *expected_name {
+        return Err(CoreError::ExtensionLazyInitOrderMismatch(
+          expected_name,
+          args.name,
+        ));
+      }
+
+      let Some(f) = args.op_state_fn.take() else {
+        continue;
+      };
+
+      f(&mut state);
+    }
+
+    Ok(())
+  }
+
+  pub fn set_eval_context_code_cache_cbs(
+    &self,
+    eval_context_code_cache_cbs: Option<(
+      EvalContextGetCodeCacheCb,
+      EvalContextCodeCacheReadyCb,
+    )>,
+  ) {
+    let (eval_context_get_code_cache_cb, eval_context_set_code_cache_cb) =
+      eval_context_code_cache_cbs
+        .map(|cbs| (Some(cbs.0), Some(cbs.1)))
+        .unwrap_or_default();
+    *self.inner.state.eval_context_get_code_cache_cb.borrow_mut() =
+      eval_context_get_code_cache_cb;
+    *self
+      .inner
+      .state
+      .eval_context_code_cache_ready_cb
+      .borrow_mut() = eval_context_set_code_cache_cb;
+  }
+
   #[cfg(test)]
   #[inline]
-  pub(crate) fn module_map(&mut self) -> Rc<ModuleMap> {
+  pub(crate) fn module_map(&self) -> Rc<ModuleMap> {
     self.inner.main_realm.0.module_map()
   }
 
@@ -1227,12 +1270,12 @@ impl JsRuntime {
   }
 
   #[inline]
-  pub fn inspector(&mut self) -> Rc<RefCell<JsRuntimeInspector>> {
+  pub fn inspector(&self) -> Rc<RefCell<JsRuntimeInspector>> {
     self.inner.state.inspector()
   }
 
   #[inline]
-  pub fn wait_for_inspector_disconnect(&mut self) {
+  pub fn wait_for_inspector_disconnect(&self) {
     if let Some(callback) = self
       .inner
       .state
@@ -1280,14 +1323,12 @@ impl JsRuntime {
       scope,
       global,
     );
-    let mod_id = module_map
-      .new_synthetic_module(
-        scope,
-        VIRTUAL_OPS_MODULE_NAME,
-        crate::ModuleType::JavaScript,
-        synthetic_module_exports,
-      )
-      .unwrap();
+    let mod_id = module_map.new_synthetic_module(
+      scope,
+      VIRTUAL_OPS_MODULE_NAME,
+      crate::ModuleType::JavaScript,
+      synthetic_module_exports,
+    );
     module_map.mod_evaluate_sync(scope, mod_id).unwrap();
   }
 
@@ -1302,7 +1343,7 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
-  ) -> Result<(), Error> {
+  ) -> Result<(), CoreError> {
     let scope = &mut realm.handle_scope(self.v8_isolate());
 
     for source_file in &BUILTIN_SOURCES {
@@ -1311,12 +1352,10 @@ impl JsRuntime {
 
       let origin = script_origin(scope, name, false, None);
       let script = v8::Script::compile(scope, source, Some(&origin))
-        .with_context(|| {
-          format!("Failed to parse {}", source_file.specifier)
-        })?;
-      script.run(scope).with_context(|| {
-        format!("Failed to execute {}", source_file.specifier)
-      })?;
+        .ok_or_else(|| CoreError::Parse(source_file.specifier))?;
+      script
+        .run(scope)
+        .ok_or_else(|| CoreError::Execute(source_file.specifier))?;
     }
 
     for file_source in &BUILTIN_ES_MODULES {
@@ -1338,7 +1377,8 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
-  ) -> Result<(), Error> {
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
+  ) -> Result<(), CoreError> {
     // First, add all the lazy ESM
     for source in loaded_sources.lazy_esm {
       module_map.add_lazy_loaded_esm_source(source.specifier, source.code);
@@ -1356,11 +1396,13 @@ impl JsRuntime {
       modules.push(ModuleSpecifier::parse(&esm.specifier).unwrap());
       sources.push((esm.specifier, esm.code));
     }
-    let ext_loader = Rc::new(ExtModuleLoader::new(sources)?);
+    let ext_loader =
+      Rc::new(ExtModuleLoader::new(sources, ext_code_cache.clone()));
     *module_map.loader.borrow_mut() = ext_loader.clone();
 
     // Next, load the extension modules as side modules (but do not execute them)
     for module in modules {
+      // eprintln!("loading module: {module}");
       realm
         .load_side_es_module_from_code(self.v8_isolate(), &module, None)
         .await?;
@@ -1368,7 +1410,30 @@ impl JsRuntime {
 
     // Execute extension scripts
     for source in loaded_sources.js {
-      realm.execute_script(self.v8_isolate(), source.specifier, source.code)?;
+      match &ext_code_cache {
+        Some(ext_code_cache) => {
+          let specifier = ModuleSpecifier::parse(&source.specifier)?;
+          realm.execute_script_with_cache(
+            self.v8_isolate(),
+            specifier,
+            source.code,
+            &|specifier, code| {
+              ext_code_cache.get_code_cache_info(specifier, code, false)
+            },
+            &|specifier, hash, code_cache| {
+              ext_code_cache
+                .code_cache_ready(specifier, hash, code_cache, false)
+            },
+          )?;
+        }
+        _ => {
+          realm.execute_script(
+            self.v8_isolate(),
+            source.specifier,
+            source.code,
+          )?;
+        }
+      }
     }
 
     // ...then execute all entry points
@@ -1376,12 +1441,16 @@ impl JsRuntime {
       let Some(mod_id) =
         module_map.get_id(&specifier, RequestedModuleType::None)
       else {
-        bail!("{} not present in the module map", specifier);
+        return Err(CoreError::MissingFromModuleMap(specifier.to_string()));
       };
 
       let isolate = self.v8_isolate();
       let scope = &mut realm.handle_scope(isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
+      let mut cx = Context::from_waker(Waker::noop());
+      // poll once so code cache is populated. the `ExtCodeCache` trait is sync, so
+      // the `CodeCacheReady` futures will always finish on the first poll.
+      let _ = module_map.poll_progress(&mut cx, scope);
     }
 
     #[cfg(debug_assertions)]
@@ -1392,10 +1461,7 @@ impl JsRuntime {
 
     let module_map = realm.0.module_map();
     *module_map.loader.borrow_mut() = loader;
-    Rc::try_unwrap(ext_loader)
-      .map_err(drop)
-      .unwrap()
-      .finalize()?;
+    ext_loader.finalize()?;
 
     Ok(())
   }
@@ -1406,11 +1472,13 @@ impl JsRuntime {
     realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     loaded_sources: LoadedSources,
-  ) -> Result<(), Error> {
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
+  ) -> Result<(), CoreError> {
     futures::executor::block_on(self.init_extension_js_inner(
       realm,
       module_map,
       loaded_sources,
+      ext_code_cache,
     ))?;
 
     Ok(())
@@ -1489,23 +1557,23 @@ impl JsRuntime {
     state_rc
       .js_event_loop_tick_cb
       .borrow_mut()
-      .replace(Rc::new(event_loop_tick_cb));
+      .replace(event_loop_tick_cb);
     state_rc
       .exception_state
       .js_build_custom_error_cb
       .borrow_mut()
-      .replace(Rc::new(build_custom_error_cb));
+      .replace(build_custom_error_cb);
     if let Some(wasm_instance_fn) = wasm_instance_fn {
       state_rc
         .wasm_instance_fn
         .borrow_mut()
-        .replace(Rc::new(wasm_instance_fn));
+        .replace(wasm_instance_fn);
     }
   }
 
   /// Returns the runtime's op state, which can be used to maintain ops
   /// and access resources between op calls.
-  pub fn op_state(&mut self) -> Rc<RefCell<OpState>> {
+  pub fn op_state(&self) -> Rc<RefCell<OpState>> {
     self.inner.state.op_state.clone()
   }
 
@@ -1519,7 +1587,8 @@ impl JsRuntime {
   /// the global scope by default, and it is possible to maintain local JS state and invoke
   /// this method multiple times.
   ///
-  /// `name` can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
+  /// `name` may be any type that implements the internal [`IntoModuleName`] trait.
+  /// It can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
   ///
   ///   - "/some/file/path.js"
   ///   - "<anon>"
@@ -1535,13 +1604,13 @@ impl JsRuntime {
   /// `Error` can usually be downcast to `JsError`.
   pub fn execute_script(
     &mut self,
-    name: &'static str,
+    name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.execute_script(
       isolate,
-      FastString::from_static(name),
+      name.into_module_name(),
       source_code.into_module_code(),
     )
   }
@@ -1556,7 +1625,8 @@ impl JsRuntime {
   pub fn call(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     self.call_with_args(function, &[])
   }
 
@@ -1570,7 +1640,8 @@ impl JsRuntime {
   pub fn scoped_call(
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     Self::scoped_call_with_args(scope, function, &[])
   }
 
@@ -1585,7 +1656,8 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut self.handle_scope();
     Self::scoped_call_with_args(scope, function, args)
   }
@@ -1601,7 +1673,8 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut v8::TryCatch::new(scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
@@ -1643,7 +1716,7 @@ impl JsRuntime {
   pub async fn call_and_await(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let call = self.call(function);
     self
       .with_event_loop_promise(call, PollEventLoopOptions::default())
@@ -1658,7 +1731,7 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let call = self.call_with_args(function, args);
     self
       .with_event_loop_promise(call, PollEventLoopOptions::default())
@@ -1672,7 +1745,7 @@ impl JsRuntime {
   pub fn get_module_namespace(
     &mut self,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, Error> {
+  ) -> Result<v8::Global<v8::Object>, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -1717,9 +1790,9 @@ impl JsRuntime {
   }
 
   fn pump_v8_message_loop(
-    &mut self,
+    &self,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), Error> {
+  ) -> Result<(), CoreError> {
     while v8::Platform::pump_message_loop(
       &v8::V8::get_current_platform(),
       scope,
@@ -1768,7 +1841,8 @@ impl JsRuntime {
   pub fn resolve(
     &mut self,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let scope = &mut self.handle_scope();
     Self::scoped_resolve(scope, promise)
   }
@@ -1780,7 +1854,8 @@ impl JsRuntime {
   pub fn scoped_resolve(
     scope: &mut v8::HandleScope,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, Error>> {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
+  {
     let promise = v8::Local::new(scope, promise);
     if !promise.is_promise() {
       return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
@@ -1797,7 +1872,7 @@ impl JsRuntime {
   pub async fn resolve_value(
     &mut self,
     global: v8::Global<v8::Value>,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let resolve = self.resolve(global);
     self
       .with_event_loop_promise(resolve, PollEventLoopOptions::default())
@@ -1835,21 +1910,21 @@ impl JsRuntime {
   pub async fn run_event_loop(
     &mut self,
     poll_options: PollEventLoopOptions,
-  ) -> Result<(), Error> {
+  ) -> Result<(), CoreError> {
     poll_fn(|cx| self.poll_event_loop(cx, poll_options)).await
   }
 
   /// A utility function that run provided future concurrently with the event loop.
   ///
   /// If the event loop resolves while polling the future, it return an error with the text
-  /// `Promise resolution is still pending but the event loop has already resolved.`
+  /// `Promise resolution is still pending but the event loop has already resolved`
   pub async fn with_event_loop_promise<'fut, T, E>(
     &mut self,
     mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
-  ) -> Result<T, AnyError>
+  ) -> Result<T, CoreError>
   where
-    AnyError: From<E>,
+    CoreError: From<E>,
   {
     // Manually implement tokio::select
     poll_fn(|cx| {
@@ -1861,10 +1936,11 @@ impl JsRuntime {
         if let Poll::Ready(t) = fut.poll_unpin(cx) {
           return Poll::Ready(t.map_err(|e| e.into()));
         }
-        return Poll::Ready(Err(anyhow!("Promise resolution is still pending but the event loop has already resolved.")));
+        return Poll::Ready(Err(CoreError::PendingPromiseResolution));
       }
       Poll::Pending
-    }).await
+    })
+    .await
   }
 
   /// A utility function that run provided future concurrently with the event loop.
@@ -1877,9 +1953,9 @@ impl JsRuntime {
     &mut self,
     mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
-  ) -> Result<T, AnyError>
+  ) -> Result<T, CoreError>
   where
-    AnyError: From<E>,
+    CoreError: From<E>,
   {
     // Manually implement tokio::select
     poll_fn(|cx| {
@@ -1905,7 +1981,7 @@ impl JsRuntime {
     &mut self,
     cx: &mut Context,
     poll_options: PollEventLoopOptions,
-  ) -> Poll<Result<(), Error>> {
+  ) -> Poll<Result<(), CoreError>> {
     // SAFETY: We know this isolate is valid and non-null at this time
     let mut isolate_scope =
       v8::HandleScope::new(unsafe { &mut *self.v8_isolate_ptr() });
@@ -1916,11 +1992,11 @@ impl JsRuntime {
   }
 
   fn poll_event_loop_inner(
-    &mut self,
+    &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
     poll_options: PollEventLoopOptions,
-  ) -> Poll<Result<(), Error>> {
+  ) -> Poll<Result<(), CoreError>> {
     let has_inspector = self.inner.state.has_inspector.get();
     self.inner.state.waker.register(cx.waker());
 
@@ -2046,7 +2122,7 @@ impl JsRuntime {
 fn find_and_report_stalled_level_await_in_any_realm(
   scope: &mut v8::HandleScope,
   inner_realm: &JsRealmInner,
-) -> Error {
+) -> CoreError {
   let module_map = inner_realm.module_map();
   let messages = module_map.find_stalled_top_level_await(scope);
 
@@ -2114,7 +2190,7 @@ impl JsRuntimeForSnapshot {
   /// Try to create a new runtime, returning an error if the process fails.
   pub fn try_new(
     mut options: RuntimeOptions,
-  ) -> Result<JsRuntimeForSnapshot, Error> {
+  ) -> Result<JsRuntimeForSnapshot, CoreError> {
     setup::init_v8(
       options.v8_platform.take(),
       true,
@@ -2132,8 +2208,6 @@ impl JsRuntimeForSnapshot {
   pub fn snapshot(mut self) -> Box<[u8]> {
     // Ensure there are no live inspectors to prevent crashes.
     self.inner.prepare_for_cleanup();
-    let externals_count =
-      self.0.allocations.external_refs.as_ref().unwrap().len() as _;
     let original_sources =
       std::mem::take(&mut self.0.allocations.original_sources);
     let external_strings = original_sources
@@ -2191,15 +2265,23 @@ impl JsRuntimeForSnapshot {
       }
       .map(|cb| data_store.register(cb));
 
+      let ext_import_meta_proto = realm
+        .0
+        .context_state
+        .ext_import_meta_proto
+        .borrow()
+        .clone()
+        .map(|p| data_store.register(p));
+
       let snapshotted_data = SnapshottedData {
         module_map_data,
         function_templates_data,
-        externals_count,
         op_count: self.inner.op_count,
         addl_refs_count: self.inner.addl_refs_count,
         source_count: self.inner.source_count,
-        extension_count: self.inner.extension_count,
+        extensions: self.inner.extensions.clone(),
         js_handled_promise_rejection_cb: maybe_js_handled_promise_rejection_cb,
+        ext_import_meta_proto,
         ext_source_maps,
         external_strings,
       };
@@ -2377,7 +2459,7 @@ impl JsRuntime {
   pub fn mod_evaluate(
     &mut self,
     id: ModuleId,
-  ) -> impl Future<Output = Result<(), Error>> {
+  ) -> impl Future<Output = Result<(), CoreError>> + use<> {
     let isolate = &mut self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
     let scope = &mut realm.handle_scope(isolate);
@@ -2400,7 +2482,7 @@ impl JsRuntime {
     &mut self,
     specifier: &ModuleSpecifier,
     code: impl IntoModuleCodeString,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2424,7 +2506,7 @@ impl JsRuntime {
   pub async fn load_main_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2450,7 +2532,7 @@ impl JsRuntime {
     &mut self,
     specifier: &ModuleSpecifier,
     code: impl IntoModuleCodeString,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2474,7 +2556,7 @@ impl JsRuntime {
   pub async fn load_side_es_module(
     &mut self,
     specifier: &ModuleSpecifier,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self
       .inner
@@ -2494,7 +2576,7 @@ impl JsRuntime {
     &mut self,
     specifier: impl IntoModuleName,
     code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.lazy_load_es_module_with_code(
       isolate,
@@ -2508,7 +2590,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     context_state: &ContextState,
     exception_state: &ExceptionState,
-  ) -> Result<bool, Error> {
+  ) -> Result<bool, CoreError> {
     let mut dispatched_ops = false;
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
@@ -2561,7 +2643,7 @@ impl JsRuntime {
         break;
       };
 
-      let res = res.unwrap(scope, context_state.get_error_class_fn);
+      let res = res.unwrap(scope);
 
       {
         let op_ctx = &context_state.op_ctxs[op_id as usize];
@@ -2580,6 +2662,7 @@ impl JsRuntime {
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
+      args.push(v8::Boolean::new(scope, res.is_ok()).into());
       args.push(res.unwrap_or_else(std::convert::identity));
     }
 
@@ -2638,8 +2721,8 @@ impl JsRuntime {
 
     // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
     // storing the exception-reporting callback.
-    let timers =
-      if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
+    let timers = match context_state.timers.poll_timers(cx) {
+      Poll::Ready(timers) => {
         let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
@@ -2651,17 +2734,17 @@ impl JsRuntime {
               .complete(RuntimeActivityType::Timer, timers[i].0 as _);
           }
           // depth, id, function
-          let value = v8::Integer::new(scope, timers[i].1 .1 as _);
+          let value = v8::Integer::new(scope, timers[i].1.1 as _);
           arr.set_index(scope, (i * 3) as _, value.into());
           let value = v8::Number::new(scope, timers[i].0 as _);
           arr.set_index(scope, (i * 3 + 1) as _, value.into());
-          let value = v8::Local::new(scope, timers[i].1 .0.clone());
+          let value = v8::Local::new(scope, timers[i].1.0.clone());
           arr.set_index(scope, (i * 3 + 2) as _, value.into());
         }
         arr.into()
-      } else {
-        undefined
-      };
+      }
+      _ => undefined,
+    };
     args.push(timers);
 
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);

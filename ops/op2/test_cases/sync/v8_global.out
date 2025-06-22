@@ -44,15 +44,7 @@ pub const fn op_global() -> ::deno_core::_ops::OpDecl {
                 let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
                     deno_core::v8::String,
                 >(arg0) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected String".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected String");
                     return 1;
                 };
                 let arg0 = deno_core::v8::Global::new(&mut scope, arg0);
@@ -97,7 +89,7 @@ pub const fn op_global() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_global {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call(g: v8::Global<v8::String>) -> v8::Global<v8::String> {
             g
         }

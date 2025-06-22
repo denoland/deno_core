@@ -3,18 +3,18 @@
 mod dictionary;
 mod r#enum;
 
-use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::quote;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::parse2;
-use syn::spanned::Spanned;
 use syn::Attribute;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
 use syn::Token;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::parse2;
+use syn::spanned::Spanned;
 
 pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let input = parse2::<DeriveInput>(item)?;
@@ -25,27 +25,14 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
     .attrs
     .into_iter()
     .find_map(|attr| ConverterType::from_attribute(attr).transpose())
-    .ok_or_else(|| Error::new(span, "missing #[webidl] attribute"))??;
+    .ok_or_else(|| {
+      Error::new(span, "missing top-level #[webidl] attribute")
+    })??;
 
   let out = match input.data {
     Data::Struct(data) => match converter {
       ConverterType::Dictionary => {
-        let (body, v8_static_strings, v8_lazy_strings) =
-          dictionary::get_body(ident_string, span, data)?;
-
-        let implementation = create_impl(ident, body);
-
-        quote! {
-          ::deno_core::v8_static_strings! {
-            #(#v8_static_strings),*
-          }
-
-          thread_local! {
-            #(#v8_lazy_strings)*
-          }
-
-          #implementation
-        }
+        create_impl(ident, dictionary::get_body(ident_string, span, data)?)
       }
       ConverterType::Enum => {
         return Err(Error::new(span, "Structs do not support enum converters"));
@@ -59,7 +46,13 @@ pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
         ));
       }
       ConverterType::Enum => {
-        create_impl(ident, r#enum::get_body(ident_string, data)?)
+        let (body, as_str) = r#enum::get_body(ident_string, &ident, data)?;
+        let implementation = create_impl(ident, body);
+
+        quote! {
+          #implementation
+          #as_str
+        }
       }
     },
     Data::Union(_) => return Err(Error::new(span, "Unions are not supported")),
@@ -108,20 +101,18 @@ impl Parse for ConverterType {
   }
 }
 
-fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
+fn create_impl(ident: impl ToTokens, body: TokenStream) -> TokenStream {
   quote! {
     impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
       type Options = ();
 
-      fn convert<C>(
+      fn convert<'b>(
         __scope: &mut ::deno_core::v8::HandleScope<'a>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
         __prefix: std::borrow::Cow<'static, str>,
-        __context: C,
+        __context: ::deno_core::webidl::ContextFn<'b>,
         __options: &Self::Options,
       ) -> Result<Self, ::deno_core::webidl::WebIdlError>
-      where
-        C: Fn() -> std::borrow::Cow<'static, str>,
       {
         #body
       }
@@ -132,12 +123,10 @@ fn create_impl(ident: Ident, body: TokenStream) -> TokenStream {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use pretty_assertions::assert_eq;
-  use quote::ToTokens;
+  use proc_macro2::Ident;
   use std::path::PathBuf;
-  use syn::punctuated::Punctuated;
-  use syn::File;
   use syn::Item;
+  use syn::punctuated::Punctuated;
 
   fn derives_webidl<'a>(
     attrs: impl IntoIterator<Item = &'a Attribute>,
@@ -153,68 +142,30 @@ mod tests {
     })
   }
 
+  fn expand_webidl(item: impl ToTokens) -> TokenStream {
+    webidl(item.to_token_stream()).expect("Failed to generate WebIDL")
+  }
+
   #[testing_macros::fixture("webidl/test_cases/*.rs")]
   fn test_proc_macro_sync(input: PathBuf) {
-    test_proc_macro_output(input)
-  }
-
-  fn expand_webidl(item: impl ToTokens) -> String {
-    let tokens =
-      webidl(item.to_token_stream()).expect("Failed to generate WebIDL");
-    println!("======== Raw tokens ========:\n{}", tokens.clone());
-    let tree = syn::parse2(tokens).unwrap();
-    let actual = prettyplease::unparse(&tree);
-    println!("======== Generated ========:\n{}", actual);
-    actual
-  }
-
-  fn test_proc_macro_output(input: PathBuf) {
-    let update_expected = std::env::var("UPDATE_EXPECTED").is_ok();
-
-    let source =
-      std::fs::read_to_string(&input).expect("Failed to read test file");
-
-    const PRELUDE: &str = r"// Copyright 2018-2025 the Deno authors. MIT license.
-
-#![deny(warnings)]
-deno_ops_compile_test_runner::prelude!();";
-
-    if !source.starts_with(PRELUDE) {
-      panic!("Source does not start with expected prelude:]n{PRELUDE}");
-    }
-
-    let file =
-      syn::parse_str::<File>(&source).expect("Failed to parse Rust file");
-    let mut expected_out = vec![];
-    for item in file.items {
-      match item {
-        Item::Struct(struct_item) => {
-          if derives_webidl(&struct_item.attrs) {
-            expected_out.push(expand_webidl(struct_item));
+    crate::infra::run_macro_expansion_test(input, |file| {
+      file.items.into_iter().filter_map(|item| {
+        match item {
+          Item::Struct(struct_item) => {
+            if derives_webidl(&struct_item.attrs) {
+              return Some(expand_webidl(struct_item));
+            }
           }
-        }
-        Item::Enum(enum_item) => {
-          dbg!();
-          if derives_webidl(&enum_item.attrs) {
-            expected_out.push(expand_webidl(enum_item));
+          Item::Enum(enum_item) => {
+            if derives_webidl(&enum_item.attrs) {
+              return Some(expand_webidl(enum_item));
+            }
           }
+          _ => {}
         }
-        _ => {}
-      }
-    }
 
-    let expected_out = expected_out.join("\n");
-
-    if update_expected {
-      std::fs::write(input.with_extension("out"), expected_out)
-        .expect("Failed to write expectation file");
-    } else {
-      let expected = std::fs::read_to_string(input.with_extension("out"))
-        .expect("Failed to read expectation file");
-      assert_eq!(
-        expected, expected_out,
-        "Failed to match expectation. Use UPDATE_EXPECTED=1."
-      );
-    }
+        None
+      })
+    })
   }
 }

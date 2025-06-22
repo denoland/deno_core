@@ -1,19 +1,20 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::cppgc::FunctionTemplateSnapshotData;
-use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
+use crate::cppgc::FunctionTemplateSnapshotData;
+use crate::error::CoreError;
+use crate::modules::ModuleMapSnapshotData;
 
 use super::ExtensionTranspiler;
 
@@ -181,7 +182,7 @@ pub struct CreateSnapshotOutput {
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
   warmup_script: Option<&'static str>,
-) -> Result<CreateSnapshotOutput, Error> {
+) -> Result<CreateSnapshotOutput, CoreError> {
   let mut mark = Instant::now();
   #[allow(clippy::print_stdout)]
   {
@@ -299,10 +300,10 @@ pub fn get_js_files(
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SnapshottedData<'snapshot> {
   pub js_handled_promise_rejection_cb: Option<u32>,
+  pub ext_import_meta_proto: Option<u32>,
   pub module_map_data: ModuleMapSnapshotData,
   pub function_templates_data: FunctionTemplateSnapshotData,
-  pub externals_count: u32,
-  pub extension_count: usize,
+  pub extensions: Vec<&'snapshot str>,
   pub op_count: usize,
   pub source_count: usize,
   pub addl_refs_count: usize,
@@ -376,13 +377,13 @@ pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
 
 /// Returns an isolate set up for snapshotting.
 pub(crate) fn create_snapshot_creator(
-  external_refs: &'static v8::ExternalReferences,
+  external_refs: Cow<'static, [v8::ExternalReference]>,
   maybe_startup_snapshot: Option<V8Snapshot>,
   params: v8::CreateParams,
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
     v8::Isolate::snapshot_creator_from_existing_snapshot(
-      snapshot.0,
+      v8::StartupData::from(snapshot.0),
       Some(external_refs),
       Some(params),
     )

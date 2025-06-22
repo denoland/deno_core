@@ -9,16 +9,10 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
 
-use anyhow::anyhow;
-use anyhow::bail;
 use anyhow::Context;
-use anyhow::Error;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::AnyError;
-use deno_core::resolve_import;
-use deno_core::resolve_path;
 use deno_core::JsRuntime;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
@@ -29,6 +23,10 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
+use deno_core::error::ModuleLoaderError;
+use deno_core::resolve_import;
+use deno_core::resolve_path;
+use deno_error::JsErrorBox;
 
 // TODO(bartlomieju): this is duplicated in `testing/checkin`
 type SourceMapStore = Rc<RefCell<HashMap<String, Vec<u8>>>>;
@@ -45,7 +43,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     Ok(resolve_import(specifier, referrer)?)
   }
 
@@ -60,10 +58,10 @@ impl ModuleLoader for TypescriptModuleLoader {
     fn load(
       source_maps: SourceMapStore,
       module_specifier: &ModuleSpecifier,
-    ) -> Result<ModuleSource, AnyError> {
+    ) -> Result<ModuleSource, ModuleLoaderError> {
       let path = module_specifier
         .to_file_path()
-        .map_err(|_| anyhow!("Only file:// URLs are supported."))?;
+        .map_err(|_| JsErrorBox::generic("Only file:// URLs are supported."))?;
 
       let media_type = MediaType::from_path(&path);
       let (module_type, should_transpile) = match MediaType::from_path(&path) {
@@ -79,7 +77,15 @@ impl ModuleLoader for TypescriptModuleLoader {
         | MediaType::Dcts
         | MediaType::Tsx => (ModuleType::JavaScript, true),
         MediaType::Json => (ModuleType::Json, false),
-        _ => bail!("Unknown extension {:?}", path.extension()),
+        _ => {
+          return Err(
+            JsErrorBox::generic(format!(
+              "Unknown extension {:?}",
+              path.extension()
+            ))
+            .into(),
+          );
+        }
       };
 
       let code = std::fs::read_to_string(&path)?;
@@ -91,26 +97,30 @@ impl ModuleLoader for TypescriptModuleLoader {
           capture_tokens: false,
           scope_analysis: false,
           maybe_syntax: None,
-        })?;
-        let res = parsed.transpile(
-          &deno_ast::TranspileOptions {
-            imports_not_used_as_values:
-              deno_ast::ImportsNotUsedAsValues::Remove,
-            use_decorators_proposal: true,
-            ..Default::default()
-          },
-          &deno_ast::EmitOptions {
-            source_map: SourceMapOption::Separate,
-            inline_sources: true,
-            ..Default::default()
-          },
-        )?;
+        })
+        .map_err(JsErrorBox::from_err)?;
+        let res = parsed
+          .transpile(
+            &deno_ast::TranspileOptions {
+              imports_not_used_as_values:
+                deno_ast::ImportsNotUsedAsValues::Remove,
+              use_decorators_proposal: true,
+              ..Default::default()
+            },
+            &deno_ast::TranspileModuleOptions { module_kind: None },
+            &deno_ast::EmitOptions {
+              source_map: SourceMapOption::Separate,
+              inline_sources: true,
+              ..Default::default()
+            },
+          )
+          .map_err(JsErrorBox::from_err)?;
         let res = res.into_source();
-        let source_map = res.source_map.unwrap();
+        let source_map = res.source_map.unwrap().into_bytes();
         source_maps
           .borrow_mut()
           .insert(module_specifier.to_string(), source_map);
-        String::from_utf8(res.source).unwrap()
+        res.text
       } else {
         code
       };
@@ -134,7 +144,7 @@ impl ModuleLoader for TypescriptModuleLoader {
   }
 }
 
-fn main() -> Result<(), Error> {
+fn main() -> Result<(), anyhow::Error> {
   let args: Vec<String> = std::env::args().collect();
   if args.len() < 2 {
     println!("Usage: target/examples/debug/ts_module_loader <path_to_module>");
@@ -169,4 +179,5 @@ fn main() -> Result<(), Error> {
     .build()
     .unwrap()
     .block_on(future)
+    .map_err(|e| e.into())
 }

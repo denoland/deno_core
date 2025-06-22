@@ -1,18 +1,19 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::module_specifier::ModuleSpecifier;
-use crate::modules::map::ModuleMap;
-use crate::modules::ModuleError;
-use crate::modules::ModuleId;
-use crate::modules::ModuleLoadId;
-use crate::modules::ModuleRequest;
-use crate::modules::RequestedModuleType;
-use crate::modules::ResolutionKind;
-use crate::resolve_url;
 use crate::ModuleLoadResponse;
 use crate::ModuleLoader;
 use crate::ModuleSource;
-use anyhow::Error;
+use crate::error::CoreError;
+use crate::module_specifier::ModuleSpecifier;
+use crate::modules::ModuleError;
+use crate::modules::ModuleId;
+use crate::modules::ModuleLoadId;
+use crate::modules::ModuleLoaderError;
+use crate::modules::ModuleRequest;
+use crate::modules::RequestedModuleType;
+use crate::modules::ResolutionKind;
+use crate::modules::map::ModuleMap;
+use crate::resolve_url;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::Stream;
@@ -26,8 +27,9 @@ use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 
-type ModuleLoadFuture =
-  dyn Future<Output = Result<Option<(ModuleRequest, ModuleSource)>, Error>>;
+type ModuleLoadFuture = dyn Future<
+  Output = Result<Option<(ModuleRequest, ModuleSource)>, ModuleLoaderError>,
+>;
 
 /// Describes the entrypoint of a recursive module load.
 #[derive(Debug)]
@@ -132,7 +134,7 @@ impl RecursiveModuleLoad {
     load
   }
 
-  fn resolve_root(&self) -> Result<ModuleSpecifier, Error> {
+  fn resolve_root(&self) -> Result<ModuleSpecifier, CoreError> {
     match self.init {
       LoadInit::Main(ref specifier) => {
         self
@@ -150,7 +152,7 @@ impl RecursiveModuleLoad {
     }
   }
 
-  pub(crate) async fn prepare(&self) -> Result<(), Error> {
+  pub(crate) async fn prepare(&self) -> Result<(), CoreError> {
     let (module_specifier, maybe_referrer) = match self.init {
       LoadInit::Main(ref specifier) => {
         let spec = self.module_map_rc.resolve(
@@ -181,6 +183,7 @@ impl RecursiveModuleLoad {
       .loader
       .prepare_load(&module_specifier, maybe_referrer, self.is_dynamic_import())
       .await
+      .map_err(|e| e.into())
   }
 
   fn is_currently_loading_main_module(&self) -> bool {
@@ -251,50 +254,53 @@ impl RecursiveModuleLoad {
             .borrow()
             .contains(module_request.specifier.as_str())
         {
-          if let Some(module_id) = self.module_map_rc.get_id(
+          match self.module_map_rc.get_id(
             module_request.specifier.as_str(),
             &module_request.requested_module_type,
           ) {
-            already_registered.push_back((module_id, module_request.clone()));
-          } else {
-            let request = module_request.clone();
-            let visited_as_alias = self.visited_as_alias.clone();
-            let referrer = referrer.clone();
-            let loader = self.loader.clone();
-            let is_dynamic_import = self.is_dynamic_import();
-            let requested_module_type = request.requested_module_type.clone();
-            let fut = async move {
-              // `visited_as_alias` unlike `visited` is checked as late as
-              // possible because it can only be populated after completed
-              // loads, meaning a duplicate load future may have already been
-              // dispatched before we know it's a duplicate.
-              if visited_as_alias
-                .borrow()
-                .contains(request.specifier.as_str())
-              {
-                return Ok(None);
-              }
-              let load_response = loader.load(
-                &request.specifier,
-                Some(&referrer),
-                is_dynamic_import,
-                requested_module_type,
-              );
-
-              let load_result = match load_response {
-                ModuleLoadResponse::Sync(result) => result,
-                ModuleLoadResponse::Async(fut) => fut.await,
-              };
-              if let Ok(source) = &load_result {
-                if let Some(found_specifier) = &source.module_url_found {
-                  visited_as_alias
-                    .borrow_mut()
-                    .insert(found_specifier.as_str().to_string());
+            Some(module_id) => {
+              already_registered.push_back((module_id, module_request.clone()));
+            }
+            _ => {
+              let request = module_request.clone();
+              let visited_as_alias = self.visited_as_alias.clone();
+              let referrer = referrer.clone();
+              let loader = self.loader.clone();
+              let is_dynamic_import = self.is_dynamic_import();
+              let requested_module_type = request.requested_module_type.clone();
+              let fut = async move {
+                // `visited_as_alias` unlike `visited` is checked as late as
+                // possible because it can only be populated after completed
+                // loads, meaning a duplicate load future may have already been
+                // dispatched before we know it's a duplicate.
+                if visited_as_alias
+                  .borrow()
+                  .contains(request.specifier.as_str())
+                {
+                  return Ok(None);
                 }
-              }
-              load_result.map(|s| Some((request, s)))
-            };
-            self.pending.push(fut.boxed_local());
+                let load_response = loader.load(
+                  &request.specifier,
+                  Some(&referrer),
+                  is_dynamic_import,
+                  requested_module_type,
+                );
+
+                let load_result = match load_response {
+                  ModuleLoadResponse::Sync(result) => result,
+                  ModuleLoadResponse::Async(fut) => fut.await,
+                };
+                if let Ok(source) = &load_result {
+                  if let Some(found_specifier) = &source.module_url_found {
+                    visited_as_alias
+                      .borrow_mut()
+                      .insert(found_specifier.as_str().to_string());
+                  }
+                }
+                load_result.map(|s| Some((request, s)))
+              };
+              self.pending.push(fut.boxed_local());
+            }
           }
           self.visited.insert(module_request);
         }
@@ -304,7 +310,7 @@ impl RecursiveModuleLoad {
 }
 
 impl Stream for RecursiveModuleLoad {
-  type Item = Result<(ModuleRequest, ModuleSource), Error>;
+  type Item = Result<(ModuleRequest, ModuleSource), CoreError>;
 
   fn poll_next(
     self: Pin<&mut Self>,

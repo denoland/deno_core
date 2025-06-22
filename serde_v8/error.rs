@@ -4,7 +4,8 @@ use std::fmt::Display;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(type)]
 #[non_exhaustive]
 pub enum Error {
   #[error("{0}")]

@@ -1,34 +1,86 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use deno_error::JsError;
+use indexmap::IndexMap;
 use std::borrow::Cow;
-use std::collections::HashMap;
 use v8::HandleScope;
 use v8::Local;
 use v8::Value;
 
-#[derive(Debug)]
+#[derive(Debug, JsError)]
+#[class(type)]
 pub struct WebIdlError {
   pub prefix: Cow<'static, str>,
   pub context: Cow<'static, str>,
   pub kind: WebIdlErrorKind,
 }
 
+type DynContextFn<'a> = dyn Fn() -> Cow<'static, str> + 'a;
+
+enum ContextFnInner<'a> {
+  Borrowed(&'a DynContextFn<'a>),
+  Owned(Box<DynContextFn<'a>>),
+}
+
+/// A function that returns a context string for an error.
+///
+/// When possible, prefer to use `ContextFn::new_borrowed` when creating a new context function
+/// to avoid unnecessary allocations.
+///
+/// To pass a borrow of the context function, use `ContextFn::borrowed`.
+pub struct ContextFn<'a>(ContextFnInner<'a>);
+
+impl<'a, T> From<T> for ContextFn<'a>
+where
+  T: Fn() -> Cow<'static, str> + 'a,
+{
+  fn from(f: T) -> Self {
+    Self(ContextFnInner::Owned(Box::new(f)))
+  }
+}
+
+impl<'a> ContextFn<'a> {
+  pub fn call(&self) -> Cow<'static, str> {
+    match &self.0 {
+      ContextFnInner::Borrowed(b) => b(),
+      ContextFnInner::Owned(b) => b(),
+    }
+  }
+
+  pub fn new(f: impl Fn() -> Cow<'static, str> + 'a) -> Self {
+    Self(ContextFnInner::Owned(Box::new(f)))
+  }
+
+  pub fn new_borrowed(b: &'a DynContextFn<'a>) -> Self {
+    Self(ContextFnInner::Borrowed(b))
+  }
+}
+
+impl<'a> ContextFn<'a> {
+  pub fn borrowed(&'a self) -> ContextFn<'a> {
+    match self {
+      Self(ContextFnInner::Borrowed(b)) => Self(ContextFnInner::Borrowed(*b)),
+      Self(ContextFnInner::Owned(b)) => Self(ContextFnInner::Borrowed(&**b)),
+    }
+  }
+}
+
 impl WebIdlError {
   pub fn new(
     prefix: Cow<'static, str>,
-    context: &impl Fn() -> Cow<'static, str>,
+    context: ContextFn<'_>,
     kind: WebIdlErrorKind,
   ) -> Self {
     Self {
       prefix,
-      context: context(),
+      context: context.call(),
       kind,
     }
   }
 
   pub fn other<T: std::error::Error + Send + Sync + 'static>(
     prefix: Cow<'static, str>,
-    context: &impl Fn() -> Cow<'static, str>,
+    context: ContextFn<'_>,
     other: T,
   ) -> Self {
     Self::new(prefix, context, WebIdlErrorKind::Other(Box::new(other)))
@@ -50,10 +102,24 @@ impl std::fmt::Display for WebIdlError {
         )
       }
       WebIdlErrorKind::NotFinite => write!(f, "is not a finite number"),
-      WebIdlErrorKind::IntRange { lower_bound, upper_bound } => write!(f, "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"),
-      WebIdlErrorKind::InvalidByteString => write!(f, "is not a valid ByteString"),
-      WebIdlErrorKind::Precision => write!(f, "is outside the range of a single-precision floating-point value"),
-      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(f, "can not be converted to '{converter}' because '{variant}' is not a valid enum value"),
+      WebIdlErrorKind::IntRange {
+        lower_bound,
+        upper_bound,
+      } => write!(
+        f,
+        "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"
+      ),
+      WebIdlErrorKind::InvalidByteString => {
+        write!(f, "is not a valid ByteString")
+      }
+      WebIdlErrorKind::Precision => write!(
+        f,
+        "is outside the range of a single-precision floating-point value"
+      ),
+      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(
+        f,
+        "can not be converted to '{converter}' because '{variant}' is not a valid enum value"
+      ),
       WebIdlErrorKind::Other(other) => std::fmt::Display::fmt(other, f),
     }
   }
@@ -82,56 +148,117 @@ pub enum WebIdlErrorKind {
   Other(Box<dyn std::error::Error + Send + Sync + 'static>),
 }
 
+#[derive(Debug, Eq, PartialEq)]
+pub enum Type {
+  Null,
+  Undefined,
+  Boolean,
+  Number,
+  String,
+  Symbol,
+  BigInt,
+  Object,
+}
+
+pub fn type_of<'a>(
+  scope: &mut HandleScope<'a>,
+  value: Local<'a, Value>,
+) -> Type {
+  if value.is_null() {
+    return Type::Null;
+  }
+
+  #[allow(clippy::wildcard_in_or_patterns)]
+  match value.type_of(scope).to_rust_string_lossy(scope).as_str() {
+    "undefined" => Type::Undefined,
+    "boolean" => Type::Boolean,
+    "number" => Type::Number,
+    "string" => Type::String,
+    "symbol" => Type::Symbol,
+    "bigint" => Type::BigInt,
+    "object" | "function" | _ => Type::Object,
+  }
+}
+
 pub trait WebIdlConverter<'a>: Sized {
   type Options: Default;
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>;
+  ) -> Result<Self, WebIdlError>;
+  // where
+  // C: Fn() -> Cow<'static, str>;
+}
+
+// Option's None is treated as undefined. this behaviour differs from a nullable
+// converter, as it doesn't treat null as None.
+impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
+  type Options = T::Options;
+
+  fn convert<'b>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: ContextFn<'b>,
+    options: &Self::Options,
+  ) -> Result<Self, WebIdlError> {
+    if value.is_undefined() {
+      Ok(None)
+    } else {
+      Ok(Some(WebIdlConverter::convert(
+        scope, value, prefix, context, options,
+      )?))
+    }
+  }
 }
 
 // any converter
 impl<'a> WebIdlConverter<'a> for Local<'a, Value> {
   type Options = ();
 
-  fn convert<C>(
+  fn convert<'b>(
     _scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
-    _context: C,
+    _context: ContextFn<'b>,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     Ok(value)
   }
 }
 
-// nullable converter
-impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
+#[derive(Debug, Eq, PartialEq)]
+pub enum Nullable<T> {
+  Value(T),
+  Null,
+}
+impl<T> Nullable<T> {
+  pub fn into_option(self) -> Option<T> {
+    match self {
+      Nullable::Value(v) => Some(v),
+      Nullable::Null => None,
+    }
+  }
+}
+
+impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Nullable<T> {
   type Options = T::Options;
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     if value.is_null_or_undefined() {
-      Ok(None)
+      Ok(Self::Null)
     } else {
-      Ok(Some(WebIdlConverter::convert(
+      Ok(Self::Value(WebIdlConverter::convert(
         scope, value, prefix, context, options,
       )?))
     }
@@ -154,20 +281,17 @@ thread_local! {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
   type Options = T::Options;
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let Some(obj) = value.to_object(scope) else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("sequence"),
       ));
     };
@@ -181,7 +305,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
     else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("sequence"),
       ));
     };
@@ -193,9 +317,9 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
         if let Some(key) = eternal.get(scope) {
           Ok(key)
         } else {
-          let key = NEXT
-            .v8_string(scope)
-            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
+          let key = NEXT.v8_string(scope).map_err(|e| {
+            WebIdlError::other(prefix.clone(), context.borrowed(), e)
+          })?;
           eternal.set(scope, key);
           Ok(key)
         }
@@ -207,9 +331,9 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
         if let Some(key) = eternal.get(scope) {
           Ok(key)
         } else {
-          let key = DONE
-            .v8_string(scope)
-            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
+          let key = DONE.v8_string(scope).map_err(|e| {
+            WebIdlError::other(prefix.clone(), context.borrowed(), e)
+          })?;
           eternal.set(scope, key);
           Ok(key)
         }
@@ -221,9 +345,9 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
         if let Some(key) = eternal.get(scope) {
           Ok(key)
         } else {
-          let key = VALUE
-            .v8_string(scope)
-            .map_err(|e| WebIdlError::other(prefix.clone(), &context, e))?;
+          let key = VALUE.v8_string(scope).map_err(|e| {
+            WebIdlError::other(prefix.clone(), context.borrowed(), e)
+          })?;
           eternal.set(scope, key);
           Ok(key)
         }
@@ -239,7 +363,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
       else {
         return Err(WebIdlError::new(
           prefix,
-          &context,
+          context.borrowed(),
           WebIdlErrorKind::ConvertToConverterType("sequence"),
         ));
       };
@@ -251,7 +375,7 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
       let Some(iter_val) = res.get(scope, value_key) else {
         return Err(WebIdlError::new(
           prefix,
-          &context,
+          context.borrowed(),
           WebIdlErrorKind::ConvertToConverterType("sequence"),
         ));
       };
@@ -260,7 +384,9 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
         scope,
         iter_val,
         prefix.clone(),
-        || format!("{}, index {}", context(), out.len()).into(),
+        ContextFn::new_borrowed(&|| {
+          format!("{}, index {}", context.call(), out.len()).into()
+        }),
         options,
       )?);
     }
@@ -271,28 +397,22 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
 
 // record converter
 // the Options only apply to the value, not the key
-impl<
-    'a,
-    K: WebIdlConverter<'a> + Eq + std::hash::Hash,
-    V: WebIdlConverter<'a>,
-  > WebIdlConverter<'a> for HashMap<K, V>
+impl<'a, K: WebIdlConverter<'a> + Eq + std::hash::Hash, V: WebIdlConverter<'a>>
+  WebIdlConverter<'a> for IndexMap<K, V>
 {
   type Options = V::Options;
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let Ok(obj) = value.try_cast::<v8::Object>() else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("record"),
       ));
     };
@@ -319,7 +439,7 @@ impl<
       return Ok(Default::default());
     };
 
-    let mut out = HashMap::with_capacity(keys.length() as _);
+    let mut out = IndexMap::with_capacity(keys.length() as _);
 
     for i in 0..keys.length() {
       let key = keys.get_index(scope, i).unwrap();
@@ -329,14 +449,14 @@ impl<
         scope,
         key,
         prefix.clone(),
-        &context,
+        context.borrowed(),
         &Default::default(),
       )?;
       let value = WebIdlConverter::convert(
         scope,
         value,
         prefix.clone(),
-        &context,
+        context.borrowed(),
         options,
       )?;
 
@@ -355,31 +475,29 @@ pub struct IntOptions {
 
 // https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
 macro_rules! impl_ints {
-  ($($t:ty: $unsigned:tt = $name:literal: $min:expr => $max:expr),*) => {
+  ($($t:ty: $unsigned:tt = $name:literal: $min:expr_2021 => $max:expr_2021),*) => {
     $(
       impl<'a> WebIdlConverter<'a> for $t {
         type Options = IntOptions;
 
         #[allow(clippy::manual_range_contains)]
-        fn convert<C>(
+        fn convert<'b>(
           scope: &mut HandleScope<'a>,
           value: Local<'a, Value>,
           prefix: Cow<'static, str>,
-          context: C,
+          context: ContextFn<'b>,
           options: &Self::Options,
         ) -> Result<Self, WebIdlError>
-        where
-          C: Fn() -> Cow<'static, str>,
         {
           const MIN: f64 = $min as f64;
           const MAX: f64 = $max as f64;
 
           if value.is_big_int() {
-            return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::ConvertToConverterType($name)));
+            return Err(WebIdlError::new(prefix, context.borrowed(), WebIdlErrorKind::ConvertToConverterType($name)));
           }
 
           let Some(mut n) = value.number_value(scope) else {
-            return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::ConvertToConverterType($name)));
+            return Err(WebIdlError::new(prefix, context.borrowed(), WebIdlErrorKind::ConvertToConverterType($name)));
           };
           if n == -0.0 {
             n = 0.0;
@@ -387,7 +505,7 @@ macro_rules! impl_ints {
 
           if options.enforce_range {
             if !n.is_finite() {
-              return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::NotFinite));
+              return Err(WebIdlError::new(prefix, context.borrowed(), WebIdlErrorKind::NotFinite));
             }
 
             n = n.trunc();
@@ -396,7 +514,7 @@ macro_rules! impl_ints {
             }
 
             if n < MIN || n > MAX {
-              return Err(WebIdlError::new(prefix, &context, WebIdlErrorKind::IntRange {
+              return Err(WebIdlError::new(prefix, context.borrowed(), WebIdlErrorKind::IntRange {
                 lower_bound: MIN,
                 upper_bound: MAX,
               }));
@@ -469,20 +587,17 @@ impl_ints!(
 impl<'a> WebIdlConverter<'a> for f32 {
   type Options = ();
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let Some(n) = value.number_value(scope) else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("float"),
       ));
     };
@@ -490,7 +605,7 @@ impl<'a> WebIdlConverter<'a> for f32 {
     if !n.is_finite() {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::NotFinite,
       ));
     }
@@ -500,7 +615,7 @@ impl<'a> WebIdlConverter<'a> for f32 {
     if !n.is_finite() {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::Precision,
       ));
     }
@@ -521,20 +636,17 @@ impl std::ops::Deref for UnrestrictedFloat {
 impl<'a> WebIdlConverter<'a> for UnrestrictedFloat {
   type Options = ();
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let Some(n) = value.number_value(scope) else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("float"),
       ));
     };
@@ -547,20 +659,17 @@ impl<'a> WebIdlConverter<'a> for UnrestrictedFloat {
 impl<'a> WebIdlConverter<'a> for f64 {
   type Options = ();
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let Some(n) = value.number_value(scope) else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("float"),
       ));
     };
@@ -568,7 +677,7 @@ impl<'a> WebIdlConverter<'a> for f64 {
     if !n.is_finite() {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::NotFinite,
       ));
     }
@@ -589,20 +698,17 @@ impl std::ops::Deref for UnrestrictedDouble {
 impl<'a> WebIdlConverter<'a> for UnrestrictedDouble {
   type Options = ();
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let Some(n) = value.number_value(scope) else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("float"),
       ));
     };
@@ -620,20 +726,17 @@ pub struct BigInt {
 impl<'a> WebIdlConverter<'a> for BigInt {
   type Options = ();
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let Some(bigint) = value.to_big_int(scope) else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("bigint"),
       ));
     };
@@ -647,16 +750,13 @@ impl<'a> WebIdlConverter<'a> for BigInt {
 impl<'a> WebIdlConverter<'a> for bool {
   type Options = ();
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
-    _context: C,
+    _context: ContextFn<'b>,
     _options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     Ok(value.to_boolean(scope).is_true())
   }
 }
@@ -670,16 +770,13 @@ pub struct StringOptions {
 impl<'a> WebIdlConverter<'a> for String {
   type Options = StringOptions;
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let str = if value.is_string() {
       value.try_cast::<v8::String>().unwrap()
     } else if value.is_null() && options.treat_null_as_empty_string {
@@ -687,7 +784,7 @@ impl<'a> WebIdlConverter<'a> for String {
     } else if value.is_symbol() {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("string"),
       ));
     } else if let Some(str) = value.to_string(scope) {
@@ -695,7 +792,7 @@ impl<'a> WebIdlConverter<'a> for String {
     } else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("string"),
       ));
     };
@@ -715,16 +812,13 @@ impl std::ops::Deref for ByteString {
 impl<'a> WebIdlConverter<'a> for ByteString {
   type Options = StringOptions;
 
-  fn convert<C>(
+  fn convert<'b>(
     scope: &mut HandleScope<'a>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
-    context: C,
+    context: ContextFn<'b>,
     options: &Self::Options,
-  ) -> Result<Self, WebIdlError>
-  where
-    C: Fn() -> Cow<'static, str>,
-  {
+  ) -> Result<Self, WebIdlError> {
     let str = if value.is_string() {
       value.try_cast::<v8::String>().unwrap()
     } else if value.is_null() && options.treat_null_as_empty_string {
@@ -732,7 +826,7 @@ impl<'a> WebIdlConverter<'a> for ByteString {
     } else if value.is_symbol() {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("string"),
       ));
     } else if let Some(str) = value.to_string(scope) {
@@ -740,7 +834,7 @@ impl<'a> WebIdlConverter<'a> for ByteString {
     } else {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::ConvertToConverterType("string"),
       ));
     };
@@ -748,12 +842,41 @@ impl<'a> WebIdlConverter<'a> for ByteString {
     if !str.contains_only_onebyte() {
       return Err(WebIdlError::new(
         prefix,
-        &context,
+        context.borrowed(),
         WebIdlErrorKind::InvalidByteString,
       ));
     }
 
     Ok(Self(str.to_rust_string_lossy(scope)))
+  }
+}
+
+pub trait WebIdlInterfaceConverter:
+  v8::cppgc::GarbageCollected + 'static
+{
+  const NAME: &'static str;
+}
+
+impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
+  for crate::cppgc::Ptr<T>
+{
+  type Options = ();
+
+  fn convert<'b>(
+    scope: &mut HandleScope<'a>,
+    value: Local<'a, Value>,
+    prefix: Cow<'static, str>,
+    context: ContextFn<'b>,
+    _options: &Self::Options,
+  ) -> Result<Self, WebIdlError> {
+    match crate::cppgc::try_unwrap_cppgc_object::<T>(scope, value) {
+      Some(ptr) => Ok(ptr),
+      _ => Err(WebIdlError::new(
+        prefix,
+        context,
+        WebIdlErrorKind::ConvertToConverterType(T::NAME),
+      )),
+    }
   }
 }
 
@@ -775,35 +898,35 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     macro_rules! test_integer {
-      ($t:ty: $($val:expr => $expected:literal$(, $opts:expr)?);+;) => {
+      ($t:ty: $($val:expr_2021 => $expected:literal$(, $opts:expr_2021)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
           let converted = <$t>::convert(
             scope,
             val.into(),
             "prefix".into(),
-            || "context".into(),
+            ContextFn::from(|| "context".into()),
             &test_integer!(@opts $($opts)?),
           );
           assert_eq!(converted.unwrap(), $expected);
         )+
       };
 
-      ($t:ty: $($val:expr => ERR$(, $opts:expr)?);+;) => {
+      ($t:ty: $($val:expr_2021 => ERR$(, $opts:expr_2021)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
           let converted = <$t>::convert(
             scope,
             val.into(),
             "prefix".into(),
-            || "context".into(),
+            ContextFn::from(|| "context".into()),
             &test_integer!(@opts $($opts)?),
           );
           assert!(converted.is_err());
         )+
       };
 
-      (@opts $opts:expr) => { $opts };
+      (@opts $opts:expr_2021) => { $opts };
       (@opts) => { Default::default() };
     }
 
@@ -842,7 +965,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), 3);
@@ -852,7 +975,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), 0);
@@ -862,7 +985,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -872,7 +995,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -882,7 +1005,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), 0);
@@ -898,7 +1021,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), 3.0);
@@ -908,7 +1031,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -918,7 +1041,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -934,7 +1057,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), 3.0);
@@ -944,7 +1067,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), f32::INFINITY);
@@ -954,7 +1077,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
 
@@ -965,7 +1088,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.unwrap().is_infinite());
@@ -981,7 +1104,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), 3.0);
@@ -991,7 +1114,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -1001,7 +1124,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), f64::MAX);
@@ -1017,7 +1140,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), 3.0);
@@ -1027,7 +1150,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), f64::INFINITY);
@@ -1037,7 +1160,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
 
@@ -1048,7 +1171,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), f64::MAX);
@@ -1064,7 +1187,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), "foo");
@@ -1074,7 +1197,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), "1");
@@ -1084,7 +1207,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -1094,7 +1217,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), "null");
@@ -1104,7 +1227,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &StringOptions {
         treat_null_as_empty_string: true,
       },
@@ -1116,7 +1239,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &StringOptions {
         treat_null_as_empty_string: true,
       },
@@ -1128,7 +1251,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), "生");
@@ -1144,7 +1267,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), "foo");
@@ -1154,7 +1277,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), "1");
@@ -1164,7 +1287,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -1174,7 +1297,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(*converted.unwrap(), "null");
@@ -1184,7 +1307,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &StringOptions {
         treat_null_as_empty_string: true,
       },
@@ -1196,7 +1319,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &StringOptions {
         treat_null_as_empty_string: true,
       },
@@ -1208,7 +1331,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());
@@ -1224,7 +1347,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.unwrap().is_object());
@@ -1242,7 +1365,7 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert_eq!(converted.unwrap(), vec![1, 2]);
@@ -1254,24 +1377,24 @@ mod tests {
     let scope = &mut runtime.handle_scope();
 
     let val = v8::undefined(scope);
-    let converted = Option::<u8>::convert(
+    let converted = Nullable::<u8>::convert(
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
-    assert_eq!(converted.unwrap(), None);
+    assert_eq!(converted.unwrap(), Nullable::Null);
 
     let val = v8::Number::new(scope, 1.0);
-    let converted = Option::<u8>::convert(
+    let converted = Nullable::<u8>::convert(
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
-    assert_eq!(converted.unwrap(), Some(1));
+    assert_eq!(converted.unwrap(), Nullable::Value(1));
   }
 
   #[test]
@@ -1279,22 +1402,24 @@ mod tests {
     let mut runtime = JsRuntime::new(Default::default());
     let scope = &mut runtime.handle_scope();
 
+    let obj = v8::Object::new(scope);
     let key = v8::String::new(scope, "foo").unwrap();
     let val = v8::Number::new(scope, 1.0);
-    let obj = v8::Object::new(scope);
+    obj.set(scope, key.into(), val.into());
+    let key = v8::String::new(scope, "bar").unwrap();
+    let val = v8::Number::new(scope, 2.0);
     obj.set(scope, key.into(), val.into());
 
-    let converted = HashMap::<String, u8>::convert(
+    let converted = IndexMap::<String, u8>::convert(
       scope,
       obj.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
-    );
-    assert_eq!(
-      converted.unwrap(),
-      HashMap::from([(String::from("foo"), 1)])
-    );
+    )
+    .unwrap();
+    assert_eq!(converted.get_index(0).unwrap(), (&String::from("foo"), &1));
+    assert_eq!(converted.get_index(1).unwrap(), (&String::from("bar"), &2));
   }
 
   #[test]
@@ -1309,8 +1434,7 @@ mod tests {
       c: Option<u32>,
       #[webidl(rename = "e")]
       d: u16,
-      f: HashMap<String, u32>,
-      #[webidl(required)]
+      f: IndexMap<String, u32>,
       g: Option<u32>,
     }
 
@@ -1329,7 +1453,7 @@ mod tests {
       scope,
       val,
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
 
@@ -1340,7 +1464,7 @@ mod tests {
         b: vec![65535],
         c: Some(3),
         d: 4464,
-        f: HashMap::from([(String::from("foo"), 1)]),
+        f: IndexMap::from([(String::from("foo"), 1)]),
         g: None,
       }
     );
@@ -1365,37 +1489,43 @@ mod tests {
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
-    );
-    assert_eq!(converted.unwrap(), Enumeration::FooBar);
+    )
+    .unwrap();
+    assert_eq!(converted, Enumeration::FooBar);
+    assert_eq!(converted.as_str(), "foo-bar");
 
     let val = v8::String::new(scope, "baz").unwrap();
     let converted = Enumeration::convert(
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
-    );
-    assert_eq!(converted.unwrap(), Enumeration::Baz);
+    )
+    .unwrap();
+    assert_eq!(converted, Enumeration::Baz);
+    assert_eq!(converted.as_str(), "baz");
 
     let val = v8::String::new(scope, "hello").unwrap();
     let converted = Enumeration::convert(
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
-    );
-    assert_eq!(converted.unwrap(), Enumeration::World);
+    )
+    .unwrap();
+    assert_eq!(converted, Enumeration::World);
+    assert_eq!(converted.as_str(), "hello");
 
     let val = v8::String::new(scope, "unknown").unwrap();
     let converted = Enumeration::convert(
       scope,
       val.into(),
       "prefix".into(),
-      || "context".into(),
+      (|| "context".into()).into(),
       &Default::default(),
     );
     assert!(converted.is_err());

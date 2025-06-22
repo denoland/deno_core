@@ -80,7 +80,7 @@ fn sercheck<T: Serialize>(val: T, code: &str, pollute: bool) -> bool {
 }
 
 macro_rules! sertest {
-  ($fn_name:ident, $rust:expr, $src:expr) => {
+  ($fn_name:ident, $rust:expr_2021, $src:expr_2021) => {
     #[test]
     fn $fn_name() {
       assert!(
@@ -94,7 +94,7 @@ macro_rules! sertest {
 }
 
 macro_rules! sertest_polluted {
-  ($fn_name:ident, $rust:expr, $src:expr) => {
+  ($fn_name:ident, $rust:expr_2021, $src:expr_2021) => {
     #[test]
     fn $fn_name() {
       assert!(

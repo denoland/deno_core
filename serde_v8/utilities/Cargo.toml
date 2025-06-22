@@ -3,7 +3,7 @@
 [package]
 name = "serde_v8_utilities"
 version = "0.3.0"
-edition = "2021"
+edition = "2024"
 publish = false
 
 [lib]

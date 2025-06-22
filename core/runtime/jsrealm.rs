@@ -4,23 +4,24 @@ use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::_ops::OpMethodDecl;
+use crate::ModuleSourceCode;
+use crate::SourceCodeCacheInfo;
 use crate::cppgc::FunctionTemplateData;
+use crate::error::CoreError;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
-use crate::modules::script_origin;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleMap;
 use crate::modules::ModuleName;
+use crate::modules::script_origin;
 use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
-use crate::GetErrorClassFn;
-use anyhow::Error;
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -55,16 +56,16 @@ impl Hasher for IdentityHasher {
 /// We may wish to experiment with alternative drivers in the future.
 pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
+pub(crate) type UnrefedOps =
+  Rc<RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>>;
+
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
-  pub(crate) js_event_loop_tick_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
-  pub(crate) js_wasm_streaming_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
-  pub(crate) wasm_instance_fn: RefCell<Option<Rc<v8::Global<v8::Function>>>>,
-  pub(crate) unrefed_ops:
-    RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>,
+  pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_wasm_streaming_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) wasm_instance_fn: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) unrefed_ops: UnrefedOps,
   pub(crate) activity_traces: RuntimeActivityTraces,
   pub(crate) pending_ops: Rc<OpDriverImpl>,
   // We don't explicitly re-read this prop but need the slice to live alongside
@@ -75,23 +76,22 @@ pub struct ContextState {
   pub(crate) isolate: Option<*mut v8::Isolate>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
-  pub(crate) get_error_class_fn: GetErrorClassFn,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
+  pub(crate) ext_import_meta_proto: RefCell<Option<v8::Global<v8::Object>>>,
 }
 
 impl ContextState {
   pub(crate) fn new(
     op_driver: Rc<OpDriverImpl>,
     isolate_ptr: *mut v8::Isolate,
-    get_error_class_fn: GetErrorClassFn,
     op_ctxs: Box<[OpCtx]>,
     op_method_decls: Vec<OpMethodDecl>,
     methods_ctx_offset: usize,
     external_ops_tracker: ExternalOpsTracker,
+    unrefed_ops: UnrefedOps,
   ) -> Self {
     Self {
       isolate: Some(isolate_ptr),
-      get_error_class_fn,
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
@@ -104,8 +104,9 @@ impl ContextState {
       pending_ops: op_driver,
       task_spawner_factory: Default::default(),
       timers: Default::default(),
-      unrefed_ops: Default::default(),
+      unrefed_ops,
       external_ops_tracker,
+      ext_import_meta_proto: Default::default(),
     }
   }
 }
@@ -145,7 +146,7 @@ pub(crate) struct JsRealm(pub(crate) JsRealmInner);
 #[derive(Clone)]
 pub(crate) struct JsRealmInner {
   pub(crate) context_state: Rc<ContextState>,
-  context: Rc<v8::Global<v8::Context>>,
+  context: v8::Global<v8::Context>,
   pub(crate) module_map: Rc<ModuleMap>,
   pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
 }
@@ -159,7 +160,7 @@ impl JsRealmInner {
   ) -> Self {
     Self {
       context_state,
-      context: context.into(),
+      context: context.clone(),
       module_map,
       function_templates,
     }
@@ -191,7 +192,7 @@ impl JsRealmInner {
     &self,
     isolate: &'s mut v8::Isolate,
   ) -> v8::HandleScope<'s> {
-    v8::HandleScope::with_context(isolate, &*self.context)
+    v8::HandleScope::with_context(isolate, &self.context)
   }
 
   pub fn destroy(self) {
@@ -241,8 +242,10 @@ impl JsRealmInner {
 }
 
 unsafe fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
-  Rc::increment_strong_count(raw);
-  Rc::from_raw(raw)
+  unsafe {
+    Rc::increment_strong_count(raw);
+    Rc::from_raw(raw)
+  }
 }
 
 impl JsRealm {
@@ -326,7 +329,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.into_module_code().v8_string(scope).unwrap();
@@ -356,6 +359,93 @@ impl JsRealm {
     }
   }
 
+  // TODO(nathanwhit): reduce duplication between this and `execute_script`, and
+  // try to factor out the code cache logic to share with `op_eval_context`
+  pub fn execute_script_with_cache(
+    &self,
+    isolate: &mut v8::Isolate,
+    name: ModuleSpecifier,
+    source_code: impl IntoModuleCodeString,
+    get_cache: &dyn Fn(
+      &ModuleSpecifier,
+      &ModuleSourceCode,
+    ) -> SourceCodeCacheInfo,
+    cache_ready: &dyn Fn(ModuleSpecifier, u64, &[u8]),
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
+    let scope = &mut self.0.handle_scope(isolate);
+
+    let specifier = name.clone();
+    let code = source_code.into_module_code();
+    let source = ModuleSourceCode::String(code);
+    let code_cache = get_cache(&name, &source);
+    let ModuleSourceCode::String(source) = source else {
+      unreachable!()
+    };
+    let name = name.into_module_name().v8_string(scope).unwrap();
+    let source = source.v8_string(scope).unwrap();
+    let origin = script_origin(scope, name, false, None);
+    let tc_scope = &mut v8::TryCatch::new(scope);
+
+    let (maybe_script, maybe_code_cache_hash) =
+      if let Some(data) = &code_cache.data {
+        let mut source = v8::script_compiler::Source::new_with_cached_data(
+          source,
+          Some(&origin),
+          v8::CachedData::new(data),
+        );
+        let script = v8::script_compiler::compile(
+          tc_scope,
+          &mut source,
+          v8::script_compiler::CompileOptions::ConsumeCodeCache,
+          v8::script_compiler::NoCacheReason::NoReason,
+        );
+        // Check if the provided code cache is rejected by V8.
+        let rejected = match source.get_cached_data() {
+          Some(cached_data) => cached_data.rejected(),
+          _ => true,
+        };
+        let maybe_code_cache_hash = if rejected {
+          Some(code_cache.hash) // recreate the cache
+        } else {
+          None
+        };
+        (Some(script), maybe_code_cache_hash)
+      } else {
+        (None, Some(code_cache.hash))
+      };
+
+    let script = maybe_script
+      .unwrap_or_else(|| v8::Script::compile(tc_scope, source, Some(&origin)));
+
+    let script = match script {
+      Some(script) => script,
+      None => {
+        let exception = tc_scope.exception().unwrap();
+        return exception_to_err_result(tc_scope, exception, false, false);
+      }
+    };
+
+    if let Some(code_cache_hash) = maybe_code_cache_hash {
+      let unbound_script = script.get_unbound_script(tc_scope);
+      let code_cache = unbound_script
+        .create_code_cache()
+        .ok_or_else(|| CoreError::CreateCodeCache(specifier.to_string()))?;
+      cache_ready(specifier, code_cache_hash, &code_cache);
+    }
+
+    match script.run(tc_scope) {
+      Some(value) => {
+        let value_handle = v8::Global::new(tc_scope, value);
+        Ok(value_handle)
+      }
+      None => {
+        assert!(tc_scope.has_caught());
+        let exception = tc_scope.exception().unwrap();
+        exception_to_err_result(tc_scope, exception, false, false)
+      }
+    }
+  }
+
   /// Returns the namespace object of a module.
   ///
   /// This is only available after module evaluation has completed.
@@ -364,7 +454,7 @@ impl JsRealm {
     &self,
     isolate: &mut v8::Isolate,
     module_id: ModuleId,
-  ) -> Result<v8::Global<v8::Object>, Error> {
+  ) -> Result<v8::Global<v8::Object>, CoreError> {
     self
       .0
       .module_map()
@@ -400,14 +490,14 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let scope = &mut self.handle_scope(isolate);
       // true for main module
       module_map_rc
         .new_es_module(scope, true, specifier.to_owned(), code, false, None)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load =
@@ -418,7 +508,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       load
         .register_and_recurse(scope, &request, info)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -445,7 +535,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     specifier: &ModuleSpecifier,
     code: Option<ModuleCodeString>,
-  ) -> Result<ModuleId, Error> {
+  ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let specifier = specifier.to_owned();
@@ -453,7 +543,7 @@ impl JsRealm {
       // false for side module (not main module)
       module_map_rc
         .new_es_module(scope, false, specifier, code, false, None)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load =
@@ -464,7 +554,7 @@ impl JsRealm {
       let scope = &mut self.handle_scope(isolate);
       load
         .register_and_recurse(scope, &request, info)
-        .map_err(|e| e.into_any_error(scope, false, false))?;
+        .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
@@ -488,7 +578,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     module_specifier: ModuleName,
     code: ModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, Error> {
+  ) -> Result<v8::Global<v8::Value>, CoreError> {
     let module_map_rc = self.0.module_map();
     let scope = &mut self.handle_scope(isolate);
     module_map_rc.lazy_load_es_module_with_code(

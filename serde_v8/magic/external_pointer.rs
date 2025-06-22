@@ -2,9 +2,9 @@
 
 use std::ffi::c_void;
 
-use super::transl8::impl_magic;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
+use super::transl8::impl_magic;
 
 #[repr(transparent)]
 pub struct ExternalPointer(*mut c_void);

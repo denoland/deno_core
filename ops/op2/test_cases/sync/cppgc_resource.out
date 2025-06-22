@@ -22,11 +22,11 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -38,11 +38,11 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -100,26 +100,21 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) else {
+                >(&mut scope, arg0) else {
                     {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -145,14 +140,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
@@ -197,7 +185,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_resource: &Wrap) {}
     }
     <op_cppgc_object as ::deno_core::_ops::Op>::DECL
@@ -227,11 +215,11 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -243,11 +231,11 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -305,13 +293,13 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let arg0 = if arg0.is_null_or_undefined() {
                     None
                 } else if let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) {
+                >(&mut scope, arg0) {
                     Some(arg0)
                 } else {
                     {
@@ -320,15 +308,10 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -358,14 +341,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 >(&mut scope, arg0) {
                     Some(arg0)
                 } else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = arg0.as_deref();
@@ -410,7 +386,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_option_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_resource: Option<&Wrap>) {}
     }
     <op_option_cppgc_object as ::deno_core::_ops::Op>::DECL
@@ -502,7 +478,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_make_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call() -> Wrap {
             Wrap
         }
@@ -534,11 +510,11 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -550,11 +526,11 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -612,26 +588,21 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) else {
+                >(&mut scope, arg0) else {
                     {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -657,14 +628,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
@@ -709,7 +673,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_use_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_wrap: &Wrap) {}
     }
     <op_use_cppgc_object as ::deno_core::_ops::Op>::DECL
@@ -804,7 +768,7 @@ const fn op_make_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_make_cppgc_object_option {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call() -> Option<Wrap> {
             Some(Wrap)
         }
@@ -836,11 +800,11 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -852,11 +816,11 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
+                        CType::Void.as_info(),
                         &[
-                            CType::V8Value.scalar(),
-                            CType::V8Value.scalar(),
-                            CType::CallbackOptions.scalar(),
+                            CType::V8Value.as_info(),
+                            CType::V8Value.as_info(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -914,26 +878,21 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
             let result = {
-                let isolate = unsafe { &mut *fast_api_callback_options.isolate };
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
-                >(isolate, arg0) else {
+                >(&mut scope, arg0) else {
                     {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(
                                 &*fast_api_callback_options,
                             )
                         };
-                        let msg = deno_core::v8::String::new_from_one_byte(
-                                &mut scope,
-                                "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }"
-                                    .as_bytes(),
-                                deno_core::v8::NewStringType::Normal,
-                            )
-                            .unwrap();
-                        let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                        scope.throw_exception(exc);
+                        deno_core::_ops::throw_error_one_byte(
+                            &mut scope,
+                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                        );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
@@ -959,14 +918,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 let arg0 = &*arg0;
@@ -1011,7 +963,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_use_cppgc_object_option {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_wrap: &Wrap) {}
     }
     <op_use_cppgc_object_option as ::deno_core::_ops::Op>::DECL

@@ -22,8 +22,8 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Pointer.scalar(),
-                        &[CType::V8Value.scalar(), CType::CallbackOptions.scalar()],
+                        CType::Pointer.as_info(),
+                        &[CType::V8Value.as_info(), CType::CallbackOptions.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -34,8 +34,8 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Pointer.scalar(),
-                        &[CType::V8Value.scalar(), CType::CallbackOptions.scalar()],
+                        CType::Pointer.as_info(),
+                        &[CType::V8Value.as_info(), CType::CallbackOptions.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -100,15 +100,10 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
             let result = match result {
                 Ok(result) => result,
                 Err(err) => {
-                    let err = err.into();
                     let mut scope = unsafe {
                         deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
                     };
-                    let exception = deno_core::error::to_v8_error(
-                        &mut scope,
-                        opctx.get_error_class_fn,
-                        &err,
-                    );
+                    let exception = deno_core::error::to_v8_error(&mut scope, &err);
                     scope.throw_exception(exception);
                     return unsafe { std::mem::zeroed() };
                 }
@@ -139,12 +134,7 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
                         >::cast_unchecked(args.data())
                             .value() as *const deno_core::_ops::OpCtx)
                     };
-                    let err = err.into();
-                    let exception = deno_core::error::to_v8_error(
-                        &mut scope,
-                        opctx.get_error_class_fn,
-                        &err,
-                    );
+                    let exception = deno_core::error::to_v8_error(&mut scope, &err);
                     scope.throw_exception(exception);
                     return 1;
                 }
@@ -187,8 +177,8 @@ pub const fn op_external_with_result() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_external_with_result {
-        #[inline(always)]
-        pub fn call() -> Result<*mut std::ffi::c_void, AnyError> {
+        #[allow(clippy::too_many_arguments)]
+        pub fn call() -> Result<*mut std::ffi::c_void, JsErrorBox> {
             Ok(0 as _)
         }
     }

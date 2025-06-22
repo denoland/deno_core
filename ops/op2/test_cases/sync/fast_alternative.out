@@ -42,27 +42,13 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let arg1 = args.get(0usize as i32);
                 let Some(arg1) = deno_core::_ops::to_u32_option(&arg1) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg1 = arg1 as _;
                 let arg2 = args.get(1usize as i32);
                 let Some(arg2) = deno_core::_ops::to_u32_option(&arg2) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg2 = arg2 as _;
@@ -108,7 +94,7 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_slow {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
             a + b
         }
@@ -142,19 +128,16 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                         ],
@@ -170,22 +153,19 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
-                            CType::CallbackOptions.scalar(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -260,29 +240,13 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let arg0 = args.get(0usize as i32);
                 let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg0 = arg0 as _;
                 let arg1 = args.get(1usize as i32);
                 let Some(arg1) = deno_core::_ops::to_u32_option(&arg1) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg1 = arg1 as _;
@@ -327,7 +291,7 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_fast {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: u32, b: u32) -> u32 {
             a + b
         }
@@ -379,27 +343,13 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let arg1 = args.get(0usize as i32);
                 let Some(arg1) = deno_core::_ops::to_u32_option(&arg1) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg1 = arg1 as _;
                 let arg2 = args.get(1usize as i32);
                 let Some(arg2) = deno_core::_ops::to_u32_option(&arg2) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg2 = arg2 as _;
@@ -445,7 +395,7 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl<T: Trait> op_slow_generic<T> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
             a + b
         }
@@ -479,19 +429,16 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                         ],
@@ -507,22 +454,19 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
-                            CType::CallbackOptions.scalar(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -597,29 +541,13 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let arg0 = args.get(0usize as i32);
                 let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg0 = arg0 as _;
                 let arg1 = args.get(1usize as i32);
                 let Some(arg1) = deno_core::_ops::to_u32_option(&arg1) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected u32".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected u32");
                     return 1;
                 };
                 let arg1 = arg1 as _;
@@ -664,7 +592,7 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl<T: Trait> op_fast_generic<T> {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(a: u32, b: u32) -> u32 {
             a + b
         }

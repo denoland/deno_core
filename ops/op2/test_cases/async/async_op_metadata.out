@@ -98,7 +98,7 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_blob_read_part {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call() {
             return;
         }
@@ -206,7 +206,7 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_broadcast_recv {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call() {
             return;
         }

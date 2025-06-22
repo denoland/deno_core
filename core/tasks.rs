@@ -3,10 +3,10 @@
 use futures::task::AtomicWaker;
 use std::marker::PhantomData;
 use std::ops::DerefMut;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 

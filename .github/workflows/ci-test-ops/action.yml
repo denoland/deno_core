@@ -5,4 +5,4 @@ runs:
     - name: Cargo test (ops)
       shell: bash
       run: |-
-        cargo test --workspace --release -p deno_ops_compile_test_runner
+        cargo nextest run --workspace --release -p deno_ops_compile_test_runner

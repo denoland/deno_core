@@ -4,34 +4,34 @@
 //! <https://chromedevtools.github.io/devtools-protocol/>
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
-use crate::error::generic_error;
+use crate::error::CoreError;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
 use crate::futures::channel::oneshot;
-use crate::futures::future::select;
 use crate::futures::future::Either;
+use crate::futures::future::select;
 use crate::futures::prelude::*;
 use crate::futures::stream::SelectAll;
 use crate::futures::stream::StreamExt;
 use crate::futures::task;
-use crate::futures::task::Context;
-use crate::futures::task::Poll;
-use crate::serde_json::json;
 use crate::serde_json::Value;
-use anyhow::Error;
+use crate::serde_json::json;
+use deno_error::JsErrorBox;
 use parking_lot::Mutex;
 use std::cell::BorrowMutError;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::mem::take;
 use std::mem::MaybeUninit;
+use std::mem::take;
 use std::pin::Pin;
 use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
+use std::task::Context;
+use std::task::Poll;
 use std::thread;
 use v8::HandleScope;
 
@@ -155,6 +155,16 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
     let scope = &mut unsafe { v8::CallbackScope::new(isolate) };
     Some(v8::Local::new(scope, self.context.clone()))
   }
+
+  fn resource_name_to_url(
+    &mut self,
+    resource_name: &v8::inspector::StringView,
+  ) -> Option<v8::UniquePtr<v8::inspector::StringBuffer>> {
+    let resource_name = resource_name.to_string();
+    let url = url::Url::from_file_path(resource_name).ok()?;
+    let src_view = v8::inspector::StringView::from(url.as_str().as_bytes());
+    Some(v8::inspector::StringBuffer::create(src_view))
+  }
 }
 
 impl JsRuntimeInspector {
@@ -255,7 +265,7 @@ impl JsRuntimeInspector {
   ) {
     let context = scope.get_current_context();
     let message = v8::Exception::create_message(scope, exception);
-    let stack_trace = message.get_stack_trace(scope).unwrap();
+    let stack_trace = message.get_stack_trace(scope);
     let mut v8_inspector_ref = self.v8_inspector.borrow_mut();
     let v8_inspector = v8_inspector_ref.as_mut().unwrap();
     let stack_trace = v8_inspector.create_stack_trace(stack_trace);
@@ -833,7 +843,7 @@ impl LocalInspectorSession {
     &mut self,
     method: &str,
     params: Option<T>,
-  ) -> Result<serde_json::Value, Error> {
+  ) -> Result<serde_json::Value, CoreError> {
     let id = self.next_message_id;
     self.next_message_id += 1;
 
@@ -857,7 +867,7 @@ impl LocalInspectorSession {
         Either::Right((result, _)) => {
           let response = result?;
           if let Some(error) = response.get("error") {
-            return Err(generic_error(error.to_string()));
+            return Err(JsErrorBox::generic(error.to_string()).into());
           }
 
           let result = response.get("result").unwrap().clone();
