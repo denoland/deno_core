@@ -393,13 +393,13 @@ impl ModuleMap {
         let code = ModuleSource::get_string_source(code);
         self.new_text_module(scope, module_url_found, code)?
       }
-      ModuleType::Binary => {
+      ModuleType::Bytes => {
         let ModuleSourceCode::Bytes(code) = code else {
           return Err(ModuleError::Concrete(
             ModuleConcreteError::BytesNotBytes,
           ));
         };
-        self.new_binary_module(scope, module_url_found, code)?
+        self.new_bytes_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
         let state = JsRuntime::state_from(scope);
@@ -841,7 +841,7 @@ impl ModuleMap {
   }
 
   #[allow(clippy::unnecessary_wraps)]
-  pub(crate) fn new_binary_module(
+  pub(crate) fn new_bytes_module(
     &self,
     scope: &mut v8::HandleScope,
     name: impl IntoModuleName,
@@ -864,7 +864,7 @@ impl ModuleMap {
       v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
     let source_value_local = v8::Local::<v8::Value>::from(source_arraybuffer);
     let exports = vec![(ascii_str!("default"), source_value_local)];
-    Ok(self.new_synthetic_module(scope, name, ModuleType::Binary, exports))
+    Ok(self.new_synthetic_module(scope, name, ModuleType::Bytes, exports))
   }
 
   pub(crate) fn instantiate_module(

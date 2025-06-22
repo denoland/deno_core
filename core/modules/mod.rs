@@ -274,10 +274,11 @@ pub(crate) fn get_requested_module_type_from_attributes(
     return RequestedModuleType::None;
   };
 
-  if ty == "json" {
-    RequestedModuleType::Json
-  } else {
-    RequestedModuleType::Other(Cow::Owned(ty.to_string()))
+  match ty.as_str() {
+    "json" => RequestedModuleType::Json,
+    "text" => RequestedModuleType::Text,
+    "bytes" => RequestedModuleType::Bytes,
+    other => RequestedModuleType::Other(Cow::Owned(other.to_string())),
   }
 }
 
@@ -292,7 +293,7 @@ pub enum ModuleType {
   Wasm,
   Json,
   Text,
-  Binary,
+  Bytes,
   Other(Cow<'static, str>),
 }
 
@@ -303,7 +304,7 @@ impl std::fmt::Display for ModuleType {
       Self::Wasm => write!(f, "Wasm"),
       Self::Json => write!(f, "JSON"),
       Self::Text => write!(f, "Text"),
-      Self::Binary => write!(f, "Binary"),
+      Self::Bytes => write!(f, "Bytes"),
       Self::Other(ty) => write!(f, "{}", ty),
     }
   }
@@ -319,7 +320,7 @@ impl ModuleType {
       ModuleType::Wasm => v8::Integer::new(scope, 1).into(),
       ModuleType::Json => v8::Integer::new(scope, 2).into(),
       ModuleType::Text => v8::Integer::new(scope, 3).into(),
-      ModuleType::Binary => v8::Integer::new(scope, 4).into(),
+      ModuleType::Bytes => v8::Integer::new(scope, 4).into(),
       ModuleType::Other(ty) => v8::String::new(scope, ty).unwrap().into(),
     }
   }
@@ -334,7 +335,7 @@ impl ModuleType {
         1 => ModuleType::Wasm,
         2 => ModuleType::Json,
         3 => ModuleType::Text,
-        4 => ModuleType::Binary,
+        4 => ModuleType::Bytes,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
@@ -497,12 +498,6 @@ pub enum RequestedModuleType {
   /// ```
   None,
 
-  /// The `type` attribute had value `json`. This is the only known module type
-  /// in `deno_core`.
-  ///
-  /// Embedders should use `Other` variant for custom module
-  /// types like `wasm`, `bytes` or `text`.
-  ///
   /// Example:
   /// ```ignore
   /// import jsonData from "./data.json" with { type: "json" };
@@ -511,15 +506,31 @@ pub enum RequestedModuleType {
   /// ```
   Json,
 
+  /// Example:
+  /// ```ignore
+  /// import logText from "./log.txt" with { type: "text" };
+  ///
+  /// const logText = await import("./log.txt", { with { type: "text" } });
+  /// ```
+  Text,
+
+  /// Example:
+  /// ```ignore
+  /// import img from "./img.png" with { type: "bytes" };
+  ///
+  /// const img = await import("./img.png", { with { type: "bytes" } });
+  /// ```
+  Bytes,
+
   /// An arbitrary module type. It is up to the embedder to handle (or deny) it.
   /// If [`CustomModuleEvaluationCb`] was not passed when creating a runtime,
   /// then all "other" module types cause an error to be returned.
   ///
   /// Example:
   /// ```ignore
-  /// import text from "./log.txt" with { type: "text" };
+  /// import url from "./style.css" with { type: "url" };
   ///
-  /// const imgData = await import(`./images/${name}.png`, { with: { type: "bytes" }});
+  /// const imgData = await import(`./images/${name}.png`, { with: { type: "image" }});
   /// ```
   Other(Cow<'static, str>),
 }
@@ -532,6 +543,8 @@ impl RequestedModuleType {
     match self {
       RequestedModuleType::None => v8::Integer::new(scope, 0).into(),
       RequestedModuleType::Json => v8::Integer::new(scope, 1).into(),
+      RequestedModuleType::Text => v8::Integer::new(scope, 2).into(),
+      RequestedModuleType::Bytes => v8::Integer::new(scope, 3).into(),
       RequestedModuleType::Other(ty) => {
         v8::String::new(scope, ty).unwrap().into()
       }
@@ -546,6 +559,8 @@ impl RequestedModuleType {
       match int.int32_value(scope).unwrap_or_default() {
         0 => RequestedModuleType::None,
         1 => RequestedModuleType::Json,
+        2 => RequestedModuleType::Text,
+        3 => RequestedModuleType::Bytes,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
@@ -559,6 +574,8 @@ impl RequestedModuleType {
     match self {
       RequestedModuleType::None => None,
       RequestedModuleType::Json => Some("json"),
+      RequestedModuleType::Text => Some("text"),
+      RequestedModuleType::Bytes => Some("bytes"),
       RequestedModuleType::Other(ty) => Some(ty),
     }
   }
@@ -577,12 +594,8 @@ impl PartialEq<ModuleType> for RequestedModuleType {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Wasm => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
-      ModuleType::Text => {
-        self == &RequestedModuleType::Other(Cow::Borrowed("text"))
-      }
-      ModuleType::Binary => {
-        self == &RequestedModuleType::Other(Cow::Borrowed("binary"))
-      }
+      ModuleType::Text => self == &RequestedModuleType::Text,
+      ModuleType::Bytes => self == &RequestedModuleType::Bytes,
       ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
@@ -594,8 +607,8 @@ impl From<ModuleType> for RequestedModuleType {
       ModuleType::JavaScript => RequestedModuleType::None,
       ModuleType::Wasm => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
-      ModuleType::Text => RequestedModuleType::Other(Cow::Borrowed("text")),
-      ModuleType::Binary => RequestedModuleType::Other(Cow::Borrowed("binary")),
+      ModuleType::Text => RequestedModuleType::Text,
+      ModuleType::Bytes => RequestedModuleType::Bytes,
       ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
   }
@@ -606,6 +619,8 @@ impl std::fmt::Display for RequestedModuleType {
     match self {
       Self::None => write!(f, "None"),
       Self::Json => write!(f, "JSON"),
+      Self::Text => write!(f, "Text"),
+      Self::Bytes => write!(f, "Bytes"),
       Self::Other(ty) => write!(f, "Other({ty})"),
     }
   }
