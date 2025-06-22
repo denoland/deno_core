@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 "use strict";
 
 ((window) => {
@@ -52,6 +52,7 @@
     op_get_extras_binding_object,
     op_get_promise_details,
     op_get_proxy_details,
+    op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
     op_lazy_load_esm,
     op_memory_usage,
@@ -161,10 +162,12 @@
   // responses of async ops.
   function eventLoopTick() {
     // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 3; i += 2) {
+    for (let i = 0; i < arguments.length - 3; i += 3) {
       const promiseId = arguments[i];
-      const res = arguments[i + 1];
-      __resolvePromise(promiseId, res);
+      const isOk = arguments[i + 1];
+      const res = arguments[i + 2];
+
+      __resolvePromise(promiseId, res, isOk);
     }
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
@@ -299,24 +302,24 @@
   // errors in the JS code (eg. "deno_net") so they are provided in "Deno.core"
   // but later reexported on "Deno.errors"
   class BadResource extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "BadResource";
     }
   }
   const BadResourcePrototype = BadResource.prototype;
 
   class Interrupted extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "Interrupted";
     }
   }
   const InterruptedPrototype = Interrupted.prototype;
 
   class NotCapable extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "NotCapable";
     }
   }
@@ -476,6 +479,11 @@
       op_print(`${consoleStringify(...args)}\n`, false);
     };
   }
+
+  // Default impl of contextual logging
+  op_get_ext_import_meta_proto().log = function internalLog(level, ...args) {
+    console.error(`[${level.toUpperCase()}]`, ...args);
+  };
 
   const consoleStringify = (...args) => args.map(consoleStringifyArg).join(" ");
 
@@ -642,6 +650,7 @@
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
+    internalFdSymbol: Symbol("Deno.internal.fd"),
     resources,
     eventLoopTick,
     BadResource,

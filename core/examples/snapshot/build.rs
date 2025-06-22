@@ -1,7 +1,8 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use deno_core::extension;
-use deno_core::snapshot::create_snapshot;
 use deno_core::snapshot::CreateSnapshotOptions;
+use deno_core::snapshot::create_snapshot;
 use std::env;
 use std::fs;
 use std::path::PathBuf;
@@ -20,7 +21,7 @@ fn main() {
   let options = CreateSnapshotOptions {
     cargo_manifest_dir: env!("CARGO_MANIFEST_DIR"),
     startup_snapshot: None,
-    extensions: vec![runjs_extension::init_ops_and_esm()],
+    extensions: vec![runjs_extension::init()],
     with_runtime_cb: None,
     skip_op_registration: false,
     extension_transpiler: None,

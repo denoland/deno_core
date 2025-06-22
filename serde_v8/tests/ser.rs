@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use serde::Serialize;
 use serde_json::json;
 use serde_v8::BigInt;
@@ -79,7 +80,7 @@ fn sercheck<T: Serialize>(val: T, code: &str, pollute: bool) -> bool {
 }
 
 macro_rules! sertest {
-  ($fn_name:ident, $rust:expr, $src:expr) => {
+  ($fn_name:ident, $rust:expr_2021, $src:expr_2021) => {
     #[test]
     fn $fn_name() {
       assert!(
@@ -93,7 +94,7 @@ macro_rules! sertest {
 }
 
 macro_rules! sertest_polluted {
-  ($fn_name:ident, $rust:expr, $src:expr) => {
+  ($fn_name:ident, $rust:expr_2021, $src:expr_2021) => {
     #[test]
     fn $fn_name() {
       assert!(

@@ -10,6 +10,7 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_to_v8_return),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -46,13 +46,7 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
             ) {
                 Ok(v) => rv.set(v),
                 Err(rv_err) => {
-                    let msg = deno_core::v8::String::new(
-                            &mut scope,
-                            &format!("{}", deno_core::anyhow::Error::from(rv_err)),
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_js_error_class(&mut scope, &rv_err);
                     return 1;
                 }
             };
@@ -94,7 +88,7 @@ pub const fn op_to_v8_return() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_to_v8_return {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> Foo {
             Foo
         }

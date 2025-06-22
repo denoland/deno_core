@@ -1,19 +1,18 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::ops::*;
-use anyhow::Error;
-use futures::future::Future;
-use serde::Deserialize;
-use serde_v8::from_v8;
-use serde_v8::V8Sliceable;
-use std::borrow::Cow;
-use std::ffi::c_void;
-use std::mem::MaybeUninit;
-use std::ptr::NonNull;
-use v8::WriteOptions;
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use super::op_driver::OpDriver;
 use super::op_driver::OpScheduling;
 use super::op_driver::V8RetValMapper;
+use crate::ops::*;
+use deno_error::JsErrorClass;
+use serde::Deserialize;
+use serde_v8::V8Sliceable;
+use serde_v8::from_v8;
+use std::borrow::Cow;
+use std::ffi::c_void;
+use std::future::Future;
+use std::mem::MaybeUninit;
+use std::ptr::NonNull;
 
 /// The default string buffer size on the stack that prevents mallocs in some
 /// string functions. Keep in mind that Windows only offers 1MB stacks by default,
@@ -49,7 +48,7 @@ pub fn map_async_op_infallible<R: 'static>(
 }
 
 #[inline(always)]
-pub fn map_async_op_fallible<R: 'static, E: Into<Error> + 'static>(
+pub fn map_async_op_fallible<R: 'static, E: JsErrorClass + 'static>(
   ctx: &OpCtx,
   lazy: bool,
   deferred: bool,
@@ -177,23 +176,25 @@ unsafe fn latin1_to_utf8(
   inbuf: *const u8,
   outbuf: *mut u8,
 ) -> usize {
-  let mut output = 0;
-  let mut input = 0;
-  while input < input_length {
-    let char = *(inbuf.add(input));
-    if char < 0x80 {
-      *(outbuf.add(output)) = char;
-      output += 1;
-    } else {
-      // Top two bits
-      *(outbuf.add(output)) = (char >> 6) | 0b1100_0000;
-      // Bottom six bits
-      *(outbuf.add(output + 1)) = (char & 0b0011_1111) | 0b1000_0000;
-      output += 2;
+  unsafe {
+    let mut output = 0;
+    let mut input = 0;
+    while input < input_length {
+      let char = *(inbuf.add(input));
+      if char < 0x80 {
+        *(outbuf.add(output)) = char;
+        output += 1;
+      } else {
+        // Top two bits
+        *(outbuf.add(output)) = (char >> 6) | 0b1100_0000;
+        // Bottom six bits
+        *(outbuf.add(output + 1)) = (char & 0b0011_1111) | 0b1000_0000;
+        output += 2;
+      }
+      input += 1;
     }
-    input += 1;
+    output
   }
-  output
 }
 
 /// Converts a [`v8::fast_api::FastApiOneByteString`] to either an owned string, or a borrowed string, depending on whether it fits into the
@@ -242,16 +243,16 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
 
   // SAFETY: We're allocating a buffer of 2x the input size, writing valid UTF-8, then turning that into a string
   unsafe {
-    // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid
-    // accidentally creating a slice of u8 which would be invalid.
-    let layout = std::alloc::Layout::from_size_align(capacity, 1).unwrap();
-    let out = std::alloc::alloc(layout);
+    // Create an uninitialized buffer of `capacity` bytes.
+    let mut buffer = Vec::<u8>::with_capacity(capacity);
 
-    let written = latin1_to_utf8(input_buf.len(), input_buf.as_ptr(), out);
+    let written =
+      latin1_to_utf8(input_buf.len(), input_buf.as_ptr(), buffer.as_mut_ptr());
 
     debug_assert!(written <= capacity);
+    buffer.set_len(written);
     // We know it's valid UTF-8, so make a string
-    String::from_raw_parts(out, written, capacity)
+    String::from_utf8_unchecked(buffer)
   }
 }
 
@@ -311,25 +312,21 @@ pub fn to_cow_one_byte(
     return Err("expected one-byte String");
   }
 
-  // Create an uninitialized buffer of `capacity` bytes. We need to be careful here to avoid
-  // accidentally creating a slice of u8 which would be invalid.
-  unsafe {
-    let layout = std::alloc::Layout::from_size_align(capacity, 1).unwrap();
-    let out = std::alloc::alloc(layout);
+  // Create an uninitialized buffer of `capacity` bytes.
+  let mut buffer = Vec::<u8>::with_capacity(capacity);
+  // Write the buffer to a slice made from this uninitialized data
+  string.write_one_byte_uninit_v2(
+    scope,
+    0,
+    buffer.spare_capacity_mut(),
+    v8::WriteFlags::empty(),
+  );
 
-    // Write the buffer to a slice made from this uninitialized data
-    {
-      let buffer = std::slice::from_raw_parts_mut(out as _, capacity);
-      string.write_one_byte_uninit(
-        scope,
-        buffer,
-        0,
-        WriteOptions::NO_NULL_TERMINATION,
-      );
-    }
+  // SAFETY: We initialized bytes from `0..capacity` in
+  // `write_one_byte_uninit` above.
+  unsafe { buffer.set_len(capacity) };
 
-    Ok(Vec::from_raw_parts(out, capacity, capacity).into())
-  }
+  Ok(Cow::Owned(buffer))
 }
 
 /// Converts from a raw [`v8::Value`] to the expected V8 data type.
@@ -376,16 +373,18 @@ where
   v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
   v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
 {
-  let (store, offset, length) =
-    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+  let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
+    Ok(buf) => {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.get_backing_store() else {
         return Err("buffer missing");
       };
       (buffer, buf.byte_offset(), buf.byte_length())
-    } else {
+    }
+    _ => {
       return Err("expected typed ArrayBufferView");
-    };
+    }
+  };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -401,8 +400,8 @@ where
   v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
   v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
 {
-  let (store, offset, length) =
-    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+  let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
+    Ok(buf) => {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.buffer(scope) else {
         return Err("buffer missing");
@@ -417,9 +416,11 @@ where
       }
       buffer.detach(None);
       res
-    } else {
+    }
+    _ => {
       return Err("expected typed ArrayBufferView");
-    };
+    }
+  };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -434,20 +435,22 @@ where
 pub unsafe fn to_slice_buffer(
   input: v8::Local<v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
-  let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
-    return Err("expected ArrayBuffer");
-  };
-  let len = buf.byte_length();
-  let slice = if len > 0 {
-    if let Some(ptr) = buf.data() {
-      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+  unsafe {
+    let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
+      return Err("expected ArrayBuffer");
+    };
+    let len = buf.byte_length();
+    let slice = if len > 0 {
+      if let Some(ptr) = buf.data() {
+        std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+      } else {
+        &mut []
+      }
     } else {
       &mut []
-    }
-  } else {
-    &mut []
-  };
-  Ok(slice)
+    };
+    Ok(slice)
+  }
 }
 
 /// Retrieve a byte slice from a [`v8::ArrayBuffer`], avoiding the intermediate [`v8::BackingStore`].
@@ -459,25 +462,27 @@ pub unsafe fn to_slice_buffer(
 pub unsafe fn to_slice_buffer_any(
   input: v8::Local<v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
-  let (data, len) = {
-    if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-      (NonNull::new(buf.data()), buf.byte_length())
-    } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
-      (buf.data(), buf.byte_length())
-    } else {
-      return Err("expected ArrayBuffer or ArrayBufferView");
-    }
-  };
-  let slice = if len > 0 {
-    if let Some(ptr) = data {
-      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+  unsafe {
+    let (data, len) = {
+      if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+        (NonNull::new(buf.data()), buf.byte_length())
+      } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+        (buf.data(), buf.byte_length())
+      } else {
+        return Err("expected ArrayBuffer or ArrayBufferView");
+      }
+    };
+    let slice = if len > 0 {
+      if let Some(ptr) = data {
+        std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+      } else {
+        &mut []
+      }
     } else {
       &mut []
-    }
-  } else {
-    &mut []
-  };
-  Ok(slice)
+    };
+    Ok(slice)
+  }
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
@@ -535,32 +540,28 @@ pub fn to_v8_slice_any(
 #[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 #[cfg(all(test, not(miri)))]
 mod tests {
-  use crate::convert::Number;
-  use crate::convert::Smi;
-  use crate::error::generic_error;
-  use crate::error::AnyError;
-  use crate::error::JsError;
-  use crate::error::StdAnyError;
-  use crate::external;
-  use crate::external::ExternalPointer;
-  use crate::op2;
-  use crate::runtime::JsRuntimeState;
   use crate::FromV8;
   use crate::GarbageCollected;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
   use crate::ToV8;
-  use anyhow::bail;
-  use anyhow::Error;
+  use crate::convert::Number;
+  use crate::convert::Smi;
+  use crate::error::CoreError;
+  use crate::external;
+  use crate::external::ExternalPointer;
+  use crate::op2;
+  use crate::runtime::JsRuntimeState;
   use bytes::BytesMut;
-  use futures::Future;
+  use deno_error::JsErrorBox;
   use serde::Deserialize;
   use serde::Serialize;
   use serde_v8::JsBuffer;
   use std::borrow::Cow;
   use std::cell::Cell;
   use std::cell::RefCell;
+  use std::future::Future;
   use std::rc::Rc;
   use std::time::Duration;
 
@@ -664,6 +665,15 @@ mod tests {
       op_smi_to_from_v8,
       op_number_to_from_v8,
       op_bool_to_from_v8,
+
+      op_create_buf_u8,
+      op_create_buf_u16,
+      op_create_buf_u32,
+      op_create_buf_u64,
+      op_create_buf_i8,
+      op_create_buf_i16,
+      op_create_buf_i32,
+      op_create_buf_i64,
     ],
     state = |state| {
       state.put(1234u32);
@@ -686,13 +696,13 @@ mod tests {
   }
 
   /// Run a test for a single op.
-  fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), AnyError> {
+  fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), CoreError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      extensions: vec![testing::init_ops_and_esm()],
+      extensions: vec![testing::init()],
       ..Default::default()
     });
     let err_mapper =
-      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
+      |err| JsErrorBox::generic(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -726,7 +736,7 @@ mod tests {
       ),
     )?;
     if FAIL.with(|b| b.get()) {
-      Err(generic_error(format!("{op} test failed ({test})")))
+      Err(JsErrorBox::generic(format!("{op} test failed ({test})")).into())
     } else {
       Ok(())
     }
@@ -737,13 +747,13 @@ mod tests {
     repeat: usize,
     op: &str,
     test: &str,
-  ) -> Result<(), AnyError> {
+  ) -> Result<(), anyhow::Error> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      extensions: vec![testing::init_ops_and_esm()],
+      extensions: vec![testing::init()],
       ..Default::default()
     });
     let err_mapper =
-      |err| generic_error(format!("{op} test failed ({test}): {err:?}"));
+      |err| JsErrorBox::generic(format!("{op} test failed ({test}): {err:?}"));
     runtime
       .execute_script(
         "",
@@ -781,7 +791,7 @@ mod tests {
 
     runtime.run_event_loop(Default::default()).await?;
     if FAIL.with(|b| b.get()) {
-      Err(generic_error(format!("{op} test failed ({test})")))
+      Err(JsErrorBox::generic(format!("{op} test failed ({test})")).into())
     } else {
       Ok(())
     }
@@ -883,26 +893,27 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_result_void_switch() -> Result<(), AnyError> {
+  pub fn op_test_result_void_switch() -> Result<(), JsErrorBox> {
     let count = RETURN_COUNT.with(|count| {
       let new = count.get() + 1;
       count.set(new);
       new
     });
     if count > 5000 {
-      Err(generic_error("failed!!!"))
+      Err(JsErrorBox::generic("failed!!!"))
     } else {
       Ok(())
     }
   }
 
   #[op2(fast)]
-  pub fn op_test_result_void_err() -> Result<(), AnyError> {
-    Err(generic_error("failed!!!"))
+  pub fn op_test_result_void_err() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::generic("failed!!!"))
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  pub fn op_test_result_void_ok() -> Result<(), AnyError> {
+  pub fn op_test_result_void_ok() -> Result<(), JsErrorBox> {
     Ok(())
   }
 
@@ -923,8 +934,8 @@ mod tests {
   }
 
   #[tokio::test(flavor = "current_thread")]
-  pub async fn test_op_result_void_switch(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_void_switch()
+  -> Result<(), Box<dyn std::error::Error>> {
     RETURN_COUNT.with(|count| count.set(0));
     let err = run_test2(
       JIT_ITERATIONS,
@@ -932,25 +943,28 @@ mod tests {
       "op_test_result_void_switch();",
     )
     .expect_err("Expected this to fail");
-    let js_err = err.downcast::<JsError>().unwrap();
+    let CoreError::Js(js_err) = err else {
+      unreachable!();
+    };
     assert_eq!(js_err.message, Some("failed!!!".into()));
     assert_eq!(RETURN_COUNT.with(|count| count.get()), 5001);
     Ok(())
   }
 
   #[op2(fast)]
-  pub fn op_test_result_primitive_err() -> Result<u32, AnyError> {
-    Err(generic_error("failed!!!"))
+  pub fn op_test_result_primitive_err() -> Result<u32, JsErrorBox> {
+    Err(JsErrorBox::generic("failed!!!"))
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
-  pub fn op_test_result_primitive_ok() -> Result<u32, AnyError> {
+  pub fn op_test_result_primitive_ok() -> Result<u32, JsErrorBox> {
     Ok(123)
   }
 
   #[tokio::test]
-  pub async fn test_op_result_primitive(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_primitive()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_test_result_primitive_err",
@@ -970,11 +984,11 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_bool_result(b: bool) -> Result<bool, AnyError> {
+  pub fn op_test_bool_result(b: bool) -> Result<bool, JsErrorBox> {
     if b {
       Ok(true)
     } else {
-      Err(generic_error("false!!!"))
+      Err(JsErrorBox::generic("false!!!"))
     }
   }
 
@@ -1004,12 +1018,12 @@ mod tests {
   }
 
   #[op2(fast)]
-  pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, AnyError> {
+  pub fn op_test_float_result(a: f32, b: f64) -> Result<f64, JsErrorBox> {
     let a = a as f64;
     if a + b >= 0. {
       Ok(a + b)
     } else {
-      Err(generic_error("negative!!!"))
+      Err(JsErrorBox::generic("negative!!!"))
     }
   }
 
@@ -1059,12 +1073,12 @@ mod tests {
       &format!("assert(op_test_bigint_i64({}n) == {}n)", i64::MAX, i64::MAX),
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MAX_SAFE_INTEGER) == Number.MAX_SAFE_INTEGER)",
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_test_bigint_i64_as_number",
       "assert(op_test_bigint_i64_as_number(Number.MIN_SAFE_INTEGER) == Number.MIN_SAFE_INTEGER)",
     )?;
@@ -1173,7 +1187,7 @@ mod tests {
     run_test2(
       10,
       "op_test_string_roundtrip_char_onebyte",
-      "try { op_test_string_roundtrip_char_onebyte('\\u1000'); assert(false); } catch (e) {}"
+      "try { op_test_string_roundtrip_char_onebyte('\\u1000'); assert(false); } catch (e) {}",
     )?;
 
     Ok(())
@@ -1317,11 +1331,11 @@ mod tests {
   pub fn op_test_v8_type_handle_scope_result<'s>(
     scope: &mut v8::HandleScope<'s>,
     o: &v8::Object,
-  ) -> Result<v8::Local<'s, v8::Value>, AnyError> {
+  ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
     let key = v8::String::new(scope, "key").unwrap().into();
     o.get(scope, key)
       .filter(|v| !v.is_null_or_undefined())
-      .ok_or(generic_error("error!!!"))
+      .ok_or(JsErrorBox::generic("error!!!"))
   }
 
   #[tokio::test]
@@ -1367,7 +1381,11 @@ mod tests {
     }
 
     // Test the error case for op_test_v8_type_handle_scope_result
-    run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
+    run_test2(
+      1,
+      "op_test_v8_type_handle_scope_result",
+      "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}",
+    )?;
     Ok(())
   }
 
@@ -1464,12 +1482,12 @@ mod tests {
   #[tokio::test]
   pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_state_rc",
       "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_state_mut_attr",
       "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
     )?;
@@ -1676,8 +1694,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_jsbuffer(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_jsbuffer()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_jsbuffer",
@@ -1739,7 +1757,7 @@ mod tests {
       "assert(op_buffer_any(new Uint32Array([1,2,3,4,0x01010101])) == 14);",
     )?;
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_buffer_any",
       "assert(op_buffer_any(new DataView(new Uint8Array([1,2,3,4]).buffer)) == 10);",
     )?;
@@ -1752,8 +1770,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any_length(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any_length()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_any_length",
@@ -1812,8 +1830,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_arraybuffer_slice(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_arraybuffer_slice()
+  -> Result<(), Box<dyn std::error::Error>> {
     // Zero-length buffers
     run_test2(
       JIT_ITERATIONS,
@@ -1903,8 +1921,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
@@ -1919,7 +1937,11 @@ mod tests {
     pub value: u32,
   }
 
-  impl GarbageCollected for TestResource {}
+  impl GarbageCollected for TestResource {
+    fn get_name(&self) -> &'static std::ffi::CStr {
+      c"TestResource"
+    }
+  }
 
   #[op2]
   #[cppgc]
@@ -2058,7 +2080,7 @@ mod tests {
   #[tokio::test]
   pub async fn test_typed_external() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
-       JIT_ITERATIONS,
+      JIT_ITERATIONS,
       "op_typed_external, op_typed_external_process, op_typed_external_take",
       "let external = op_typed_external(); op_typed_external_process(external); assert(op_typed_external_take(external) == 43);",
     )?;
@@ -2168,14 +2190,14 @@ mod tests {
   }
 
   #[op2(async)]
-  pub async fn op_async_sleep_error() -> Result<(), Error> {
+  pub async fn op_async_sleep_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(Duration::from_millis(500)).await;
-    bail!("whoops")
+    Err(JsErrorBox::generic("whoops"))
   }
 
   #[tokio::test]
-  pub async fn test_op_async_sleep_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_sleep_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       5,
       "op_async_sleep_error",
@@ -2186,13 +2208,13 @@ mod tests {
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_success() -> Result<u32, Error> {
+  pub async fn op_async_deferred_success() -> Result<u32, JsErrorBox> {
     Ok(42)
   }
 
   #[op2(async(deferred), fast)]
-  pub async fn op_async_deferred_error() -> Result<(), Error> {
-    bail!("whoops")
+  pub async fn op_async_deferred_error() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::generic("whoops"))
   }
 
   #[tokio::test]
@@ -2205,22 +2227,22 @@ mod tests {
     )
     .await?;
     run_async_test(
-       JIT_SLOW_ITERATIONS,
+      JIT_SLOW_ITERATIONS,
       "op_async_deferred_error",
       "try { await op_async_deferred_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_success() -> Result<u32, Error> {
+  pub async fn op_async_lazy_success() -> Result<u32, JsErrorBox> {
     Ok(42)
   }
 
   #[op2(async(lazy), fast)]
-  pub async fn op_async_lazy_error() -> Result<(), Error> {
-    bail!("whoops")
+  pub async fn op_async_lazy_error() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::generic("whoops"))
   }
 
   #[tokio::test]
@@ -2232,11 +2254,11 @@ mod tests {
     )
     .await?;
     run_async_test(
-       JIT_SLOW_ITERATIONS,
+      JIT_SLOW_ITERATIONS,
       "op_async_lazy_error",
       "try { await op_async_lazy_error(); assert(false) } catch (e) {{ assertErrorContains(e, 'whoops') }}",
     )
-    .await?;
+      .await?;
     Ok(())
   }
 
@@ -2245,25 +2267,25 @@ mod tests {
   #[op2(async)]
   pub fn op_async_result_impl(
     mode: u8,
-  ) -> Result<impl Future<Output = Result<(), Error>>, Error> {
+  ) -> Result<impl Future<Output = Result<(), JsErrorBox>>, JsErrorBox> {
     if mode == 0 {
-      return Err(generic_error("early exit"));
+      return Err(JsErrorBox::generic("early exit"));
     }
     Ok(async move {
       if mode == 1 {
-        return Err(generic_error("early async exit"));
+        return Err(JsErrorBox::generic("early async exit"));
       }
       tokio::time::sleep(Duration::from_millis(500)).await;
       if mode == 2 {
-        return Err(generic_error("late async exit"));
+        return Err(JsErrorBox::generic("late async exit"));
       }
       Ok(())
     })
   }
 
   #[tokio::test]
-  pub async fn test_op_async_result_impl(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_result_impl()
+  -> Result<(), Box<dyn std::error::Error>> {
     for (n, msg) in [
       (0, "early exit"),
       (1, "early async exit"),
@@ -2274,7 +2296,7 @@ mod tests {
         "op_async_result_impl",
         &format!("try {{ await op_async_result_impl({n}); assert(false) }} catch (e) {{ assertErrorContains(e, '{msg}') }}"),
       )
-      .await?;
+        .await?;
     }
     run_async_test(5, "op_async_result_impl", "await op_async_result_impl(3);")
       .await?;
@@ -2316,7 +2338,9 @@ mod tests {
   }
 
   #[op2(async)]
-  fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
+  fn op_async_buffer_impl(
+    #[buffer] input: &[u8],
+  ) -> impl Future<Output = u32> + use<> {
     let l = input.len();
     async move { l as _ }
   }
@@ -2329,13 +2353,13 @@ mod tests {
       "op_async_buffer",
       "let output = await op_async_buffer(new Uint8Array([1,2,3])); assert(output.length == 3); assert(output[0] == 1);",
     )
-    .await?;
+      .await?;
     run_async_test(
       2,
       "op_async_buffer_vec",
       "let output = await op_async_buffer_vec(new Uint8Array([3,2,1])); assert(output.length == 3); assert(output[0] == 1);",
     )
-    .await?;
+      .await?;
     run_async_test(
       2,
       "op_async_buffer_impl",
@@ -2369,14 +2393,14 @@ mod tests {
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,
-  ) -> Result<Option<Serde>, AnyError> {
+  ) -> Result<Option<Serde>, JsErrorBox> {
     serde.s += "!";
     Ok(Some(serde))
   }
 
   #[tokio::test]
-  pub async fn test_op_async_serde_option_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_serde_option_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       2,
       "op_async_serde_option_v8",
@@ -2413,8 +2437,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_number_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_number_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_number_to_from_v8",
@@ -2455,7 +2479,7 @@ mod tests {
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = StdAnyError;
+    type Error = JsErrorBox;
 
     fn from_v8(
       scope: &mut v8::HandleScope<'a>,
@@ -2472,8 +2496,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",
@@ -2486,8 +2510,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     let err = run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",
@@ -2500,6 +2524,55 @@ mod tests {
       err.to_string(),
       "TypeError: Expected boolean\n    at <anonymous>:4:7"
     );
+    Ok(())
+  }
+
+  macro_rules! op_create_buf {
+    ($size:ident) => {
+      paste::paste! {
+        #[op2]
+        #[buffer]
+        fn [< op_create_buf_ $size >] () -> Vec<$size> {
+          vec![1, 2, 3, 4]
+        }
+      }
+    };
+  }
+  op_create_buf!(u8);
+  op_create_buf!(u16);
+  op_create_buf!(u32);
+  op_create_buf!(u64);
+  op_create_buf!(i8);
+  op_create_buf!(i16);
+  op_create_buf!(i32);
+  op_create_buf!(i64);
+
+  #[test]
+  fn return_buffers() -> Result<(), Box<dyn std::error::Error>> {
+    fn test(size: &str) -> Result<(), Box<dyn std::error::Error>> {
+      run_test2(
+        1,
+        &format!("op_create_buf_{size}"),
+        &format!(
+          r"
+        let buf = op_create_buf_{size}();
+        assert(Number(buf[0]) === 1);
+        assert(Number(buf[1]) === 2);
+        assert(Number(buf[2]) === 3);
+        assert(Number(buf[3]) === 4);
+        "
+        ),
+      )?;
+      Ok(())
+    }
+    test("u8")?;
+    test("u16")?;
+    test("u32")?;
+    test("u64")?;
+    test("i8")?;
+    test("i16")?;
+    test("i32")?;
+    test("i64")?;
     Ok(())
   }
 }

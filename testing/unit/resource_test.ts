@@ -1,6 +1,17 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
-import { DOMPoint, TestObjectWrap } from "checkin:object";
+// Copyright 2018-2025 the Deno authors. MIT license.
+import {
+  assert,
+  assertArrayEquals,
+  assertEquals,
+  assertThrows,
+  test,
+} from "checkin:testing";
+import {
+  DOMPoint,
+  DOMPointReadOnly,
+  TestEnumWrap,
+  TestObjectWrap,
+} from "checkin:object";
 
 const {
   op_pipe_create,
@@ -55,8 +66,25 @@ test(function opsSyncBadResource() {
 });
 
 test(async function testFileIsNotTerminal() {
-  const file = await op_file_open("./README.md");
+  const file = await op_file_open("./README.md", true);
   assert(!Deno.core.isTerminal(file));
+});
+
+test(async function testFileReadUnref() {
+  const file = await op_file_open("./README.md", true);
+
+  let called = false;
+  await Deno.core.read(file, new Uint8Array(100))
+    .then(() => {
+      called = true;
+    });
+  assert(called);
+
+  const file2 = await op_file_open("./README.md", false);
+  Deno.core.read(file2, new Uint8Array(100))
+    .then(() => {
+      throw new Error("should not be called");
+    });
 });
 
 test(async function testCppgcAsync() {
@@ -64,15 +92,22 @@ test(async function testCppgcAsync() {
   assertEquals(await op_async_get_cppgc_resource(resource), 42);
 });
 
-test(function testDomPoint() {
+test(async function testDomPoint() {
   const p1 = new DOMPoint(100, 100);
   const p2 = new DOMPoint();
   const p3 = DOMPoint.fromPoint({ x: 200 });
   const p4 = DOMPoint.fromPoint({ x: 0, y: 100, z: 99.9, w: 100 });
+  const p5 = p1.fromPoint({ x: 200 });
   assertEquals(p1.x, 100);
   assertEquals(p2.x, 0);
   assertEquals(p3.x, 200);
   assertEquals(p4.x, 0);
+  assertEquals(p5.x, 200);
+
+  assert(p1 instanceof DOMPoint);
+  assert(p1 instanceof DOMPointReadOnly);
+
+  assertEquals("prototype" in DOMPoint.prototype.wrappingSmi, false);
 
   let caught;
   try {
@@ -93,11 +128,53 @@ test(function testDomPoint() {
     DOMPoint.prototype.wrappingSmi.toString(),
   );
 
+  const f = Symbol.for("symbolMethod");
+  p1[f]();
+
   const wrap = new TestObjectWrap();
   assertEquals(wrap.withVarargs(1, 2, 3), 3);
   assertEquals(wrap.withVarargs(1, 2, 3, 4, 5), 5);
   assertEquals(wrap.withVarargs(), 0);
   assertEquals(wrap.withVarargs(undefined), 1);
 
+  wrap.withThis();
   wrap.with_RENAME();
+
+  assert(wrap.undefinedResult() === undefined);
+
+  wrap.withValidateInt(10);
+
+  assertThrows(
+    () => {
+      // @ts-expect-error bad arg test
+      wrap.withValidateInt(2, 2);
+    },
+    TypeError,
+    "Expected one argument",
+  );
+
+  assertThrows(
+    () => {
+      // @ts-expect-error bad arg test
+      wrap.withValidateInt("bad");
+    },
+    TypeError,
+    "Expected int",
+  );
+
+  const promise = wrap.withAsyncFn(10);
+  assert(promise instanceof Promise);
+
+  await promise;
+
+  new TestEnumWrap();
+});
+
+// TODO(littledivy): write this test using natives api when exposed
+test(function testFastProtoMethod() {
+  const obj = new TestObjectWrap();
+
+  for (let i = 0; i < 10000; i++) {
+    obj.withScopeFast(); // trigger fast call
+  }
 });

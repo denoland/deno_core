@@ -1,5 +1,7 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use super::RequestedModuleType;
+use crate::ModuleCodeString;
 use crate::fast_string::FastString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleInfo;
@@ -10,7 +12,6 @@ use crate::modules::ModuleType;
 use crate::runtime::SnapshotDataId;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
-use crate::ModuleCodeString;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
@@ -253,10 +254,9 @@ impl ModuleMapData {
     &self,
     global: &v8::Global<v8::Module>,
   ) -> Option<String> {
-    if let Some(id) = self.handles_inverted.get(global) {
-      self.get_name_by_id(*id)
-    } else {
-      None
+    match self.handles_inverted.get(global) {
+      Some(id) => self.get_name_by_id(*id),
+      _ => None,
     }
   }
 
@@ -264,11 +264,12 @@ impl ModuleMapData {
     &self,
     global: &v8::Global<v8::Module>,
   ) -> Option<ModuleType> {
-    if let Some(id) = self.handles_inverted.get(global) {
-      let info = self.info.get(*id).unwrap();
-      Some(info.module_type.clone())
-    } else {
-      None
+    match self.handles_inverted.get(global) {
+      Some(id) => {
+        let info = self.info.get(*id).unwrap();
+        Some(info.module_type.clone())
+      }
+      _ => None,
     }
   }
 

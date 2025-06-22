@@ -10,6 +10,7 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_async_v8_global),
             true,
             false,
+            false,
             2usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -50,15 +50,7 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
                 let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
                     deno_core::v8::String,
                 >(arg0) else {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected String".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected String");
                     return 1;
                 };
                 let arg0 = deno_core::v8::Global::new(&mut scope, arg0);
@@ -115,7 +107,7 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async_v8_global {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call(_s: v8::Global<v8::String>) {}
     }
     <op_async_v8_global as ::deno_core::_ops::Op>::DECL

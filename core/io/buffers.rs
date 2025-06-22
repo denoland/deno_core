@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use bytes::Buf;
 use bytes::BytesMut;
 use serde_v8::JsBuffer;
@@ -264,22 +265,24 @@ impl BufMutView {
     target_size: usize,
     maximum_increment: usize,
   ) -> Option<usize> {
-    if let BufMutViewInner::Bytes(bytes) = &mut self.inner {
-      use std::cmp::Ordering::*;
-      let len = bytes.len();
-      let target_size = target_size + self.cursor;
-      match target_size.cmp(&len) {
-        Greater => {
-          bytes.resize(std::cmp::min(target_size, len + maximum_increment), 0);
+    match &mut self.inner {
+      BufMutViewInner::Bytes(bytes) => {
+        use std::cmp::Ordering::*;
+        let len = bytes.len();
+        let target_size = target_size + self.cursor;
+        match target_size.cmp(&len) {
+          Greater => {
+            bytes
+              .resize(std::cmp::min(target_size, len + maximum_increment), 0);
+          }
+          Less => {
+            bytes.truncate(target_size);
+          }
+          Equal => {}
         }
-        Less => {
-          bytes.truncate(target_size);
-        }
-        Equal => {}
+        Some(bytes.len())
       }
-      Some(bytes.len())
-    } else {
-      None
+      _ => None,
     }
   }
 
@@ -289,15 +292,16 @@ impl BufMutView {
   #[deprecated = "API will be replaced in the future"]
   #[doc(hidden)]
   pub fn maybe_grow(&mut self, target_size: usize) -> Option<usize> {
-    if let BufMutViewInner::Bytes(bytes) = &mut self.inner {
-      let len = bytes.len();
-      let target_size = target_size + self.cursor;
-      if target_size > len {
-        bytes.resize(target_size, 0);
+    match &mut self.inner {
+      BufMutViewInner::Bytes(bytes) => {
+        let len = bytes.len();
+        let target_size = target_size + self.cursor;
+        if target_size > len {
+          bytes.resize(target_size, 0);
+        }
+        Some(bytes.len())
       }
-      Some(bytes.len())
-    } else {
-      None
+      _ => None,
     }
   }
 

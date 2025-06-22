@@ -1,16 +1,18 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
+use proc_macro_rules::rules;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
 use syn::ImplItem;
 use syn::ItemFn;
 use syn::ItemImpl;
+use syn::spanned::Spanned;
 
-use crate::op2::generate_op2;
 use crate::op2::MacroConfig;
 use crate::op2::Op2Error;
+use crate::op2::generate_op2;
 
 use super::signature::is_attribute_special;
 
@@ -70,8 +72,20 @@ use super::signature::is_attribute_special;
 // - setters
 //
 pub(crate) fn generate_impl_ops(
+  attrs: TokenStream,
   item: ItemImpl,
 ) -> Result<TokenStream, Op2Error> {
+  enum ClassTy {
+    Base,
+    Inherit(syn::Type),
+  }
+
+  let maybe_inherits_type = rules!(attrs => {
+    () => None,
+    (base) => Some(ClassTy::Base),
+    (inherit = $inherits_type:ty) => Some(ClassTy::Inherit(inherits_type)),
+  });
+
   let mut tokens = TokenStream::new();
 
   let self_ty = &item.self_ty;
@@ -84,6 +98,7 @@ pub(crate) fn generate_impl_ops(
 
   for item in item.items {
     if let ImplItem::Fn(mut method) = item {
+      let span = method.span();
       let (item_fn_attrs, attrs) =
         method.attrs.into_iter().partition(is_attribute_special);
 
@@ -100,9 +115,11 @@ pub(crate) fn generate_impl_ops(
         block: Box::new(method.block),
       };
 
-      let mut config = MacroConfig::from_tokens(quote! {
-        #(#attrs)*
-      })?;
+      let mut config = MacroConfig::from_attributes(span, attrs)?;
+
+      if maybe_inherits_type.is_some() {
+        config.use_proto_cppgc = true;
+      }
 
       if let Some(ref rename) = config.rename {
         func.sig.ident = format_ident!("{}", rename);
@@ -116,7 +133,7 @@ pub(crate) fn generate_impl_ops(
 
         constructor = Some(ident);
       } else if config.static_member {
-        static_methods.push(ident);
+        static_methods.push(format_ident!("__static_{}", ident));
       } else {
         if config.setter {
           methods.push(format_ident!("__set_{}", ident));
@@ -134,7 +151,48 @@ pub(crate) fn generate_impl_ops(
     }
   }
 
+  let constructor = if let Some(constructor) = constructor {
+    quote! { Some(#self_ty::#constructor()) }
+  } else {
+    quote! { None }
+  };
+
+  let (prototype_index, inherits_type_name) = match &maybe_inherits_type {
+    Some(ClassTy::Base) => (
+      quote! {
+        impl deno_core::cppgc::PrototypeChain for #self_ty {
+          fn prototype_index() -> Option<usize> {
+            Some(0)
+          }
+        }
+      },
+      quote! {
+        inherits_type_name: || None,
+      },
+    ),
+    Some(ClassTy::Inherit(inherits_type)) => (
+      quote! {
+        impl deno_core::cppgc::PrototypeChain for #self_ty {
+          fn prototype_index() -> Option<usize> {
+            Some(<#inherits_type as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
+          }
+        }
+      },
+      quote! {
+        inherits_type_name: || Some(std::any::type_name::<#inherits_type>()),
+      },
+    ),
+    None => (
+      quote! {},
+      quote! {
+        inherits_type_name: || None,
+      },
+    ),
+  };
+
   let res = quote! {
+      #prototype_index
+
       impl #self_ty {
         pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
           methods: &[
@@ -147,9 +205,10 @@ pub(crate) fn generate_impl_ops(
               #self_ty::#static_methods(),
             )*
           ],
-          constructor: #self_ty::#constructor(),
+          constructor: #constructor,
           name: ::deno_core::__op_name_fast!(#self_ty),
           type_name: || std::any::type_name::<#self_ty>(),
+          #inherits_type_name
         };
 
         #tokens

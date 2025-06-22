@@ -1,8 +1,9 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![allow(clippy::needless_range_loop)]
+use bencher::Bencher;
 use bencher::benchmark_group;
 use bencher::benchmark_main;
-use bencher::Bencher;
 use deno_core::arena::ArenaShared;
 use deno_core::arena::ArenaSharedAtomic;
 use deno_core::arena::ArenaUnique;

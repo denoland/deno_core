@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use std::alloc::Layout;
 use std::cell::Cell;
 use std::mem::ManuallyDrop;
@@ -76,14 +77,16 @@ impl<T> RawArenaEntry<T> {
   unsafe fn next(
     entry: NonNull<RawArenaEntry<T>>,
   ) -> NonNull<RawArenaEntry<T>> {
-    (*(entry.as_ptr())).next
+    unsafe { (*(entry.as_ptr())).next }
   }
 
   #[inline(always)]
   unsafe fn drop(entry: NonNull<RawArenaEntry<T>>) {
-    std::ptr::drop_in_place(
-      std::ptr::addr_of_mut!((*entry.as_ptr()).value) as *mut T
-    );
+    unsafe {
+      std::ptr::drop_in_place(
+        std::ptr::addr_of_mut!((*entry.as_ptr()).value) as *mut T
+      );
+    }
   }
 }
 
@@ -167,34 +170,36 @@ impl<T> RawArena<T> {
   /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically
   /// trigger the drop of all items allocated within.
   pub unsafe fn allocate(&self) -> NonNull<T> {
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(self.signature, SIGNATURE);
-    let next = self.next.get();
-    let max = self.max.get();
+    unsafe {
+      #[cfg(debug_assertions)]
+      debug_assert_eq!(self.signature, SIGNATURE);
+      let next = self.next.get();
+      let max = self.max.get();
 
-    // Check to see if we have gone past our high-water mark, and we need to extend it. The high-water
-    // mark allows us to leave the allocation uninitialized, and assume that the remaining part of the
-    // next-free list is a trivial linked-list where each node points to the next one.
-    if max == next {
-      // Are we out of room?
-      if max == self.past_alloc_end {
-        // We filled the RawArena, so start allocating
-        return Self::entry_to_data(alloc());
+      // Check to see if we have gone past our high-water mark, and we need to extend it. The high-water
+      // mark allows us to leave the allocation uninitialized, and assume that the remaining part of the
+      // next-free list is a trivial linked-list where each node points to the next one.
+      if max == next {
+        // Are we out of room?
+        if max == self.past_alloc_end {
+          // We filled the RawArena, so start allocating
+          return Self::entry_to_data(alloc());
+        }
+
+        // Nope, we can extend by one
+        let next = NonNull::new_unchecked(self.max.get().as_ptr().add(1));
+        self.next.set(next);
+        self.max.set(next);
+      } else {
+        // We haven't passed the high-water mark, so walk the internal next-free list
+        // for our next allocation
+        self.next.set(RawArenaEntry::next(next));
       }
 
-      // Nope, we can extend by one
-      let next = NonNull::new_unchecked(self.max.get().as_ptr().add(1));
-      self.next.set(next);
-      self.max.set(next);
-    } else {
-      // We haven't passed the high-water mark, so walk the internal next-free list
-      // for our next allocation
-      self.next.set(RawArenaEntry::next(next));
+      // Update accounting
+      self.allocated.set(self.allocated.get() + 1);
+      Self::entry_to_data(next)
     }
-
-    // Update accounting
-    self.allocated.set(self.allocated.get() + 1);
-    Self::entry_to_data(next)
   }
 
   /// Gets the next free entry, returning null if full. This is `O(1)`.
@@ -212,34 +217,36 @@ impl<T> RawArena<T> {
   /// perform any validation or cleanup on the allocated items. Dropping `RawArena` will automatically
   /// trigger the drop of all items allocated within.
   pub unsafe fn allocate_if_space(&self) -> Option<NonNull<T>> {
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(self.signature, SIGNATURE);
-    let next = self.next.get();
-    let max = self.max.get();
+    unsafe {
+      #[cfg(debug_assertions)]
+      debug_assert_eq!(self.signature, SIGNATURE);
+      let next = self.next.get();
+      let max = self.max.get();
 
-    // Check to see if we have gone past our high-water mark, and we need to extend it. The high-water
-    // mark allows us to leave the allocation uninitialized, and assume that the remaining part of the
-    // next-free list is a trivial linked-list where each node points to the next one.
-    if max == next {
-      // Are we out of room?
-      if max == self.past_alloc_end {
-        // We filled the RawArena, so return None
-        return None;
+      // Check to see if we have gone past our high-water mark, and we need to extend it. The high-water
+      // mark allows us to leave the allocation uninitialized, and assume that the remaining part of the
+      // next-free list is a trivial linked-list where each node points to the next one.
+      if max == next {
+        // Are we out of room?
+        if max == self.past_alloc_end {
+          // We filled the RawArena, so return None
+          return None;
+        }
+
+        // Nope, we can extend by one
+        let next = NonNull::new_unchecked(self.max.get().as_ptr().add(1));
+        self.next.set(next);
+        self.max.set(next);
+      } else {
+        // We haven't passed the high-water mark, so walk the internal next-free list
+        // for our next allocation
+        self.next.set((*(next.as_ptr())).next);
       }
 
-      // Nope, we can extend by one
-      let next = NonNull::new_unchecked(self.max.get().as_ptr().add(1));
-      self.next.set(next);
-      self.max.set(next);
-    } else {
-      // We haven't passed the high-water mark, so walk the internal next-free list
-      // for our next allocation
-      self.next.set((*(next.as_ptr())).next);
+      // Update accounting
+      self.allocated.set(self.allocated.get() + 1);
+      Some(Self::entry_to_data(next))
     }
-
-    // Update accounting
-    self.allocated.set(self.allocated.get() + 1);
-    Some(Self::entry_to_data(next))
   }
 
   /// Returns the remaining capacity of this [`RawArena`] that can be provided without allocation.
@@ -309,25 +316,27 @@ impl<T> RawArena<T> {
   /// We assume this pointer is either internal to the arena (in which case we return it
   /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`](Self::allocate).
   pub unsafe fn recycle(&self, data: NonNull<T>) -> bool {
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(self.signature, SIGNATURE);
-    let mut entry = Self::data_to_entry(data);
-    let mut emptied = false;
-    RawArenaEntry::drop(entry);
-    if entry >= self.alloc && entry < self.past_alloc_end {
-      let next = self.next.get();
-      let count = self.allocated.get() - 1;
-      emptied = count == 0;
-      self.allocated.set(count);
-      entry.as_mut().next = next;
-      self.next.set(entry);
-    } else {
-      std::alloc::dealloc(
-        entry.as_ptr() as _,
-        Layout::new::<RawArenaEntry<T>>(),
-      );
+    unsafe {
+      #[cfg(debug_assertions)]
+      debug_assert_eq!(self.signature, SIGNATURE);
+      let mut entry = Self::data_to_entry(data);
+      let mut emptied = false;
+      RawArenaEntry::drop(entry);
+      if entry >= self.alloc && entry < self.past_alloc_end {
+        let next = self.next.get();
+        let count = self.allocated.get() - 1;
+        emptied = count == 0;
+        self.allocated.set(count);
+        entry.as_mut().next = next;
+        self.next.set(entry);
+      } else {
+        std::alloc::dealloc(
+          entry.as_ptr() as _,
+          Layout::new::<RawArenaEntry<T>>(),
+        );
+      }
+      emptied
     }
-    emptied
   }
 
   /// Recycle a used item, returning it to the next-free list.
@@ -337,24 +346,26 @@ impl<T> RawArena<T> {
   /// We assume this pointer is either internal to the arena (in which case we return it
   /// to the arena), or allocated via [`std::alloc::alloc`] in [`allocate`](Self::allocate).
   pub unsafe fn recycle_without_drop(&self, data: NonNull<T>) -> bool {
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(self.signature, SIGNATURE);
-    let mut entry = Self::data_to_entry(data);
-    let mut emptied = false;
-    if entry >= self.alloc && entry < self.past_alloc_end {
-      let next = self.next.get();
-      let count = self.allocated.get() - 1;
-      emptied = count == 0;
-      self.allocated.set(count);
-      entry.as_mut().next = next;
-      self.next.set(entry);
-    } else {
-      std::alloc::dealloc(
-        entry.as_ptr() as _,
-        Layout::new::<RawArenaEntry<T>>(),
-      );
+    unsafe {
+      #[cfg(debug_assertions)]
+      debug_assert_eq!(self.signature, SIGNATURE);
+      let mut entry = Self::data_to_entry(data);
+      let mut emptied = false;
+      if entry >= self.alloc && entry < self.past_alloc_end {
+        let next = self.next.get();
+        let count = self.allocated.get() - 1;
+        emptied = count == 0;
+        self.allocated.set(count);
+        entry.as_mut().next = next;
+        self.next.set(entry);
+      } else {
+        std::alloc::dealloc(
+          entry.as_ptr() as _,
+          Layout::new::<RawArenaEntry<T>>(),
+        );
+      }
+      emptied
     }
-    emptied
   }
 }
 
@@ -383,9 +394,11 @@ mod tests {
 
   #[must_use = "If you don't use this, it'll leak!"]
   unsafe fn allocate(arena: &RawArena<usize>, i: usize) -> NonNull<usize> {
-    let mut new = arena.allocate();
-    *new.as_mut() = i;
-    new
+    unsafe {
+      let mut new = arena.allocate();
+      *new.as_mut() = i;
+      new
+    }
   }
 
   #[test]

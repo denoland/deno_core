@@ -1,20 +1,19 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use crate::FastStaticString;
+use crate::OpState;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
 use crate::ops::OpMetadata;
 use crate::runtime::bindings;
-use crate::FastStaticString;
-use crate::OpState;
-use anyhow::Context as _;
-use anyhow::Error;
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::sync::Arc;
+use v8::MapFnTo;
 use v8::fast_api::CFunction;
 use v8::fast_api::CFunctionInfo;
 use v8::fast_api::Int64Representation;
 use v8::fast_api::Type;
-use v8::MapFnTo;
 
 #[derive(Clone)]
 pub enum ExtensionFileSourceCode {
@@ -117,7 +116,7 @@ impl ExtensionFileSource {
   }
 
   #[allow(deprecated)]
-  pub fn load(&self) -> Result<ModuleCodeString, Error> {
+  pub fn load(&self) -> Result<ModuleCodeString, std::io::Error> {
     match &self.code {
       ExtensionFileSourceCode::LoadedFromMemoryDuringSnapshot(code)
       | ExtensionFileSourceCode::IncludedInBinary(code) => {
@@ -130,8 +129,7 @@ impl ExtensionFileSource {
         Ok(IntoModuleCodeString::into_module_code(*code))
       }
       ExtensionFileSourceCode::LoadedFromFsDuringSnapshot(path) => {
-        let msg = || format!("Failed to read \"{}\"", path);
-        let s = std::fs::read_to_string(path).with_context(msg)?;
+        let s = std::fs::read_to_string(path)?;
         debug_assert!(
           s.is_ascii(),
           "Extension code must be 7-bit ASCII: {} (found {})",
@@ -173,7 +171,7 @@ extern "C" fn noop() {}
 
 const NOOP_FN: CFunction = CFunction::new(
   noop as _,
-  &CFunctionInfo::new(Type::Void.scalar(), &[], Int64Representation::Number),
+  &CFunctionInfo::new(Type::Void.as_info(), &[], Int64Representation::Number),
 );
 
 // Declaration for object wrappers.
@@ -181,9 +179,10 @@ const NOOP_FN: CFunction = CFunction::new(
 pub struct OpMethodDecl {
   pub type_name: fn() -> &'static str,
   pub name: (&'static str, FastStaticString),
-  pub constructor: OpDecl,
+  pub constructor: Option<OpDecl>,
   pub methods: &'static [OpDecl],
   pub static_methods: &'static [OpDecl],
+  pub inherits_type_name: fn() -> Option<&'static str>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -199,6 +198,7 @@ pub struct OpDecl {
   pub name_fast: FastStaticString,
   pub is_async: bool,
   pub is_reentrant: bool,
+  pub symbol_for: bool,
   pub accessor_type: AccessorType,
   pub arg_count: u8,
   pub no_side_effects: bool,
@@ -222,6 +222,7 @@ impl OpDecl {
     name: (&'static str, FastStaticString),
     is_async: bool,
     is_reentrant: bool,
+    symbol_for: bool,
     arg_count: u8,
     no_side_effects: bool,
     slow_fn: OpFnRef,
@@ -237,6 +238,7 @@ impl OpDecl {
       name_fast: name.1,
       is_async,
       is_reentrant,
+      symbol_for,
       arg_count,
       no_side_effects,
       slow_fn,
@@ -357,10 +359,10 @@ macro_rules! ops {
 /// Return the first argument if not empty, otherwise the second.
 #[macro_export]
 macro_rules! or {
-  ($e:expr, $fallback:expr) => {
+  ($e:expr_2021, $fallback:expr_2021) => {
     $e
   };
-  (, $fallback:expr) => {
+  (, $fallback:expr_2021) => {
     $fallback
   };
 }
@@ -409,18 +411,18 @@ macro_rules! extension {
     $(, ops_fn = $ops_symbol:ident $( < $ops_param:ident > )? )?
     $(, ops = [ $( $(#[$m:meta])* $( $op:ident )::+ $( < $( $op_param:ident ),* > )?  ),+ $(,)? ] )?
     $(, objects = [ $( $(#[$masd:meta])* $( $object:ident )::+ ),+ $(,)? ] )?
-    $(, esm_entry_point = $esm_entry_point:expr )?
+    $(, esm_entry_point = $esm_entry_point:expr_2021 )?
     $(, esm = [ $($esm:tt)* ] )?
     $(, lazy_loaded_esm = [ $($lazy_loaded_esm:tt)* ] )?
     $(, js = [ $($js:tt)* ] )?
     $(, options = { $( $options_id:ident : $options_type:ty ),* $(,)? } )?
-    $(, middleware = $middleware_fn:expr )?
-    $(, state = $state_fn:expr )?
-    $(, global_template_middleware = $global_template_middleware_fn:expr )?
-    $(, global_object_middleware = $global_object_middleware_fn:expr )?
-    $(, external_references = [ $( $external_reference:expr ),* $(,)? ] )?
-    $(, customizer = $customizer_fn:expr )?
-    $(, docs = $($docblocks:expr),+)?
+    $(, middleware = $middleware_fn:expr_2021 )?
+    $(, state = $state_fn:expr_2021 )?
+    $(, global_template_middleware = $global_template_middleware_fn:expr_2021 )?
+    $(, global_object_middleware = $global_object_middleware_fn:expr_2021 )?
+    $(, external_references = [ $( $external_reference:expr_2021 ),* $(,)? ] )?
+    $(, customizer = $customizer_fn:expr_2021 )?
+    $(, docs = $($docblocks:expr_2021),+)?
     $(,)?
   ) => {
     $( $(#[doc = $docblocks])+ )?
@@ -431,7 +433,7 @@ macro_rules! extension {
     /// ```rust,ignore
     /// use deno_core::{ JsRuntime, RuntimeOptions };
     ///
-    #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init_ops_and_esm()];")]
+    #[doc = concat!("let mut extensions = vec![", stringify!($name), "::init()];")]
     /// let mut js_runtime = JsRuntime::new(RuntimeOptions {
     ///   extensions,
     ///   ..Default::default()
@@ -480,6 +482,7 @@ macro_rules! extension {
           global_object_middleware: ::std::option::Option::None,
           // Computed at runtime:
           op_state_fn: ::std::option::Option::None,
+          needs_lazy_init: false,
           middleware_fn: ::std::option::Option::None,
           enabled: true,
         }
@@ -498,11 +501,8 @@ macro_rules! extension {
       // Includes the state and middleware functions, if defined.
       #[inline(always)]
       #[allow(unused_variables)]
-      fn with_state_and_middleware$( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::Extension, $( $( $options_id : $options_type ),* )? )
-      $( where $( $bound : $bound_type ),+ )?
+      fn with_middleware(ext: &mut $crate::Extension)
       {
-        $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
-
         $(
           ext.global_template_middleware = ::std::option::Option::Some($global_template_middleware_fn);
         )?
@@ -523,49 +523,61 @@ macro_rules! extension {
         $( ($customizer_fn)(ext); )?
       }
 
-      #[allow(dead_code)]
-      /// Initialize this extension for runtime or snapshot creation. Use this
-      /// function if the runtime or snapshot is not created from a (separate)
-      /// snapshot, or that snapshot does not contain this extension. Otherwise
-      /// use `init_ops()` instead.
+      /// Initialize this extension for runtime or snapshot creation.
       ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
-      pub fn init_ops_and_esm $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
+      #[allow(dead_code)]
+      pub fn init $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
         let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
-        Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
+        $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
+        Self::with_middleware(&mut ext);
         Self::with_customizer(&mut ext);
         ext
       }
 
-      #[allow(dead_code)]
-      /// Initialize this extension for runtime or snapshot creation, excluding
-      /// its JavaScript sources and evaluation. This is used when the runtime
-      /// or snapshot is created from a (separate) snapshot which includes this
-      /// extension in order to avoid evaluating the JavaScript twice.
+      /// Initialize this extension for runtime or snapshot creation.
+      ///
+      /// If this method is used, you must later call `JsRuntime::lazy_init_extensions`
+      /// with the result of this extension's `args` method.
       ///
       /// # Returns
       /// an Extension object that can be used during instantiation of a JsRuntime
-      pub fn init_ops $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::Extension
+      #[allow(dead_code)]
+      pub fn lazy_init $( <  $( $param : $type + 'static ),+ > )? () -> $crate::Extension
       $( where $( $bound : $bound_type ),+ )?
       {
         let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
-        Self::with_state_and_middleware $( ::< $( $param ),+ > )?(&mut ext, $( $( $options_id , )* )? );
+        ext.needs_lazy_init = true;
+        Self::with_middleware(&mut ext);
         Self::with_customizer(&mut ext);
-        ext.js_files = ::std::borrow::Cow::Borrowed(&[]);
-        ext.esm_files = ::std::borrow::Cow::Borrowed(&[]);
-        ext.esm_entry_point = ::std::option::Option::None;
         ext
+      }
+
+      /// Create an `ExtensionArguments` value which must be passed to
+      /// `JsRuntime::lazy_init_extensions`.
+      #[allow(dead_code, unused_mut)]
+      pub fn args $( <  $( $param : $type + 'static ),+ > )? ( $( $( $options_id : $options_type ),* )? ) -> $crate::ExtensionArguments
+      $( where $( $bound : $bound_type ),+ )?
+      {
+        let mut args = $crate::ExtensionArguments {
+          name: ::std::stringify!($name),
+          op_state_fn: ::std::option::Option::None,
+        };
+
+        $crate::extension!(! __config__ args $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
+
+        args
       }
     }
   };
 
   // This branch of the macro generates a config object that calls the state function with itself.
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } $( state_fn = $state_fn:expr )? ) => {
+  (! __config__ $args:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? config = { $( $options_id:ident : $options_type:ty ),* } $( state_fn = $state_fn:expr_2021 )? ) => {
     {
       #[doc(hidden)]
       struct Config $( <  $( $param : $type + 'static ),+ > )? {
@@ -578,14 +590,15 @@ macro_rules! extension {
       };
 
       let state_fn: fn(&mut $crate::OpState, Config $( <  $( $param ),+ > )? ) = $(  $state_fn  )?;
-      $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new(move |state: &mut $crate::OpState| {
+
+      $args.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new(move |state: &mut $crate::OpState| {
         state_fn(state, config);
       }));
     }
   };
 
-  (! __config__ $ext:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr )? ) => {
-    $( $ext.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn)); )?
+  (! __config__ $args:ident $( parameters = [ $( $param:ident : $type:ident ),+ ] )? $( state_fn = $state_fn:expr_2021 )? ) => {
+    $( $args.op_state_fn = ::std::option::Option::Some(::std::boxed::Box::new($state_fn)); )?
   };
 
   (! __ops__ $ext:ident __eot__) => {
@@ -609,10 +622,11 @@ pub struct Extension {
   pub esm_entry_point: Option<&'static str>,
   pub ops: Cow<'static, [OpDecl]>,
   pub objects: Cow<'static, [OpMethodDecl]>,
-  pub external_references: Cow<'static, [v8::ExternalReference<'static>]>,
+  pub external_references: Cow<'static, [v8::ExternalReference]>,
   pub global_template_middleware: Option<GlobalTemplateMiddlewareFn>,
   pub global_object_middleware: Option<GlobalObjectMiddlewareFn>,
   pub op_state_fn: Option<Box<OpStateFn>>,
+  pub needs_lazy_init: bool,
   pub middleware_fn: Option<Box<OpMiddlewareFn>>,
   pub enabled: bool,
 }
@@ -624,6 +638,7 @@ impl Extension {
   pub(crate) fn for_warmup(&self) -> Extension {
     Self {
       op_state_fn: None,
+      needs_lazy_init: self.needs_lazy_init,
       middleware_fn: None,
       name: self.name,
       deps: self.deps,
@@ -656,6 +671,7 @@ impl Default for Extension {
       global_template_middleware: None,
       global_object_middleware: None,
       op_state_fn: None,
+      needs_lazy_init: false,
       middleware_fn: None,
       enabled: true,
     }
@@ -671,7 +687,10 @@ impl Extension {
   pub fn check_dependencies(&self, previous_exts: &[Extension]) {
     'dep_loop: for dep in self.deps {
       if dep == &self.name {
-        panic!("Extension '{}' is either depending on itself or there is another extension with the same name", self.name);
+        panic!(
+          "Extension '{}' is either depending on itself or there is another extension with the same name",
+          self.name
+        );
       }
 
       for ext in previous_exts {
@@ -732,7 +751,7 @@ impl Extension {
     }
   }
 
-  /// Middleware should be called before init_ops
+  /// Middleware should be called before init
   pub fn take_middleware(&mut self) -> Option<Box<OpMiddlewareFn>> {
     self.middleware_fn.take()
   }
@@ -749,9 +768,7 @@ impl Extension {
     self.global_object_middleware
   }
 
-  pub fn get_external_references(
-    &mut self,
-  ) -> &[v8::ExternalReference<'static>] {
+  pub fn get_external_references(&mut self) -> &[v8::ExternalReference] {
     self.external_references.as_ref()
   }
 
@@ -762,6 +779,15 @@ impl Extension {
   pub fn disable(self) -> Self {
     self.enabled(false)
   }
+}
+
+/// Holds configuration needed to initialize an extension. Must be passed to
+/// `JsRuntime::lazy_init_extensions`.
+pub struct ExtensionArguments {
+  #[doc(hidden)]
+  pub name: &'static str,
+  #[doc(hidden)]
+  pub op_state_fn: Option<Box<OpStateFn>>,
 }
 
 /// Helps embed JS files in an extension. Returns a vector of
@@ -897,7 +923,7 @@ macro_rules! __extension_include_js_files_detect {
 #[macro_export]
 macro_rules! __extension_include_js_files_inner {
   // Entry point: (mode=, name=, dir=, [... files])
-  (mode=$mode:ident, name=$name:ident, dir=$dir:expr, $([
+  (mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $([
     $s1:literal
     $(with_specifier $s2:literal)?
     $(= $config:tt)?
@@ -918,11 +944,11 @@ macro_rules! __extension_include_js_files_inner {
   // @parse_item macros will parse a single file entry, and then call @item macros with the destructured data
 
   // "file" -> Include a file, use the generated specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $file:literal) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $file:literal) => {
     $crate::__extension_include_js_files_inner!(@item mode=$mode, dir=$dir, specifier=concat!("ext:", stringify!($name), "/", $file), file=$file)
   };
   // "file" with_specifier "specifier" -> Include a file, use the provided specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $file:literal with_specifier $specifier:literal) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $file:literal with_specifier $specifier:literal) => {
     {
       #[deprecated="When including JS files 'file with_specifier specifier' is deprecated: use 'specifier = file' instead"]
       struct WithSpecifierIsDeprecated {}
@@ -931,30 +957,30 @@ macro_rules! __extension_include_js_files_inner {
     }
   };
   // "specifier" = "file" -> Include a file, use the provided specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $specifier:literal = $file:literal) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $specifier:literal = $file:literal) => {
     $crate::__extension_include_js_files_inner!(@item mode=$mode, dir=$dir, specifier=$specifier, file=$file)
   };
   // "specifier" = { source = "source" } -> Include a file, use the provided specifier
-  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr, $specifier:literal = { source = $source:literal }) => {
+  (@parse_item mode=$mode:ident, name=$name:ident, dir=$dir:expr_2021, $specifier:literal = { source = $source:literal }) => {
     $crate::__extension_include_js_files_inner!(@item mode=$mode, specifier=$specifier, source=$source)
   };
 
   // @item macros generate the final output
 
   // loaded, source
-  (@item mode=loaded, specifier=$specifier:expr, source=$source:expr) => {
+  (@item mode=loaded, specifier=$specifier:expr_2021, source=$source:expr_2021) => {
     $crate::ExtensionFileSource::loaded_from_memory_during_snapshot($specifier, $crate::ascii_str!($source))
   };
   // loaded, file
-  (@item mode=loaded, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
+  (@item mode=loaded, dir=$dir:expr_2021, specifier=$specifier:expr_2021, file=$file:literal) => {
     $crate::ExtensionFileSource::loaded_during_snapshot($specifier, concat!($dir, "/", $file))
   };
   // included, source
-  (@item mode=included, specifier=$specifier:expr, source=$source:expr) => {
+  (@item mode=included, specifier=$specifier:expr_2021, source=$source:expr_2021) => {
     $crate::ExtensionFileSource::new($specifier, $crate::ascii_str!($source))
   };
   // included, file
-  (@item mode=included, dir=$dir:expr, specifier=$specifier:expr, file=$file:literal) => {
+  (@item mode=included, dir=$dir:expr_2021, specifier=$specifier:expr_2021, file=$file:literal) => {
     $crate::ExtensionFileSource::new($specifier, $crate::ascii_str_include!(concat!($dir, "/", $file)))
   };
 }
@@ -966,7 +992,7 @@ macro_rules! __extension_root_dir {
   () => {
     env!("CARGO_MANIFEST_DIR")
   };
-  ($dir:expr) => {
+  ($dir:expr_2021) => {
     concat!(env!("CARGO_MANIFEST_DIR"), "/", $dir)
   };
 }

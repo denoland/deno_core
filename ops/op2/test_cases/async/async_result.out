@@ -10,6 +10,7 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_async),
             true,
             false,
+            false,
             1usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -26,7 +27,6 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -63,12 +63,7 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
                         let mut scope = unsafe {
                             deno_core::v8::CallbackScope::new(info)
                         };
-                        let err = err.into();
-                        let exception = deno_core::error::to_v8_error(
-                            &mut scope,
-                            opctx.get_error_class_fn,
-                            &err,
-                        );
+                        let exception = deno_core::error::to_v8_error(&mut scope, &err);
                         scope.throw_exception(exception);
                         return 1;
                     }
@@ -113,7 +108,7 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call() -> std::io::Result<i32> {
             Ok(0)
         }

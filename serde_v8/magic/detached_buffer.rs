@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use core::ops::Range;
 use std::ops::Deref;
@@ -6,8 +6,8 @@ use std::ops::DerefMut;
 
 use super::transl8::FromV8;
 use super::transl8::ToV8;
-use super::v8slice::to_ranged_buffer;
 use super::v8slice::V8Slice;
+use super::v8slice::to_ranged_buffer;
 use crate::magic::transl8::impl_magic;
 
 // A buffer that detaches when deserialized from JS
@@ -64,7 +64,7 @@ impl FromV8 for DetachedBuffer {
     }
     let store = b.get_backing_store();
     b.detach(None); // Detach
-                    // SAFETY: We got these values from to_ranged_buffer
+    // SAFETY: We got these values from to_ranged_buffer
     Ok(Self(unsafe { V8Slice::from_parts(store, range) }))
   }
 }

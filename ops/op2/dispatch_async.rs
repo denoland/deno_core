@@ -1,4 +1,7 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_slow::generate_dispatch_slow_call;
 use super::dispatch_slow::return_value_infallible;
@@ -12,12 +15,10 @@ use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
 use super::dispatch_slow::with_self;
 use super::dispatch_slow::with_stack_trace;
-use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
+use super::generator_state::gs_quote;
 use super::signature::ParsedSignature;
 use super::signature::RetVal;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -27,15 +28,21 @@ pub(crate) fn map_async_return_type(
 ) -> Result<(TokenStream, TokenStream, TokenStream), V8MappingError> {
   let return_value = return_value_v8_value(generator_state, ret_val.arg())?;
   let (mapper, return_value_immediate) = match ret_val {
-    RetVal::Future(r) | RetVal::ResultFuture(r) => (
+    RetVal::Infallible(r, true)
+    | RetVal::Future(r)
+    | RetVal::ResultFuture(r) => (
       quote!(map_async_op_infallible),
       return_value_infallible(generator_state, r)?,
     ),
-    RetVal::FutureResult(r) | RetVal::ResultFutureResult(r) => (
+    RetVal::Result(r, true)
+    | RetVal::FutureResult(r)
+    | RetVal::ResultFutureResult(r) => (
       quote!(map_async_op_fallible),
       return_value_result(generator_state, r)?,
     ),
-    RetVal::Infallible(_) | RetVal::Result(_) => return Err("an async return"),
+    RetVal::Infallible(_, false) | RetVal::Result(_, false) => {
+      return Err("an async return");
+    }
   };
   Ok((return_value, mapper, return_value_immediate))
 }
@@ -49,13 +56,14 @@ pub(crate) fn generate_dispatch_async(
 
   let with_self = if generator_state.needs_self {
     with_self(generator_state, &signature.ret_val)
-      .map_err(V8SignatureMappingError::NoSelfMapping)?
   } else {
     quote!()
   };
 
-  // input_index = 1 as promise ID is the first arg
-  let args = generate_dispatch_slow_call(generator_state, signature, 1)?;
+  // Set input_index = 1 when we don't want promise ID as the first arg.
+  let input_index = if config.promise_id { 0 } else { 1 };
+  let args =
+    generate_dispatch_slow_call(generator_state, signature, input_index)?;
 
   // Always need context and args
   generator_state.needs_opctx = true;
@@ -156,7 +164,6 @@ pub(crate) fn generate_dispatch_async(
 
   Ok(
     gs_quote!(generator_state(info, slow_function, slow_function_metrics, opctx) => {
-      #[inline(always)]
       fn slow_function_impl<'s>(info: &'s deno_core::v8::FunctionCallbackInfo) -> usize {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);

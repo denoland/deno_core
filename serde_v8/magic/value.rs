@@ -1,7 +1,8 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::magic::transl8::impl_magic;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use crate::magic::transl8::FromV8;
 use crate::magic::transl8::ToV8;
+use crate::magic::transl8::impl_magic;
 use std::mem::transmute;
 
 /// serde_v8::Value is used internally to serialize/deserialize values in

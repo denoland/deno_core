@@ -1,13 +1,13 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use std::ops::Deref;
 use std::ops::DerefMut;
 
 use crate::Error;
 
-use super::transl8::impl_magic;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
+use super::transl8::impl_magic;
 
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct U16String(Vec<u16>);
@@ -96,13 +96,7 @@ impl FromV8 for U16String {
     // before immediately writing into that buffer and sanity check with an assert
     unsafe {
       buffer.set_len(len);
-      let written = v8str.write(
-        scope,
-        &mut buffer,
-        0,
-        v8::WriteOptions::NO_NULL_TERMINATION,
-      );
-      assert!(written == len);
+      v8str.write_v2(scope, 0, &mut buffer, v8::WriteFlags::empty());
     }
     Ok(buffer.into())
   }

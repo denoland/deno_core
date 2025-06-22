@@ -1,8 +1,11 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::error::AnyError;
+use deno_core::GarbageCollected;
+use deno_core::OpState;
 use deno_core::op2;
 use deno_core::stats::RuntimeActivityDiff;
 use deno_core::stats::RuntimeActivitySnapshot;
@@ -10,12 +13,11 @@ use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
-use deno_core::GarbageCollected;
-use deno_core::OpState;
+use deno_error::JsErrorBox;
 
-use super::extensions::SomeType;
 use super::Output;
 use super::TestData;
+use super::extensions::SomeType;
 
 #[op2(fast)]
 pub fn op_log_debug(#[string] s: &str) {
@@ -72,7 +74,33 @@ pub fn op_stats_delete(
 
 pub struct TestObjectWrap {}
 
-impl GarbageCollected for TestObjectWrap {}
+impl GarbageCollected for TestObjectWrap {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"TestObjectWrap"
+  }
+}
+
+fn int(
+  _scope: &mut v8::HandleScope,
+  value: v8::Local<v8::Value>,
+) -> Result<(), JsErrorBox> {
+  if value.is_int32() {
+    return Ok(());
+  }
+
+  Err(JsErrorBox::type_error("Expected int"))
+}
+
+fn int_op(
+  _scope: &mut v8::HandleScope,
+  args: &v8::FunctionCallbackArguments,
+) -> Result<(), JsErrorBox> {
+  if args.length() != 1 {
+    return Err(JsErrorBox::type_error("Expected one argument"));
+  }
+
+  Ok(())
+}
 
 #[op2]
 impl TestObjectWrap {
@@ -92,44 +120,58 @@ impl TestObjectWrap {
   }
 
   #[fast]
-  #[rename("with_RENAME")]
-  fn with_rename(&self) {}
-}
+  fn with_scope_fast(&self, _scope: &mut v8::HandleScope) {}
 
-pub struct DOMPoint {
-  pub x: f64,
-  pub y: f64,
-  pub z: f64,
-  pub w: f64,
-}
-
-impl GarbageCollected for DOMPoint {}
-
-#[op2]
-impl DOMPoint {
-  #[constructor]
-  #[cppgc]
-  fn new(
-    x: Option<f64>,
-    y: Option<f64>,
-    z: Option<f64>,
-    w: Option<f64>,
-  ) -> DOMPoint {
-    DOMPoint {
-      x: x.unwrap_or(0.0),
-      y: y.unwrap_or(0.0),
-      z: z.unwrap_or(0.0),
-      w: w.unwrap_or(0.0),
-    }
+  #[fast]
+  #[undefined]
+  fn undefined_result(&self) -> Result<(), JsErrorBox> {
+    Ok(())
   }
 
-  #[required(1)]
-  #[static_method]
-  #[cppgc]
-  fn from_point(
+  #[fast]
+  #[rename("with_RENAME")]
+  fn with_rename(&self) {}
+
+  #[async_method]
+  async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), JsErrorBox> {
+    tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
+    Ok(())
+  }
+
+  #[fast]
+  #[validate(int_op)]
+  fn with_validate_int(
+    &self,
+    #[validate(int)]
+    #[smi]
+    t: u32,
+  ) -> Result<u32, JsErrorBox> {
+    Ok(t)
+  }
+
+  #[fast]
+  fn with_this(&self, #[this] _: v8::Global<v8::Object>) {}
+
+  #[getter]
+  #[string]
+  fn with_slow_getter(&self) -> String {
+    String::from("getter")
+  }
+}
+
+pub struct DOMPoint {}
+
+impl GarbageCollected for DOMPoint {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"DOMPoint"
+  }
+}
+
+impl DOMPointReadOnly {
+  fn from_point_inner(
     scope: &mut v8::HandleScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPoint, AnyError> {
+  ) -> Result<DOMPointReadOnly, JsErrorBox> {
     fn get(
       scope: &mut v8::HandleScope,
       other: v8::Local<v8::Object>,
@@ -141,38 +183,163 @@ impl DOMPoint {
         .map(|x| x.to_number(scope).unwrap().value())
     }
 
-    Ok(DOMPoint {
-      x: get(scope, other, "x").unwrap_or(0.0),
-      y: get(scope, other, "y").unwrap_or(0.0),
-      z: get(scope, other, "z").unwrap_or(0.0),
-      w: get(scope, other, "w").unwrap_or(0.0),
+    Ok(DOMPointReadOnly {
+      x: get(scope, other, "x").unwrap_or(0.0).into(),
+      y: get(scope, other, "y").unwrap_or(0.0).into(),
+      z: get(scope, other, "z").unwrap_or(0.0).into(),
+      w: get(scope, other, "w").unwrap_or(0.0).into(),
     })
   }
+}
 
+pub struct DOMPointReadOnly {
+  x: Cell<f64>,
+  y: Cell<f64>,
+  z: Cell<f64>,
+  w: Cell<f64>,
+}
+
+impl GarbageCollected for DOMPointReadOnly {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"DOMPointReadOnly"
+  }
+}
+
+#[op2(base)]
+impl DOMPointReadOnly {
   #[getter]
   fn x(&self) -> f64 {
-    self.x
+    self.x.get()
   }
-
-  #[setter]
-  fn x(&self, _: f64) {}
 
   #[getter]
   fn y(&self) -> f64 {
-    self.y
+    self.y.get()
   }
-  #[getter]
-  fn w(&self) -> f64 {
-    self.w
-  }
+
   #[getter]
   fn z(&self) -> f64 {
-    self.z
+    self.z.get()
+  }
+
+  #[getter]
+  fn w(&self) -> f64 {
+    self.w.get()
+  }
+}
+
+#[op2(inherit = DOMPointReadOnly)]
+impl DOMPoint {
+  #[constructor]
+  #[cppgc]
+  fn new(
+    x: Option<f64>,
+    y: Option<f64>,
+    z: Option<f64>,
+    w: Option<f64>,
+  ) -> (DOMPointReadOnly, DOMPoint) {
+    let ro = DOMPointReadOnly {
+      x: Cell::new(x.unwrap_or(0.0)),
+      y: Cell::new(y.unwrap_or(0.0)),
+      z: Cell::new(z.unwrap_or(0.0)),
+      w: Cell::new(w.unwrap_or(0.0)),
+    };
+
+    (ro, DOMPoint {})
+  }
+
+  #[required(1)]
+  #[static_method]
+  #[cppgc]
+  fn from_point(
+    scope: &mut v8::HandleScope,
+    other: v8::Local<v8::Object>,
+  ) -> Result<DOMPointReadOnly, JsErrorBox> {
+    DOMPointReadOnly::from_point_inner(scope, other)
+  }
+
+  #[required(1)]
+  #[cppgc]
+  fn from_point(
+    &self,
+    scope: &mut v8::HandleScope,
+    other: v8::Local<v8::Object>,
+  ) -> Result<DOMPointReadOnly, JsErrorBox> {
+    DOMPointReadOnly::from_point_inner(scope, other)
+  }
+
+  #[setter]
+  fn x(&self, x: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.x.set(x);
+  }
+
+  #[getter]
+  fn x(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.x.get()
+  }
+
+  #[setter]
+  fn y(&self, y: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.y.set(y);
+  }
+
+  #[getter]
+  fn y(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.y.get()
+  }
+
+  #[setter]
+  fn z(&self, z: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.z.set(z);
+  }
+
+  #[getter]
+  fn z(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.z.get()
+  }
+
+  #[setter]
+  fn w(&self, w: f64, #[proto] ro: &DOMPointReadOnly) {
+    ro.w.set(w);
+  }
+
+  #[getter]
+  fn w(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    ro.w.get()
   }
 
   #[fast]
   fn wrapping_smi(&self, #[smi] t: u32) -> u32 {
     t
+  }
+
+  #[fast]
+  #[symbol("symbolMethod")]
+  fn with_symbol(&self) {}
+
+  #[fast]
+  #[stack_trace]
+  fn with_stack_trace(&self) {}
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy)]
+pub enum TestEnumWrap {
+  #[allow(dead_code)]
+  A,
+}
+
+impl GarbageCollected for TestEnumWrap {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"TestEnumWrap"
+  }
+}
+
+#[op2]
+impl TestEnumWrap {
+  #[getter]
+  fn as_int(&self) -> u8 {
+    *self as u8
   }
 }
 
@@ -180,3 +347,14 @@ impl DOMPoint {
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }
+
+pub struct Foo;
+
+impl deno_core::GarbageCollected for Foo {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"Foo"
+  }
+}
+
+#[op2(fast)]
+pub fn op_scope_cppgc(_scope: &mut v8::HandleScope, #[cppgc] _foo: &Foo) {}

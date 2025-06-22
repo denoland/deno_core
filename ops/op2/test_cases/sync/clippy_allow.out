@@ -12,6 +12,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_extra_annotation),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -23,8 +24,8 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
-                        &[CType::V8Value.scalar()],
+                        CType::Void.as_info(),
+                        &[CType::V8Value.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -35,8 +36,8 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
-                        &[CType::V8Value.scalar(), CType::CallbackOptions.scalar()],
+                        CType::Void.as_info(),
+                        &[CType::V8Value.as_info(), CType::CallbackOptions.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -88,7 +89,6 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
             let result = { Self::call() };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -137,7 +137,7 @@ pub const fn op_extra_annotation() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_extra_annotation {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         /// This is a doc comment.
         #[allow(clippy::some_annotation)]
         pub fn call() -> () {}
@@ -157,6 +157,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_clippy_internal),
             false,
             false,
+            false,
             0usize as u8,
             false,
             Self::v8_fn_ptr as _,
@@ -168,8 +169,8 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
-                        &[CType::V8Value.scalar()],
+                        CType::Void.as_info(),
+                        &[CType::V8Value.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -180,8 +181,8 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
                 deno_core::v8::fast_api::CFunction::new(
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
-                        CType::Void.scalar(),
-                        &[CType::V8Value.scalar(), CType::CallbackOptions.scalar()],
+                        CType::Void.as_info(),
+                        &[CType::V8Value.as_info(), CType::CallbackOptions.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -233,7 +234,6 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
             let result = { Self::call() };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -282,7 +282,7 @@ pub const fn op_clippy_internal() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_clippy_internal {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub fn call() -> () {
             { #![allow(clippy::await_holding_refcell_ref)] }
         }

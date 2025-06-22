@@ -1,18 +1,10 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use serde::Deserialize;
 use serde::de::SeqAccess as _;
 use serde::de::Visitor;
 use serde::de::{self};
-use serde::Deserialize;
 
-use crate::error::Error;
-use crate::error::Result;
-use crate::keys::v8_struct_key;
-use crate::keys::KeyCache;
-use crate::magic;
-use crate::magic::transl8::visit_magic;
-use crate::magic::transl8::FromV8;
-use crate::magic::transl8::MagicType;
-use crate::payload::ValueType;
 use crate::AnyValue;
 use crate::BigInt;
 use crate::ByteString;
@@ -20,6 +12,15 @@ use crate::DetachedBuffer;
 use crate::JsBuffer;
 use crate::StringOrBuffer;
 use crate::U16String;
+use crate::error::Error;
+use crate::error::Result;
+use crate::keys::KeyCache;
+use crate::keys::v8_struct_key;
+use crate::magic;
+use crate::magic::transl8::FromV8;
+use crate::magic::transl8::MagicType;
+use crate::magic::transl8::visit_magic;
+use crate::payload::ValueType;
 
 pub struct Deserializer<'a, 'b, 's> {
   input: v8::Local<'a, v8::Value>,
@@ -106,9 +107,7 @@ macro_rules! deserialize_unsigned {
   };
 }
 
-impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
-  for &'x mut Deserializer<'a, 'b, 's>
-{
+impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'_, '_, '_> {
   type Error = Error;
 
   fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
@@ -675,9 +674,7 @@ struct VariantDeserializer<'a, 'b, 's> {
   scope: &'b mut v8::HandleScope<'s>,
 }
 
-impl<'de, 'a, 'b, 's> de::VariantAccess<'de>
-  for VariantDeserializer<'a, 'b, 's>
-{
+impl<'de> de::VariantAccess<'de> for VariantDeserializer<'_, '_, '_> {
   type Error = Error;
 
   fn unit_variant(self) -> Result<()> {
@@ -748,12 +745,11 @@ fn to_utf8_fast(
   let mut buf = Vec::with_capacity(capacity);
 
   let mut nchars = 0;
-  let bytes_len = s.write_utf8_uninit(
+  let bytes_len = s.write_utf8_uninit_v2(
     scope,
     buf.spare_capacity_mut(),
+    v8::WriteFlags::kReplaceInvalidUtf8,
     Some(&mut nchars),
-    v8::WriteOptions::NO_NULL_TERMINATION
-      | v8::WriteOptions::REPLACE_INVALID_UTF8,
   );
 
   if nchars < str_chars {
@@ -774,17 +770,16 @@ fn to_utf8_slow(
   let capacity = s.utf8_length(scope);
   let mut buf = Vec::with_capacity(capacity);
 
-  let bytes_len = s.write_utf8_uninit(
+  s.write_utf8_uninit_v2(
     scope,
     buf.spare_capacity_mut(),
+    v8::WriteFlags::kReplaceInvalidUtf8,
     None,
-    v8::WriteOptions::NO_NULL_TERMINATION
-      | v8::WriteOptions::REPLACE_INVALID_UTF8,
   );
 
   // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8
   unsafe {
-    buf.set_len(bytes_len);
+    buf.set_len(capacity);
     String::from_utf8_unchecked(buf)
   }
 }

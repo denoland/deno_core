@@ -50,6 +50,12 @@ jobs:
       - name: Install Rust
         uses: dsherret/rust-toolchain-file@v1
 
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install nextest
+        run: cargo binstall cargo-nextest --secure
+
       - name: Install Deno
         uses: denoland/setup-deno@v1
 
@@ -107,7 +113,7 @@ jobs:
 
       - name: Test (valgrind)
         id: test-valgrind
-        if: inputs.job == 'test-valgrind'
+        if: inputs.is_main && inputs.job == 'test-valgrind'
         uses: ./.github/workflows/ci-test-valgrind
 
       - name: Publish (dry-run)

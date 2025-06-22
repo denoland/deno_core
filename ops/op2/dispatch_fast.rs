@@ -1,11 +1,14 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
-use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
+use super::generator_state::gs_quote;
 use super::signature::Arg;
 use super::signature::BufferMode;
 use super::signature::BufferSource;
@@ -16,8 +19,6 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::Special;
 use super::signature::Strings;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use crate::op2::dispatch_async::map_async_return_type;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
@@ -101,24 +102,35 @@ impl FastSignature {
     for arg in &self.args {
       match arg {
         FastArg::Actual { arg, name_out, .. }
-        | FastArg::Virtual { name_out, arg } => call_args.push(
-          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
-            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
-          )?,
-        ),
+        | FastArg::Virtual { name_out, arg } => {
+          if !matches!(arg, Arg::Ref(_, Special::HandleScope)) {
+            call_args.push(
+              map_v8_fastcall_arg_to_arg(generator_state, name_out, arg)
+                .map_err(|s| {
+                  V8SignatureMappingError::NoArgMapping(s, arg.clone())
+                })?,
+            )
+          } else {
+            generator_state.needs_scope = true;
+          }
+        }
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
     }
     Ok(call_args)
   }
 
-  pub(crate) fn call_names(&self) -> Vec<Ident> {
+  pub(crate) fn call_names(&self) -> Vec<TokenStream> {
     let mut call_names = vec![];
     for arg in &self.args {
       match arg {
-        FastArg::Actual { name_out, .. }
-        | FastArg::Virtual { name_out, .. } => {
-          call_names.push(name_out.clone())
+        FastArg::Actual { name_out, arg, .. }
+        | FastArg::Virtual { name_out, arg } => {
+          if matches!(arg, Arg::Ref(_, Special::HandleScope)) {
+            call_names.push(quote!(&mut scope));
+          } else {
+            call_names.push(quote!(#name_out));
+          }
         }
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
@@ -141,7 +153,7 @@ impl FastSignature {
         Self::#fast_function as _,
         &deno_core::v8::fast_api::CFunctionInfo::new(
           #output_type,
-          &[ CType::V8Value.scalar(), #( #input_types ),* ],
+          &[ CType::V8Value.as_info(), #( #input_types ),* ],
           deno_core::v8::fast_api::Int64Representation::BigInt,
         ),
       )
@@ -202,7 +214,10 @@ impl V8FastCallType {
       V8FastCallType::F32 => quote!(f32),
       V8FastCallType::F64 => quote!(f64),
       V8FastCallType::Pointer => quote!(*mut ::std::ffi::c_void),
-      V8FastCallType::V8Value => {
+      V8FastCallType::V8Value
+      | V8FastCallType::Uint8Array
+      | V8FastCallType::Uint32Array
+      | V8FastCallType::Float64Array => {
         quote!(deno_core::v8::Local<deno_core::v8::Value>)
       }
       V8FastCallType::CallbackOptions => {
@@ -210,15 +225,6 @@ impl V8FastCallType {
       }
       V8FastCallType::SeqOneByteString => {
         quote!(*mut deno_core::v8::fast_api::FastApiOneByteString)
-      }
-      V8FastCallType::Uint8Array => {
-        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<u8>)
-      }
-      V8FastCallType::Uint32Array => {
-        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<u32>)
-      }
-      V8FastCallType::Float64Array => {
-        quote!(*mut deno_core::v8::fast_api::FastApiTypedArray<f64>)
       }
       V8FastCallType::AnyArray | V8FastCallType::ArrayBuffer => {
         quote!(deno_core::v8::Local<deno_core::v8::Value>)
@@ -230,35 +236,33 @@ impl V8FastCallType {
   /// Quote fast value type's variant.
   fn quote_ctype(&self) -> TokenStream {
     match &self {
-      V8FastCallType::Void => quote!(CType::Void.scalar()),
-      V8FastCallType::Bool => quote!(CType::Bool.scalar()),
+      V8FastCallType::Void => quote!(CType::Void.as_info()),
+      V8FastCallType::Bool => quote!(CType::Bool.as_info()),
       V8FastCallType::U32 => quote!(v8::fast_api::CTypeInfo::new(
         CType::Uint32,
-        v8::fast_api::SequenceType::Scalar,
         v8::fast_api::Flags::Clamp
       )),
       V8FastCallType::I32 => quote!(v8::fast_api::CTypeInfo::new(
         CType::Int32,
-        v8::fast_api::SequenceType::Scalar,
         v8::fast_api::Flags::Clamp
       )),
-      V8FastCallType::U64 => quote!(CType::Uint64.scalar()),
-      V8FastCallType::I64 => quote!(CType::Int64.scalar()),
-      V8FastCallType::F32 => quote!(CType::Float32.scalar()),
-      V8FastCallType::F64 => quote!(CType::Float64.scalar()),
-      V8FastCallType::Pointer => quote!(CType::Pointer.scalar()),
-      V8FastCallType::V8Value => quote!(CType::V8Value.scalar()),
+      V8FastCallType::U64 => quote!(CType::Uint64.as_info()),
+      V8FastCallType::I64 => quote!(CType::Int64.as_info()),
+      V8FastCallType::F32 => quote!(CType::Float32.as_info()),
+      V8FastCallType::F64 => quote!(CType::Float64.as_info()),
+      V8FastCallType::Pointer => quote!(CType::Pointer.as_info()),
+      V8FastCallType::V8Value => quote!(CType::V8Value.as_info()),
       V8FastCallType::CallbackOptions => {
-        quote!(CType::CallbackOptions.scalar())
+        quote!(CType::CallbackOptions.as_info())
       }
-      V8FastCallType::AnyArray => quote!(CType::V8Value.scalar()),
-      V8FastCallType::Uint8Array => quote!(CType::Uint8.typed_array()),
-      V8FastCallType::Uint32Array => quote!(CType::Uint32.typed_array()),
-      V8FastCallType::Float64Array => quote!(CType::Float64.typed_array()),
+      V8FastCallType::AnyArray => quote!(CType::V8Value.as_info()),
+      V8FastCallType::Uint8Array => quote!(CType::V8Value.as_info()),
+      V8FastCallType::Uint32Array => quote!(CType::V8Value.as_info()),
+      V8FastCallType::Float64Array => quote!(CType::V8Value.as_info()),
       V8FastCallType::SeqOneByteString => {
-        quote!(CType::SeqOneByteString.scalar())
+        quote!(CType::SeqOneByteString.as_info())
       }
-      V8FastCallType::ArrayBuffer => quote!(CType::V8Value.scalar()),
+      V8FastCallType::ArrayBuffer => quote!(CType::V8Value.as_info()),
       V8FastCallType::Virtual => unreachable!("invalid virtual argument"),
     }
   }
@@ -271,7 +275,7 @@ pub(crate) fn get_fast_signature(
 ) -> Result<Option<FastSignature>, V8SignatureMappingError> {
   let mut args = vec![];
   let mut index_in = 0;
-  for (index_out, arg) in signature.args.iter().cloned().enumerate() {
+  for (index_out, (arg, _)) in signature.args.iter().cloned().enumerate() {
     let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg)
       .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?
     else {
@@ -331,9 +335,7 @@ fn throw_type_error(
   let message = format!("{message}");
   quote!({
     let mut scope = #create_scope;
-    let msg = deno_core::v8::String::new_from_one_byte(&mut scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-    scope.throw_exception(exc);
+    deno_core::_ops::throw_error_one_byte(&mut scope, #message);
     // SAFETY: All fast return types have zero as a valid value
     return unsafe { std::mem::zeroed() };
   })
@@ -346,15 +348,13 @@ pub(crate) fn generate_fast_result_early_exit(
 ) -> TokenStream {
   generator_state.needs_opctx = true;
   let create_scope = create_scope(generator_state);
-  gs_quote!(generator_state(opctx, result) => {
+  gs_quote!(generator_state(result) => {
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
-        let err = err.into();
         let mut scope = #create_scope;
         let exception = deno_core::error::to_v8_error(
           &mut scope,
-          #opctx.get_error_class_fn,
           &err,
         );
         scope.throw_exception(exception);
@@ -373,7 +373,7 @@ pub(crate) fn generate_dispatch_fast(
   Option<(TokenStream, TokenStream, TokenStream)>,
   V8SignatureMappingError,
 > {
-  if let Some(alternative) = config.fast_alternatives.first() {
+  if let Some(alternative) = &config.fast_alternative {
     // TODO(mmastrac): we should validate the alternatives. For now we just assume the caller knows what
     // they are doing.
     let alternative =
@@ -437,7 +437,6 @@ pub(crate) fn generate_dispatch_fast(
   let with_stack_trace = if generator_state.needs_stack_trace {
     generator_state.needs_opctx = true;
     generator_state.needs_scope = true;
-    generator_state.needs_fast_scope = false;
 
     gs_quote!(generator_state(opctx, scope, opstate) =>
     (if #opctx.enable_stack_trace {
@@ -471,17 +470,6 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
-  let with_isolate = if generator_state.needs_fast_isolate
-    && !generator_state.needs_fast_scope
-  {
-    generator_state.needs_opctx = true;
-    gs_quote!(generator_state(opctx, scope) =>
-      (let mut #scope = unsafe { &mut *#opctx.isolate };)
-    )
-  } else {
-    quote!()
-  };
-
   let with_opctx = if generator_state.needs_opctx {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(opctx, fast_api_callback_options) => {
@@ -495,15 +483,13 @@ pub(crate) fn generate_dispatch_fast(
   };
 
   let with_self = if generator_state.needs_self {
-    generator_state.needs_fast_api_callback_options = true;
+    generator_state.needs_fast_isolate = true;
     let throw_exception = throw_type_error(
       generator_state,
       format!("expected {}", &generator_state.self_ty),
     );
-    gs_quote!(generator_state(self_ty, fast_api_callback_options) => {
-      // SAFETY: Isolate is valid if this function is being called.
-      let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(isolate, this.into()) else {
+    gs_quote!(generator_state(self_ty, scope, try_unwrap_cppgc) => {
+      let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, this.into()) else {
         #throw_exception
       };
       let self_ = &*self_;
@@ -512,6 +498,17 @@ pub(crate) fn generate_dispatch_fast(
     quote!()
   };
 
+  let with_isolate = if generator_state.needs_fast_isolate
+    && !generator_state.needs_scope
+    && !generator_state.needs_stack_trace
+  {
+    generator_state.needs_fast_api_callback_options = true;
+    gs_quote!(generator_state(scope, fast_api_callback_options) =>
+      (let mut #scope = unsafe { &mut *#fast_api_callback_options.isolate };)
+    )
+  } else {
+    quote!()
+  };
   let with_scope = if generator_state.needs_scope {
     let create_scope = create_scope(generator_state);
     gs_quote!(generator_state(scope) => {
@@ -594,8 +591,8 @@ pub(crate) fn generate_dispatch_fast(
       #with_opstate;
       #with_stack_trace
       #with_js_runtime_state
-      #with_self
       #with_isolate
+      #with_self
       let #result = {
         #(#call_args)*
         #call (#(#call_names),*)
@@ -609,15 +606,30 @@ pub(crate) fn generate_dispatch_fast(
 }
 
 fn fast_api_typed_array_to_buffer(
+  generator_state: &mut GeneratorState,
   arg_ident: &Ident,
   input: &Ident,
   buffer: BufferType,
 ) -> Result<TokenStream, V8MappingError> {
   let convert = byte_slice_to_buffer(arg_ident, input, buffer)?;
+  let throw_exception =
+    throw_type_error(generator_state, "expected ArrayBufferView");
   Ok(quote! {
+    let Ok(#input) = #input.try_cast::<deno_core::v8::ArrayBufferView>() else {
+        #throw_exception
+    };
+    let mut buffer = [0; ::deno_core::v8::TYPED_ARRAY_MAX_SIZE_IN_HEAP];
     // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
     // fastcall.
-    let #input = unsafe { &*#input }.get_storage_if_aligned().expect("Invalid buffer");
+    let #input = unsafe {
+      let (input_ptr, input_len) = #input.get_contents_raw_parts(&mut buffer);
+      let input_ptr = if input_ptr.is_null() { ::std::ptr::dangling_mut() } else { input_ptr };
+      let slice = ::std::slice::from_raw_parts_mut::<'s>(input_ptr, input_len);
+      let (before, slice, after) = slice.align_to_mut();
+      debug_assert!(before.is_empty());
+      debug_assert!(after.is_empty());
+      slice
+    };
     #convert
   })
 }
@@ -632,9 +644,9 @@ fn map_v8_fastcall_arg_to_arg(
     opctx,
     js_runtime_state,
     scope,
-    needs_scope,
     needs_opctx,
     needs_fast_api_callback_options,
+    needs_fast_isolate,
     needs_js_runtime_state,
     ..
   } = generator_state;
@@ -697,7 +709,12 @@ fn map_v8_fastcall_arg_to_arg(
       )
     }
     Arg::Buffer(buffer, _, BufferSource::TypedArray) => {
-      fast_api_typed_array_to_buffer(arg_ident, arg_ident, *buffer)?
+      fast_api_typed_array_to_buffer(
+        generator_state,
+        arg_ident,
+        arg_ident,
+        *buffer,
+      )?
     }
     Arg::Special(Special::Isolate) => {
       *needs_fast_api_callback_options = true;
@@ -714,8 +731,7 @@ fn map_v8_fastcall_arg_to_arg(
       quote!(let #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);)
     }
     Arg::Ref(_, Special::HandleScope) => {
-      *needs_scope = true;
-      quote!(let #arg_ident = &mut #scope;)
+      unreachable!()
     }
     Arg::RcRefCell(Special::OpState) => {
       *needs_opctx = true;
@@ -761,10 +777,10 @@ fn map_v8_fastcall_arg_to_arg(
         let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
       }
     }
-    Arg::VarArgs => {
-      quote! {
-        let #arg_ident = None;
-      }
+    Arg::VarArgs => quote!(let #arg_ident = None;),
+    Arg::This => {
+      *needs_fast_isolate = true;
+      quote!(let #arg_ident = deno_core::v8::Global::new(&mut #scope, this);)
     }
     Arg::String(Strings::RefStr) => {
       quote! {
@@ -798,17 +814,15 @@ fn map_v8_fastcall_arg_to_arg(
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
-    Arg::CppGcResource(ty) => {
+    Arg::CppGcResource(_, ty) => {
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_api_callback_options = true;
+      *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(fast_api_callback_options) => {
-        // SAFETY: Isolate is valid if this function is being called.
-        let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
-        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(isolate, #arg_ident) else {
+      gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
+        let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) else {
           #throw_exception
         };
         let #arg_ident = &*#arg_ident;
@@ -818,15 +832,13 @@ fn map_v8_fastcall_arg_to_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
-      *needs_fast_api_callback_options = true;
+      *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(fast_api_callback_options) => {
-        // SAFETY: Isolate is valid if this function is being called.
-        let isolate = unsafe { &mut *#fast_api_callback_options.isolate };
+      gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
-        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(isolate, #arg_ident) {
+        } else if let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) {
           Some(#arg_ident)
         } else {
           #throw_exception
@@ -894,6 +906,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
     | Arg::State(..)
     | Arg::VarArgs
+    | Arg::This
     | Arg::Special(Special::Isolate)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
@@ -903,6 +916,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
     | Arg::FromV8(_)
+    | Arg::WebIDL(_, _, _)
     | Arg::Ref(..) => return Ok(None),
     // We don't support v8 global arguments
     Arg::V8Global(_) | Arg::OptionV8Global(_) => return Ok(None),
@@ -953,8 +967,11 @@ fn map_retval_to_v8_fastcall_type(
   arg: &Arg,
 ) -> Result<Option<V8FastCallType>, V8MappingError> {
   let rv = match arg {
-    Arg::OptionNumeric(..) | Arg::SerdeV8(_) | Arg::ToV8(_) => return Ok(None),
-    Arg::Void => V8FastCallType::Void,
+    Arg::OptionNumeric(..)
+    | Arg::SerdeV8(_)
+    | Arg::ToV8(_)
+    | Arg::WebIDL(_, _, _) => return Ok(None),
+    Arg::VoidUndefined | Arg::Void => V8FastCallType::Void,
     Arg::Numeric(NumericArg::bool, _) => V8FastCallType::Bool,
     Arg::Numeric(NumericArg::u32, _)
     | Arg::Numeric(NumericArg::u16, _)

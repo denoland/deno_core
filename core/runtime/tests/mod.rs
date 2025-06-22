@@ -1,16 +1,17 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::AnyError;
-use crate::op2;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use crate::CrossIsolateStore;
 use crate::JsRuntime;
 use crate::OpState;
 use crate::RuntimeOptions;
+use crate::op2;
+use deno_error::JsErrorBox;
 use serde_v8::JsBuffer;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 mod error;
 mod jsrealm;
@@ -36,7 +37,7 @@ async fn op_test(
   rc_op_state: Rc<RefCell<OpState>>,
   control: u8,
   #[buffer] buf: Option<JsBuffer>,
-) -> Result<u8, AnyError> {
+) -> Result<u8, JsErrorBox> {
   let op_state_ = rc_op_state.borrow();
   let test_state = op_state_.borrow::<TestState>();
   test_state.dispatch_count.fetch_add(1, Ordering::Relaxed);
@@ -79,10 +80,7 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
     }
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops(mode, dispatch_count.clone())],
-    get_error_class_fn: Some(&|error| {
-      crate::error::get_custom_error_class(error).unwrap()
-    }),
+    extensions: vec![test_ext::init(mode, dispatch_count.clone())],
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   });

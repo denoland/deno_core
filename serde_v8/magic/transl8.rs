@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 //! Transerialization extends the set of serde-compatible types (for given de/serializers).
 //! By "hackishly" transmuting references across serde boundaries as u64s.
@@ -53,7 +53,7 @@ where
     p1: std::marker::PhantomData<T>,
   }
 
-  impl<'de, T: MagicType> serde::de::Visitor<'de> for ValueVisitor<T> {
+  impl<T: MagicType> serde::de::Visitor<'_> for ValueVisitor<T> {
     type Value = T;
 
     fn expecting(

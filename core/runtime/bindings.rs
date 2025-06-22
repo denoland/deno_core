@@ -1,5 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use anyhow::Context;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use std::collections::HashMap;
 use std::mem::MaybeUninit;
 use std::os::raw::c_void;
@@ -10,38 +10,38 @@ use v8::MapFnTo;
 use super::jsruntime::BUILTIN_SOURCES;
 use super::jsruntime::CONTEXT_SETUP_SOURCES;
 use super::v8_static_strings::*;
-use crate::cppgc::cppgc_template_constructor;
-use crate::cppgc::FunctionTemplateData;
-use crate::error::callsite_fns;
-use crate::error::has_call_site;
-use crate::error::is_instance_of_error;
-use crate::error::throw_type_error;
-use crate::error::AnyError;
-use crate::error::JsStackFrame;
-use crate::extension_set::LoadedSources;
-use crate::modules::get_requested_module_type_from_attributes;
-use crate::modules::parse_import_attributes;
-use crate::modules::synthetic_module_evaluation_steps;
-use crate::modules::ImportAttributesKind;
-use crate::modules::ModuleMap;
-use crate::ops::OpCtx;
-use crate::ops::OpMethodCtx;
-use crate::runtime::InitMode;
-use crate::runtime::JsRealm;
+use crate::_ops::OpMethodDecl;
 use crate::AccessorType;
 use crate::FastStaticString;
 use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleType;
+use crate::OpDecl;
+use crate::cppgc::FunctionTemplateData;
+use crate::cppgc::cppgc_template_constructor;
+use crate::error::CoreError;
+use crate::error::JsStackFrame;
+use crate::error::callsite_fns;
+use crate::error::has_call_site;
+use crate::error::is_instance_of_error;
+use crate::extension_set::LoadedSources;
+use crate::modules::ImportAttributesKind;
+use crate::modules::ModuleMap;
+use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::parse_import_attributes;
+use crate::modules::synthetic_module_evaluation_steps;
+use crate::ops::OpCtx;
+use crate::runtime::InitMode;
+use crate::runtime::JsRealm;
+use deno_error::JsErrorBox;
 
 pub(crate) fn create_external_references(
   ops: &[OpCtx],
-  op_method_ctxs: &[OpMethodCtx],
   additional_references: &[v8::ExternalReference],
   sources: &[v8::OneByteConst],
   ops_in_snapshot: usize,
   sources_in_snapshot: usize,
-) -> v8::ExternalReferences {
+) -> Vec<v8::ExternalReference> {
   // Overallocate a bit, it's better than having to resize the vector.
   let mut references = Vec::with_capacity(
     6 + CONTEXT_SETUP_SOURCES.len()
@@ -49,8 +49,8 @@ pub(crate) fn create_external_references(
       + (ops.len() * 4)
       + additional_references.len()
       + sources.len()
-      + op_method_ctxs.len()
-      + 18, // for callsite_fns
+      + 18 // for callsite_fns
+      + 1, // nullptr
   );
 
   references.push(v8::ExternalReference {
@@ -87,16 +87,6 @@ pub(crate) fn create_external_references(
     references.push(v8::ExternalReference {
       pointer: source_file.source.into_v8_const_ptr() as _,
     });
-  }
-
-  for ctx in op_method_ctxs {
-    references.extend_from_slice(&ctx.constructor.external_references());
-    for method in &ctx.methods {
-      references.extend_from_slice(&method.external_references());
-    }
-    for method in &ctx.static_methods {
-      references.extend_from_slice(&method.external_references());
-    }
   }
 
   references.extend_from_slice(additional_references);
@@ -176,7 +166,12 @@ pub(crate) fn create_external_references(
     function: callsite_fns::to_string.map_fn_to(),
   });
 
-  v8::ExternalReferences::new(&references)
+  // null terminate so rusty_v8 doesn't have to make a copy.
+  references.push(v8::ExternalReference {
+    pointer: std::ptr::null_mut(),
+  });
+
+  references
 }
 
 /// Combine the snapshotted sources (which may be empty) with the loaded sources, and ensure that
@@ -323,7 +318,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 /// to function properly
 pub(crate) fn initialize_primordials_and_infra(
   scope: &mut v8::HandleScope,
-) -> Result<(), AnyError> {
+) -> Result<(), CoreError> {
   for source_file in &CONTEXT_SETUP_SOURCES {
     let name = source_file.specifier.v8_string(scope).unwrap();
     let source = source_file.source.v8_string(scope).unwrap();
@@ -331,13 +326,25 @@ pub(crate) fn initialize_primordials_and_infra(
     let origin = crate::modules::script_origin(scope, name, false, None);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source, Some(&origin))
-      .with_context(|| format!("Failed to parse {}", source_file.specifier))?;
-    script.run(scope).with_context(|| {
-      format!("Failed to execute {}", source_file.specifier)
-    })?;
+      .ok_or_else(|| CoreError::Parse(source_file.specifier))?;
+    script
+      .run(scope)
+      .ok_or_else(|| CoreError::Execute(source_file.specifier))?;
   }
 
   Ok(())
+}
+
+fn name_key<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  decl: &OpDecl,
+) -> v8::Local<'s, v8::Name> {
+  let key_str = decl.name_fast.v8_string(scope).unwrap();
+  if decl.symbol_for {
+    v8::Symbol::for_key(scope, key_str).into()
+  } else {
+    key_str.into()
+  }
 }
 
 /// Set up JavaScript bindings for ops.
@@ -345,7 +352,8 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   scope: &mut v8::HandleScope<'s>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
-  op_method_ctxs: &[OpMethodCtx],
+  op_method_decls: &[OpMethodDecl],
+  methods_ctx_offset: usize,
   fn_template_store: &mut FunctionTemplateData,
 ) {
   let global = context.global(scope);
@@ -366,8 +374,93 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   );
 
   let undefined = v8::undefined(scope);
+  let mut index = 0;
+
+  for decl in op_method_decls {
+    if index == methods_ctx_offset {
+      break;
+    }
+
+    let tmpl = if decl.constructor.is_some() {
+      let constructor_ctx = &op_ctxs[index];
+
+      let tmpl =
+        op_ctx_template(scope, constructor_ctx, v8::ConstructorBehavior::Allow);
+
+      index += 1;
+
+      tmpl
+    } else {
+      crate::cppgc::make_cppgc_template(scope)
+    };
+
+    let key = decl.name.1.v8_string(scope).unwrap();
+
+    let prototype = tmpl.prototype_template(scope);
+    let method_ctxs = &op_ctxs[index..index + decl.methods.len()];
+
+    let accessor_store = create_accessor_store(method_ctxs);
+
+    for method in method_ctxs.iter() {
+      // Skip async methods, we are going to register them later.
+      if method.decl.is_async {
+        continue;
+      }
+
+      op_ctx_template_or_accessor(
+        &accessor_store,
+        set_up_async_stub_fn,
+        scope,
+        prototype,
+        tmpl,
+        method,
+      );
+    }
+
+    index += decl.methods.len();
+
+    let static_method_ctxs = &op_ctxs[index..index + decl.static_methods.len()];
+    for method in static_method_ctxs.iter() {
+      let op_fn =
+        op_ctx_template(scope, method, v8::ConstructorBehavior::Throw);
+      let method_key = name_key(scope, &method.decl);
+
+      tmpl.set(method_key, op_fn.into());
+    }
+
+    index += decl.static_methods.len();
+
+    // Register async methods at the end since we need to create the template instance.
+    for method in method_ctxs.iter() {
+      if method.decl.is_async {
+        op_ctx_template_or_accessor(
+          &accessor_store,
+          set_up_async_stub_fn,
+          scope,
+          prototype,
+          tmpl,
+          method,
+        );
+      }
+    }
+
+    if let Some(e) = (decl.inherits_type_name)() {
+      let parent = fn_template_store.get_raw(e).unwrap();
+      tmpl.inherit(v8::Local::new(scope, parent));
+    }
+
+    let op_fn = tmpl.get_function(scope).unwrap();
+    op_fn.set_name(key);
+    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
+
+    let id = (decl.type_name)().to_string();
+    fn_template_store.insert(id, v8::Global::new(scope, tmpl));
+  }
+
+  let op_ctxs = &op_ctxs[index..];
   for op_ctx in op_ctxs {
-    let mut op_fn = op_ctx_function(scope, op_ctx);
+    let mut op_fn =
+      op_ctx_function(scope, op_ctx, v8::ConstructorBehavior::Allow);
     let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
     // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
@@ -381,50 +474,40 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     }
 
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
-  }
 
-  for op_method_ctx in op_method_ctxs {
-    let tmpl = op_ctx_template(scope, &op_method_ctx.constructor);
-    let prototype = tmpl.prototype_template(scope);
-    let key = op_method_ctx
-      .constructor
-      .decl
-      .name_fast
-      .v8_string(scope)
-      .unwrap();
-
-    let accessor_store = create_accessor_store(op_method_ctx);
-
-    for method in op_method_ctx.methods.iter() {
-      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
-    }
-
-    for method in op_method_ctx.static_methods.iter() {
-      let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
-      tmpl.set(method_key.into(), op_fn.into());
-    }
-
-    let op_fn = tmpl.get_function(scope).unwrap();
-    op_fn.set_name(key);
-    deno_core_ops_obj.set(scope, key.into(), op_fn.into());
-
-    let id = op_method_ctx.type_name.to_string();
-    fn_template_store.insert(id, v8::Global::new(scope, tmpl));
+    index += 1;
   }
 }
 
 fn op_ctx_template_or_accessor<'s>(
   accessor_store: &AccessorStore,
+  set_up_async_stub_fn: v8::Local<v8::Function>,
   scope: &mut v8::HandleScope<'s>,
   tmpl: v8::Local<'s, v8::ObjectTemplate>,
+  constructor: v8::Local<'s, v8::FunctionTemplate>,
   op_ctx: &OpCtx,
 ) {
   if !op_ctx.decl.is_accessor() {
-    let op_fn = op_ctx_template(scope, op_ctx);
-    let method_key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
+    let op_fn = op_ctx_template(scope, op_ctx, v8::ConstructorBehavior::Throw);
+    let method_key = name_key(scope, &op_ctx.decl);
+    if op_ctx.decl.is_async {
+      let undefined = v8::undefined(scope);
+      let op_fn = op_fn.get_function(scope).unwrap();
 
-    tmpl.set(method_key.into(), op_fn.into());
+      let tmpl_fn = constructor.get_function(scope).unwrap();
+
+      let _result = set_up_async_stub_fn
+        .call(
+          scope,
+          undefined.into(),
+          &[method_key.into(), op_fn.into(), tmpl_fn.into()],
+        )
+        .unwrap();
+
+      return;
+    }
+
+    tmpl.set(method_key, op_fn.into());
 
     return;
   }
@@ -435,15 +518,21 @@ fn op_ctx_template_or_accessor<'s>(
   if let Some((named_getter, named_setter)) =
     accessor_store.get(op_ctx.decl.name)
   {
-    let getter_raw = if named_getter.metrics_enabled() {
-      named_getter.decl.slow_fn_with_metrics
-    } else {
-      named_getter.decl.slow_fn
-    };
+    let getter_fn = if let Some(getter) = named_getter {
+      let getter_raw = if getter.metrics_enabled() {
+        getter.decl.slow_fn_with_metrics
+      } else {
+        getter.decl.slow_fn
+      };
 
-    let getter_fn = v8::FunctionTemplate::builder_raw(getter_raw)
-      .data(external.into())
-      .build(scope);
+      Some(
+        v8::FunctionTemplate::builder_raw(getter_raw)
+          .data(external.into())
+          .build(scope),
+      )
+    } else {
+      None
+    };
 
     let setter_fn = if let Some(setter) = named_setter {
       let setter_raw = if setter.metrics_enabled() {
@@ -464,7 +553,7 @@ fn op_ctx_template_or_accessor<'s>(
     let key = op_ctx.decl.name_fast.v8_string(scope).unwrap().into();
     tmpl.set_accessor_property(
       key,
-      Some(getter_fn),
+      getter_fn,
       setter_fn,
       v8::PropertyAttribute::default(),
     );
@@ -474,6 +563,7 @@ fn op_ctx_template_or_accessor<'s>(
 pub(crate) fn op_ctx_template<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,
+  constructor_behaviour: v8::ConstructorBehavior,
 ) -> v8::Local<'s, v8::FunctionTemplate> {
   let op_ctx_ptr = op_ctx as *const OpCtx as *const c_void;
   let external = v8::External::new(scope, op_ctx_ptr as *mut c_void);
@@ -490,6 +580,7 @@ pub(crate) fn op_ctx_template<'s>(
   let builder: v8::FunctionBuilder<v8::FunctionTemplate> =
     v8::FunctionTemplate::builder_raw(slow_fn)
       .data(external.into())
+      .constructor_behavior(constructor_behaviour)
       .side_effect_type(if op_ctx.decl.no_side_effects {
         v8::SideEffectType::HasNoSideEffect
       } else {
@@ -510,46 +601,42 @@ pub(crate) fn op_ctx_template<'s>(
 fn op_ctx_function<'s>(
   scope: &mut v8::HandleScope<'s>,
   op_ctx: &OpCtx,
+  constructor_behaviour: v8::ConstructorBehavior,
 ) -> v8::Local<'s, v8::Function> {
   let v8name = op_ctx.decl.name_fast.v8_string(scope).unwrap();
-  let template = op_ctx_template(scope, op_ctx);
+  let template = op_ctx_template(scope, op_ctx, constructor_behaviour);
   let v8fn = template.get_function(scope).unwrap();
   v8fn.set_name(v8name);
   v8fn
 }
 
-type AccessorStore<'a> = HashMap<String, (&'a OpCtx, Option<&'a OpCtx>)>;
+type AccessorStore<'a> =
+  HashMap<String, (Option<&'a OpCtx>, Option<&'a OpCtx>)>;
 
-fn create_accessor_store(ctx: &OpMethodCtx) -> AccessorStore {
+fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore {
   let mut store = AccessorStore::new();
 
-  for method in ctx.methods.iter() {
+  for method in method_ctxs.iter() {
     // Populate all setters first.
     if method.decl.accessor_type == AccessorType::Setter {
-      let key = method.decl.name_fast.to_string();
+      let key = method.decl.name_fast;
 
-      // All setters must start with "__set_".
-      let key = key.strip_prefix("__set_").expect("Invalid setter name");
-
+      let key_str = key.to_string();
       // There must be a getter for each setter.
-      let getter = ctx
-        .methods
-        .iter()
-        .find(|m| {
-          m.decl.name == key && m.decl.accessor_type == AccessorType::Getter
-        })
-        .expect("Getter not found for setter");
+      let getter = method_ctxs.iter().find(|m| {
+        m.decl.name == key_str && m.decl.accessor_type == AccessorType::Getter
+      });
 
       store.insert(key.to_string(), (getter, Some(method)));
     }
   }
 
   // Populate getters without setters.
-  for method in ctx.methods.iter() {
+  for method in method_ctxs.iter() {
     if method.decl.accessor_type == AccessorType::Getter {
       let key = method.decl.name_fast.to_string();
 
-      store.entry(key).or_insert((method, None));
+      store.entry(key).or_insert((Some(method), None));
     }
   }
 
@@ -572,6 +659,7 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
   }
 }
 
+#[allow(clippy::unnecessary_wraps)]
 pub fn host_import_module_dynamically_callback<'s>(
   scope: &mut v8::HandleScope<'s>,
   _host_defined_options: v8::Local<'s, v8::Data>,
@@ -600,8 +688,8 @@ pub fn host_import_module_dynamically_callback<'s>(
     ImportAttributesKind::DynamicImport,
   );
 
+  let tc_scope = &mut v8::TryCatch::new(scope);
   {
-    let tc_scope = &mut v8::TryCatch::new(scope);
     {
       let state = JsRuntime::state_from(tc_scope);
       if let Some(validate_import_attributes_cb) =
@@ -619,15 +707,15 @@ pub fn host_import_module_dynamically_callback<'s>(
   let requested_module_type =
     get_requested_module_type_from_attributes(&assertions);
 
-  let resolver_handle = v8::Global::new(scope, resolver);
-  let cped_handle = v8::Global::new(scope, cped);
+  let resolver_handle = v8::Global::new(tc_scope, resolver);
+  let cped_handle = v8::Global::new(tc_scope, cped);
   {
-    let state = JsRuntime::state_from(scope);
-    let module_map_rc = JsRealm::module_map_from(scope);
+    let state = JsRuntime::state_from(tc_scope);
+    let module_map_rc = JsRealm::module_map_from(tc_scope);
 
     if !ModuleMap::load_dynamic_import(
       module_map_rc,
-      scope,
+      tc_scope,
       &specifier_str,
       &referrer_name_str,
       requested_module_type,
@@ -647,11 +735,18 @@ pub fn host_import_module_dynamically_callback<'s>(
   let builder = v8::FunctionBuilder::new(catch_dynamic_import_promise_error);
 
   let map_err =
-    v8::FunctionBuilder::<v8::Function>::build(builder, scope).unwrap();
+    v8::FunctionBuilder::<v8::Function>::build(builder, tc_scope).unwrap();
 
-  let promise = promise.catch(scope, map_err).unwrap();
+  let Some(promise_new) = promise.catch(tc_scope, map_err) else {
+    if tc_scope.has_caught() {
+      let e = tc_scope.exception().unwrap();
+      resolver.reject(tc_scope, e);
+    }
 
-  Some(promise)
+    return Some(promise);
+  };
+
+  Some(promise_new)
 }
 
 pub extern "C" fn host_initialize_import_meta_object_callback(
@@ -684,22 +779,25 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   // Add special method that allows Wasm module to instantiate themselves.
   if module_type == ModuleType::Wasm {
     let wasm_instance_key = WASM_INSTANCE.v8_string(scope).unwrap();
-    if let Some(f) = state.wasm_instance_fn.borrow().as_ref() {
-      let wasm_instance_val = v8::Local::new(scope, &**f);
-      meta.create_data_property(
-        scope,
-        wasm_instance_key.into(),
-        wasm_instance_val.into(),
-      );
-    } else {
-      let message = v8::String::new(
-        scope,
-        "WebAssembly is not available in this environment",
-      )
-      .unwrap();
-      let exception = v8::Exception::error(scope, message);
-      scope.throw_exception(exception);
-      return;
+    match state.wasm_instance_fn.borrow().as_ref() {
+      Some(f) => {
+        let wasm_instance_val = v8::Local::new(scope, f.clone());
+        meta.create_data_property(
+          scope,
+          wasm_instance_key.into(),
+          wasm_instance_val.into(),
+        );
+      }
+      _ => {
+        let message = v8::String::new(
+          scope,
+          "WebAssembly is not available in this environment",
+        )
+        .unwrap();
+        let exception = v8::Exception::error(scope, message);
+        scope.throw_exception(exception);
+        return;
+      }
     }
   }
 
@@ -710,6 +808,13 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   meta.set(scope, resolve_key.into(), val.into());
 
   maybe_add_import_meta_filename_dirname(scope, meta, &name);
+
+  if name.starts_with("ext:") {
+    if let Some(proto) = state.ext_import_meta_proto.borrow().clone() {
+      let prototype = v8::Local::new(scope, proto);
+      meta.set_prototype(scope, prototype.into());
+    }
+  }
 }
 
 fn maybe_add_import_meta_filename_dirname(
@@ -759,12 +864,18 @@ fn import_meta_resolve(
   mut rv: v8::ReturnValue,
 ) {
   if args.length() > 1 {
-    return throw_type_error(scope, "Invalid arguments");
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsErrorBox::type_error("Invalid arguments"),
+    );
   }
 
   let maybe_arg_str = args.get(0).to_string(scope);
   if maybe_arg_str.is_none() {
-    return throw_type_error(scope, "Invalid arguments");
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsErrorBox::type_error("Invalid arguments"),
+    );
   }
   let specifier = maybe_arg_str.unwrap();
   let referrer = {
@@ -778,7 +889,7 @@ fn import_meta_resolve(
   let import_meta_resolve_result = {
     let loader = loader.borrow();
     let loader = loader.as_ref();
-    (module_map_rc.import_meta_resolve_cb)(loader, specifier_str, referrer)
+    loader.import_meta_resolve(&specifier_str, &referrer)
   };
 
   match import_meta_resolve_result {
@@ -787,7 +898,7 @@ fn import_meta_resolve(
       rv.set(resolved_val);
     }
     Err(err) => {
-      throw_type_error(scope, err.to_string());
+      crate::error::throw_js_error_class(scope, &err);
     }
   };
 }
@@ -810,7 +921,9 @@ fn catch_dynamic_import_promise_error(
   let arg = args.get(0);
   if is_instance_of_error(scope, arg) {
     let e: crate::error::NativeJsError = serde_v8::from_v8(scope, arg).unwrap();
-    let name = e.name.unwrap_or_else(|| "Error".to_string());
+    let name = e.name.unwrap_or_else(|| {
+      deno_error::builtin_classes::GENERIC_ERROR.to_string()
+    });
     if !has_call_site(scope, arg) {
       let msg = v8::Exception::create_message(scope, arg);
       let arg: v8::Local<v8::Object> = arg.try_into().unwrap();
@@ -825,10 +938,18 @@ fn catch_dynamic_import_promise_error(
         }
       }
       let exception = match name.as_str() {
-        "RangeError" => v8::Exception::range_error(scope, message),
-        "TypeError" => v8::Exception::type_error(scope, message),
-        "SyntaxError" => v8::Exception::syntax_error(scope, message),
-        "ReferenceError" => v8::Exception::reference_error(scope, message),
+        deno_error::builtin_classes::RANGE_ERROR => {
+          v8::Exception::range_error(scope, message)
+        }
+        deno_error::builtin_classes::TYPE_ERROR => {
+          v8::Exception::type_error(scope, message)
+        }
+        deno_error::builtin_classes::SYNTAX_ERROR => {
+          v8::Exception::syntax_error(scope, message)
+        }
+        deno_error::builtin_classes::REFERENCE_ERROR => {
+          v8::Exception::reference_error(scope, message)
+        }
         _ => v8::Exception::error(scope, message),
       };
       let code_key = CODE.v8_string(scope).unwrap();
@@ -887,7 +1008,10 @@ fn call_console(
     || !args.get(0).is_function()
     || !args.get(1).is_function()
   {
-    return throw_type_error(scope, "Invalid arguments");
+    return crate::error::throw_js_error_class(
+      scope,
+      &JsErrorBox::type_error("Invalid arguments"),
+    );
   }
 
   let mut call_args = vec![];
@@ -973,57 +1097,40 @@ where
 /// to a JavaScript function that executes and op.
 pub fn create_exports_for_ops_virtual_module<'s>(
   op_ctxs: &[OpCtx],
-  op_method_ctxs: &[OpMethodCtx],
+  op_method_decls: &[OpMethodDecl],
+  methods_ctx_offset: usize,
   scope: &mut v8::HandleScope<'s>,
   global: v8::Local<v8::Object>,
 ) -> Vec<(FastStaticString, v8::Local<'s, v8::Value>)> {
-  let mut exports = Vec::with_capacity(op_ctxs.len() + op_method_ctxs.len());
+  let mut exports = Vec::with_capacity(op_ctxs.len());
 
   let deno_obj = get(scope, global, DENO, "Deno");
   let deno_core_obj = get(scope, deno_obj, CORE, "Deno.core");
-  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
-    scope,
-    deno_core_obj,
-    SET_UP_ASYNC_STUB,
-    "Deno.core.setUpAsyncStub",
-  );
+  let ops_obj = get(scope, deno_core_obj, OPS, "Deno.core.ops");
 
-  let undefined = v8::undefined(scope);
+  let mut index = 0;
 
-  for op_ctx in op_ctxs {
-    let name = op_ctx.decl.name_fast.v8_string(scope).unwrap();
-    let mut op_fn = op_ctx_function(scope, op_ctx);
-
-    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
-    // this call will generate an optimized function that binds to the provided
-    // op, while keeping track of promises and error remapping.
-    if op_ctx.decl.is_async {
-      let result = set_up_async_stub_fn
-        .call(scope, undefined.into(), &[name.into(), op_fn.into()])
-        .unwrap();
-      op_fn = result.try_into().unwrap()
+  for decl in op_method_decls {
+    if index == methods_ctx_offset {
+      break;
     }
-    exports.push((op_ctx.decl.name_fast, op_fn.into()));
+
+    if decl.constructor.is_some() {
+      index += 1;
+    }
+
+    let name = decl.name.1;
+    let op_fn = get(scope, ops_obj, name, "op");
+    exports.push((name, op_fn));
+
+    index += decl.methods.len() + decl.static_methods.len();
   }
 
-  for ctx in op_method_ctxs {
-    let tmpl = op_ctx_template(scope, &ctx.constructor);
-    let prototype = tmpl.prototype_template(scope);
-
-    let accessor_store = create_accessor_store(ctx);
-
-    for method in ctx.methods.iter() {
-      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
-    }
-
-    for method in ctx.static_methods.iter() {
-      let op_fn = op_ctx_template(scope, method);
-      let method_key = method.decl.name_fast.v8_string(scope).unwrap();
-      tmpl.set(method_key.into(), op_fn.into());
-    }
-
-    let op_fn = tmpl.get_function(scope).unwrap();
-    exports.push((ctx.constructor.decl.name_fast, op_fn.into()));
+  let op_ctxs = &op_ctxs[index..];
+  for op_ctx in op_ctxs {
+    let op_fn = get(scope, ops_obj, op_ctx.decl.name_fast, "op");
+    exports.push((op_ctx.decl.name_fast, op_fn));
+    index += 1;
   }
 
   exports

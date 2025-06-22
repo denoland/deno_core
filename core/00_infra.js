@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 "use strict";
 
 ((window) => {
@@ -17,9 +17,10 @@
     Promise,
     PromiseReject,
     PromiseResolve,
-    PromisePrototypeThen,
+    PromisePrototypeCatch,
     RangeError,
     ReferenceError,
+    SafeArrayIterator,
     SafeMap,
     StringPrototypeSplit,
     SymbolFor,
@@ -85,7 +86,7 @@
   registerErrorClass("TypeError", TypeError);
   registerErrorClass("URIError", URIError);
 
-  function buildCustomError(className, message, code) {
+  function buildCustomError(className, message, additionalProperties) {
     let error;
     try {
       error = errorMap[className]?.(message);
@@ -97,8 +98,21 @@
     // Strip buildCustomError() calls from stack trace
     if (typeof error == "object") {
       ErrorCaptureStackTrace(error, buildCustomError);
-      if (code) {
-        error.code = code;
+      if (additionalProperties) {
+        const keys = [];
+        for (const property of new SafeArrayIterator(additionalProperties)) {
+          const key = property[0];
+          if (!(key in error)) {
+            keys.push(key);
+            error[key] = property[1];
+          }
+        }
+        Object.defineProperty(error, SymbolFor("errorAdditionalPropertyKeys"), {
+          value: keys,
+          writable: false,
+          enumerable: false,
+          configurable: false,
+        });
       }
     }
     return error;
@@ -124,18 +138,22 @@
       MapPrototypeSet(promiseMap, oldPromiseId, oldPromise);
     }
 
-    const promise = new Promise((resolve) => {
-      promiseRing[idx] = resolve;
+    const promise = new Promise((resolve, reject) => {
+      promiseRing[idx] = [resolve, reject];
     });
-    const wrappedPromise = PromisePrototypeThen(
+    const wrappedPromise = PromisePrototypeCatch(
       promise,
-      unwrapOpError(),
+      (res) => {
+        // recreate the stacktrace and strip eventLoopTick() calls from stack trace
+        ErrorCaptureStackTrace(res, eventLoopTick);
+        throw res;
+      },
     );
     wrappedPromise[promiseIdSymbol] = promiseId;
     return wrappedPromise;
   }
 
-  function __resolvePromise(promiseId, res) {
+  function __resolvePromise(promiseId, res, isOk) {
     // Check if out of ring bounds, fallback to map
     const outOfBounds = promiseId < nextPromiseId - RING_SIZE;
     if (outOfBounds) {
@@ -144,7 +162,11 @@
         throw "Missing promise in map @ " + promiseId;
       }
       MapPrototypeDelete(promiseMap, promiseId);
-      promise(res);
+      if (isOk) {
+        promise[0](res);
+      } else {
+        promise[1](res);
+      }
     } else {
       // Otherwise take from ring
       const idx = promiseId % RING_SIZE;
@@ -153,7 +175,11 @@
         throw "Missing promise in ring @ " + promiseId;
       }
       promiseRing[idx] = NO_PROMISE;
-      promise(res);
+      if (isOk) {
+        promise[0](res);
+      } else {
+        promise[1](res);
+      }
     }
   }
 
@@ -168,30 +194,9 @@
     return promiseRing[idx] != NO_PROMISE;
   }
 
-  function unwrapOpError() {
-    return (res) => {
-      // .$err_class_name is a special key that should only exist on errors
-      const className = res?.$err_class_name;
-      if (!className) {
-        return res;
-      }
-
-      const errorBuilder = errorMap[className];
-      const err = errorBuilder ? errorBuilder(res.message) : new Error(
-        `Unregistered error class: "${className}"\n  ${res.message}\n  Classes of errors returned from ops should be registered via Deno.core.registerErrorClass().`,
-      );
-      // Set .code if error was a known OS error, see error_codes.rs
-      if (res.code) {
-        err.code = res.code;
-      }
-      // Strip eventLoopTick() calls from stack trace
-      ErrorCaptureStackTrace(err, eventLoopTick);
-      throw err;
-    };
-  }
-
-  function setUpAsyncStub(opName, originalOp) {
+  function setUpAsyncStub(opName, originalOp, maybeProto) {
     let fn;
+
     // The body of this switch statement can be generated using the script above.
     switch (originalOp.length - 1) {
       /* BEGIN TEMPLATE setUpAsyncStub */
@@ -200,7 +205,8 @@
         fn = function async_op_0() {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -219,7 +225,8 @@
         fn = function async_op_1(a) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -238,7 +245,8 @@
         fn = function async_op_2(a, b) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -257,7 +265,8 @@
         fn = function async_op_3(a, b, c) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -276,7 +285,8 @@
         fn = function async_op_4(a, b, c, d) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -295,7 +305,8 @@
         fn = function async_op_5(a, b, c, d, e) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -314,7 +325,8 @@
         fn = function async_op_6(a, b, c, d, e, f) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -333,7 +345,8 @@
         fn = function async_op_7(a, b, c, d, e, f, g) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f, g);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -352,7 +365,8 @@
         fn = function async_op_8(a, b, c, d, e, f, g, h) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f, g, h);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -371,7 +385,8 @@
         fn = function async_op_9(a, b, c, d, e, f, g, h, i) {
           const id = nextPromiseId;
           try {
-            const maybeResult = originalOp(id, a, b, c, d, e, f, g, h, i);
+            // deno-fmt-ignore
+            const maybeResult = originalOp.call(this, id, a, b, c, d, e, f, g, h, i);
             if (maybeResult !== undefined) {
               return PromiseResolve(maybeResult);
             }
@@ -400,6 +415,16 @@
       configurable: false,
       writable: false,
     });
+
+    if (maybeProto) {
+      ObjectDefineProperty(fn, "prototype", {
+        value: maybeProto.prototype,
+        configurable: false,
+        writable: false,
+      });
+      maybeProto.prototype[opName] = fn;
+    }
+
     return fn;
   }
 
