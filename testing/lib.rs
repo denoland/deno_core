@@ -49,6 +49,7 @@ unit_test!(
   tc39_test,
   timer_test,
   type_test,
+  callsite_test,
 );
 
 // Test the load and run of an entire file within the `checkin` infrastructure.

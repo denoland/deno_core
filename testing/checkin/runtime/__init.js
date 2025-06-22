@@ -6,10 +6,12 @@ import * as timers from "checkin:timers";
 import * as worker from "checkin:worker";
 import * as throw_ from "checkin:throw";
 import * as object from "checkin:object";
+import * as callsite from "checkin:callsite";
 async;
 error;
 throw_;
 object;
+callsite;
 
 globalThis.console = console.console;
 globalThis.setTimeout = timers.setTimeout;
