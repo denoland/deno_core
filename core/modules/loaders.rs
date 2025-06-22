@@ -478,6 +478,8 @@ impl ModuleLoader for FsModuleLoader {
         } else {
           match &requested_module_type {
             RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
+            RequestedModuleType::Text => ModuleType::Text,
+            RequestedModuleType::Bytes => ModuleType::Bytes,
             _ => ModuleType::JavaScript,
           }
         }
