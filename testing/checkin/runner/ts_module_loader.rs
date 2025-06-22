@@ -83,10 +83,21 @@ impl ModuleLoader for TypescriptModuleLoader {
       } else {
         root.join(Path::new(&module_specifier.path()[start..]))
       };
-      if let RequestedModuleType::Other(type_) = requested_module_type {
+      // TODO: fix....
+      if matches!(
+        requested_module_type,
+        RequestedModuleType::Bytes
+          | RequestedModuleType::Text
+          | RequestedModuleType::Other(_)
+      ) {
         let bytes = fs::read(path)?;
         return Ok(ModuleSource::new(
-          ModuleType::Other(type_),
+          match requested_module_type {
+            RequestedModuleType::Bytes => ModuleType::Bytes,
+            RequestedModuleType::Text => ModuleType::Text,
+            RequestedModuleType::Other(ty) => ModuleType::Other(ty),
+            _ => unreachable!(),
+          },
           ModuleSourceCode::Bytes(ModuleCodeBytes::Boxed(bytes.into())),
           module_specifier,
           None,
