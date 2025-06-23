@@ -530,7 +530,7 @@ fn test_lazy_loaded_esm() {
 }
 
 #[test]
-fn test_json_module() {
+fn test_json_text_bytes_modules() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
@@ -552,7 +552,7 @@ fn test_json_module() {
 
   let module_map = runtime.module_map().clone();
 
-  let (mod_b, mod_c) = {
+  let (mod_b, mod_c, mod_d, mod_e) = {
     let scope = &mut runtime.handle_scope();
     let specifier_b = ascii_str!("file:///b.js");
 
@@ -566,6 +566,13 @@ fn test_json_module() {
           import jsonData from './c.json' with {type: "json"};
           assert(jsonData.a == "b");
           assert(jsonData.c.d == 10);
+          import txt from './d.txt' with {type: "text"};
+          assert(txt == "hello there");
+          import bytes from './e.bin' with {type: "bytes"};
+          assert(bytes.length === 3);
+          assert(bytes[0] === 1);
+          assert(bytes[1] === 2);
+          assert(bytes[2] === 3); 
         "#
         ),
         false,
@@ -576,10 +583,20 @@ fn test_json_module() {
     let imports = module_map.get_requested_modules(mod_b);
     assert_eq!(
       imports,
-      Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
-        requested_module_type: RequestedModuleType::Json,
-      },])
+      Some(vec![
+        ModuleRequest {
+          specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
+          requested_module_type: RequestedModuleType::Json,
+        },
+        ModuleRequest {
+          specifier: ModuleSpecifier::parse("file:///d.txt").unwrap(),
+          requested_module_type: RequestedModuleType::Text,
+        },
+        ModuleRequest {
+          specifier: ModuleSpecifier::parse("file:///e.bin").unwrap(),
+          requested_module_type: RequestedModuleType::Bytes,
+        },
+      ])
     );
 
     let mod_c = module_map
@@ -589,13 +606,34 @@ fn test_json_module() {
         ascii_str!("{\"a\": \"b\", \"c\": {\"d\": 10}}"),
       )
       .unwrap();
-    let imports = module_map.get_requested_modules(mod_c).unwrap();
-    assert_eq!(imports.len(), 0);
-    (mod_b, mod_c)
+    assert_eq!(module_map.get_requested_modules(mod_c).unwrap().len(), 0);
+
+    let mod_d = module_map
+      .new_text_module(
+        scope,
+        ascii_str!("file:///d.txt"),
+        ascii_str!("hello there"),
+      )
+      .unwrap();
+    assert_eq!(module_map.get_requested_modules(mod_d).unwrap().len(), 0);
+
+    let mod_e = module_map
+      .new_bytes_module(
+        scope,
+        ascii_str!("file:///e.bin"),
+        ModuleCodeBytes::Static(&[1, 2, 3]),
+      )
+      .unwrap();
+    assert_eq!(module_map.get_requested_modules(mod_e).unwrap().len(), 0);
+
+    (mod_b, mod_c, mod_d, mod_e)
   };
 
+  runtime.instantiate_module(mod_e).unwrap();
+  runtime.instantiate_module(mod_d).unwrap();
   runtime.instantiate_module(mod_c).unwrap();
-  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(1, 0, 0, 0));
+
+  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(3, 0, 0, 0));
 
   runtime.instantiate_module(mod_b).unwrap();
 
@@ -818,7 +856,7 @@ fn test_custom_module_type_callback_synthetic() {
     _module_name: &FastString,
     module_code: ModuleSourceCode,
   ) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
-    if module_type != "bytes" {
+    if module_type != "bar" {
       return Err(JsErrorBox::generic(format!(
         "Can't load '{}' module",
         module_type
@@ -887,7 +925,7 @@ fn test_custom_module_type_callback_synthetic() {
           module_url_found: None,
           code_cache: None,
           module_url_specified: specifier_a,
-          module_type: ModuleType::Other("bytes".into()),
+          module_type: ModuleType::Other("bar".into()),
         },
       )
       .unwrap()

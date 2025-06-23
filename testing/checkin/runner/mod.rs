@@ -5,18 +5,12 @@ use self::ops_worker::WorkerHostSide;
 use self::ops_worker::worker_create;
 use self::ts_module_loader::maybe_transpile_source;
 use deno_core::CrossIsolateStore;
-use deno_core::CustomModuleEvaluationKind;
 use deno_core::Extension;
-use deno_core::FastString;
 use deno_core::ImportAssertionsSupport;
 use deno_core::JsRuntime;
-use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
-use deno_core::v8;
-use deno_error::JsErrorBox;
 use std::any::Any;
 use std::any::TypeId;
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::future::Future;
 use std::rc::Rc;
@@ -130,7 +124,6 @@ pub fn create_runtime_from_snapshot_with_options(
       maybe_transpile_source(specifier, source)
     })),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
-    custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector,
     import_assertions_support: ImportAssertionsSupport::Warning,
     ..options
@@ -169,60 +162,4 @@ fn run_async(f: impl Future<Output = Result<(), anyhow::Error>>) {
   drop(tokio);
   drop(tx);
   _ = timeout.join();
-}
-
-fn custom_module_evaluation_cb(
-  scope: &mut v8::HandleScope,
-  module_type: Cow<'_, str>,
-  module_name: &FastString,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
-  match &*module_type {
-    "bytes" => Ok(bytes_module(scope, code)),
-    "text" => text_module(scope, module_name, code),
-    _ => Err(JsErrorBox::generic(format!(
-      "Can't import {:?} because of unknown module type {}",
-      module_name, module_type
-    ))),
-  }
-}
-
-fn bytes_module(
-  scope: &mut v8::HandleScope,
-  code: ModuleSourceCode,
-) -> CustomModuleEvaluationKind {
-  // FsModuleLoader always returns bytes.
-  let ModuleSourceCode::Bytes(buf) = code else {
-    unreachable!()
-  };
-  let owned_buf = buf.to_vec();
-  let buf_len: usize = owned_buf.len();
-  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(owned_buf);
-  let backing_store_shared = backing_store.make_shared();
-  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
-  let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
-  let value: v8::Local<v8::Value> = uint8_array.into();
-  CustomModuleEvaluationKind::Synthetic(v8::Global::new(scope, value))
-}
-
-fn text_module(
-  scope: &mut v8::HandleScope,
-  module_name: &FastString,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
-  // FsModuleLoader always returns bytes.
-  let ModuleSourceCode::Bytes(buf) = code else {
-    unreachable!()
-  };
-
-  let code = std::str::from_utf8(buf.as_bytes()).map_err(|e| {
-    JsErrorBox::generic(format!(
-      "Can't convert {module_name:?} source code to string: {e}"
-    ))
-  })?;
-  let str_ = v8::String::new(scope, code).unwrap();
-  let value: v8::Local<v8::Value> = str_.into();
-  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
-    scope, value,
-  )))
 }

@@ -153,35 +153,50 @@ impl RecursiveModuleLoad {
   }
 
   pub(crate) async fn prepare(&self) -> Result<(), CoreError> {
-    let (module_specifier, maybe_referrer) = match self.init {
+    let (module_specifier, maybe_referrer, requested_module_type) = match self
+      .init
+    {
       LoadInit::Main(ref specifier) => {
         let spec = self.module_map_rc.resolve(
           specifier,
           ".",
           ResolutionKind::MainModule,
         )?;
-        (spec, None)
+        (spec, None, RequestedModuleType::None)
       }
       LoadInit::Side(ref specifier) => {
         let spec =
           self
             .module_map_rc
             .resolve(specifier, ".", ResolutionKind::Import)?;
-        (spec, None)
+        (spec, None, RequestedModuleType::None)
       }
-      LoadInit::DynamicImport(ref specifier, ref referrer, _) => {
+      LoadInit::DynamicImport(
+        ref specifier,
+        ref referrer,
+        ref requested_module_type,
+      ) => {
         let spec = self.module_map_rc.resolve(
           specifier,
           referrer,
           ResolutionKind::DynamicImport,
         )?;
-        (spec, Some(referrer.to_string()))
+        (
+          spec,
+          Some(referrer.to_string()),
+          requested_module_type.clone(),
+        )
       }
     };
 
     self
       .loader
-      .prepare_load(&module_specifier, maybe_referrer, self.is_dynamic_import())
+      .prepare_load(
+        &module_specifier,
+        maybe_referrer,
+        self.is_dynamic_import(),
+        requested_module_type,
+      )
       .await
       .map_err(|e| e.into())
   }
