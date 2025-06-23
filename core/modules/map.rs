@@ -848,22 +848,25 @@ impl ModuleMap {
     code: ModuleCodeBytes,
   ) -> Result<ModuleId, ModuleError> {
     let name = name.into_module_name();
-    let backing_store = match code {
-      // TODO: can we more efficiently reuse the existing storage with a future immutable arraybuffer variant?
-      ModuleCodeBytes::Static(bytes) => {
-        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec())
-      }
-      ModuleCodeBytes::Boxed(bytes) => {
-        v8::ArrayBuffer::new_backing_store_from_boxed_slice(bytes)
-      }
-      ModuleCodeBytes::Arc(bytes) => {
-        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec())
-      }
+    let (buf_len, backing_store) = match code {
+      ModuleCodeBytes::Static(bytes) => (
+        bytes.len(),
+        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
+      ),
+      ModuleCodeBytes::Boxed(bytes) => (
+        bytes.len(),
+        v8::ArrayBuffer::new_backing_store_from_boxed_slice(bytes),
+      ),
+      ModuleCodeBytes::Arc(bytes) => (
+        bytes.len(),
+        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
+      ),
     };
-    let source_arraybuffer =
-      v8::ArrayBuffer::with_backing_store(scope, &backing_store.make_shared());
-    let source_value_local = v8::Local::<v8::Value>::from(source_arraybuffer);
-    let exports = vec![(ascii_str!("default"), source_value_local)];
+    let backing_store_shared = backing_store.make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+    let value: v8::Local<v8::Value> = uint8_array.into();
+    let exports = vec![(ascii_str!("default"), value)];
     Ok(self.new_synthetic_module(scope, name, ModuleType::Bytes, exports))
   }
 

@@ -83,7 +83,6 @@ impl ModuleLoader for TypescriptModuleLoader {
       } else {
         root.join(Path::new(&module_specifier.path()[start..]))
       };
-      // TODO: fix....
       if matches!(
         requested_module_type,
         RequestedModuleType::Bytes
