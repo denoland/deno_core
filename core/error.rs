@@ -305,14 +305,21 @@ pub fn to_v8_error<'a>(
         PropertyValue::Number(value) => v8::Number::new(tc_scope, value).into(),
       };
 
-      v8::Array::new_with_elements(tc_scope, &[key, value]).into()
+      // Use direct array creation with set_index to avoid prototype pollution issues
+      let arr = v8::Array::new(tc_scope, 2);
+      arr.set_index(tc_scope, 0, key);
+      arr.set_index(tc_scope, 1, value);
+      arr.into()
     })
     .collect::<Vec<_>>();
 
   if !additional_properties.is_empty() {
-    args.push(
-      v8::Array::new_with_elements(tc_scope, &additional_properties).into(),
-    );
+    // Create array using new() and set_index to avoid prototype pollution
+    let arr = v8::Array::new(tc_scope, additional_properties.len() as i32);
+    for (i, prop) in additional_properties.iter().enumerate() {
+      arr.set_index(tc_scope, i as u32, *prop);
+    }
+    args.push(arr.into());
   }
 
   let maybe_exception = cb.call(tc_scope, this, &args);
@@ -1643,7 +1650,12 @@ fn prepare_stack_trace_inner<'s, const PATCH_CALLSITES: bool>(
           callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
         patched.push(make_patched_callsite(scope, callsite, prototype).into());
       }
-      v8::Array::new_with_elements(scope, &patched)
+      // Create array using new() and set_index to avoid prototype pollution
+      let arr = v8::Array::new(scope, patched.len() as i32);
+      for (i, item) in patched.iter().enumerate() {
+        arr.set_index(scope, i as u32, *item);
+      }
+      arr
     } else {
       callsites
     };
