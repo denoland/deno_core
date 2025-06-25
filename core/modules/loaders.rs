@@ -140,6 +140,7 @@ pub trait ModuleLoader {
     _module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -346,6 +347,7 @@ impl ModuleLoader for ExtModuleLoader {
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -417,6 +419,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
+    _requested_module_type: RequestedModuleType,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -475,6 +478,8 @@ impl ModuleLoader for FsModuleLoader {
         } else {
           match &requested_module_type {
             RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
+            RequestedModuleType::Text => ModuleType::Text,
+            RequestedModuleType::Bytes => ModuleType::Bytes,
             _ => ModuleType::JavaScript,
           }
         }
@@ -624,11 +629,15 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<String>,
     is_dyn_import: bool,
+    requested_module_type: RequestedModuleType,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     self.prepare_count.set(self.prepare_count.get() + 1);
-    self
-      .loader
-      .prepare_load(module_specifier, maybe_referrer, is_dyn_import)
+    self.loader.prepare_load(
+      module_specifier,
+      maybe_referrer,
+      is_dyn_import,
+      requested_module_type,
+    )
   }
 
   fn finish_load(&self) {

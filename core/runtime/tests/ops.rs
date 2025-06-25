@@ -312,6 +312,7 @@ fn duplicate_op_names() {
 
   #[op2]
   #[string]
+  #[allow(clippy::unnecessary_wraps)]
   pub fn op_test() -> Result<String, JsErrorBox> {
     Ok(String::from("Test"))
   }

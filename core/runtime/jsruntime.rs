@@ -1587,7 +1587,8 @@ impl JsRuntime {
   /// the global scope by default, and it is possible to maintain local JS state and invoke
   /// this method multiple times.
   ///
-  /// `name` can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
+  /// `name` may be any type that implements the internal [`IntoModuleName`] trait.
+  /// It can be a filepath or any other string, but it is required to be 7-bit ASCII, eg.
   ///
   ///   - "/some/file/path.js"
   ///   - "<anon>"
@@ -1603,13 +1604,13 @@ impl JsRuntime {
   /// `Error` can usually be downcast to `JsError`.
   pub fn execute_script(
     &mut self,
-    name: &'static str,
+    name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, CoreError> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.execute_script(
       isolate,
-      FastString::from_static(name),
+      name.into_module_name(),
       source_code.into_module_code(),
     )
   }

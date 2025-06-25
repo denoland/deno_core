@@ -389,6 +389,18 @@ impl ModuleMap {
         let code = ModuleSource::get_string_source(code);
         self.new_json_module(scope, module_url_found, code)?
       }
+      ModuleType::Text => {
+        let code = ModuleSource::get_string_source(code);
+        self.new_text_module(scope, module_url_found, code)?
+      }
+      ModuleType::Bytes => {
+        let ModuleSourceCode::Bytes(code) = code else {
+          return Err(ModuleError::Concrete(
+            ModuleConcreteError::BytesNotBytes,
+          ));
+        };
+        self.new_bytes_module(scope, module_url_found, code)?
+      }
       ModuleType::Other(module_type) => {
         let state = JsRuntime::state_from(scope);
         let custom_module_evaluation_cb =
@@ -803,6 +815,59 @@ impl ModuleMap {
     };
     let exports = vec![(ascii_str!("default"), parsed_json)];
     Ok(self.new_synthetic_module(tc_scope, name, ModuleType::Json, exports))
+  }
+
+  #[allow(clippy::unnecessary_wraps)]
+  pub(crate) fn new_text_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: impl IntoModuleName,
+    code: impl IntoModuleCodeString,
+  ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
+    let code = code.into_module_code();
+    // TODO(bartlomieju): would be much better if the string was ensured to not contain
+    // BOM, then we could use a more efficient string type with `FastString::v8_string`.
+    let source_str = v8::String::new_from_utf8(
+      scope,
+      strip_bom(code.as_bytes()),
+      v8::NewStringType::Normal,
+    )
+    .unwrap();
+    let source_str_local = v8::Local::new(scope, source_str);
+    let source_value_local = v8::Local::<v8::Value>::from(source_str_local);
+    let exports = vec![(ascii_str!("default"), source_value_local)];
+    Ok(self.new_synthetic_module(scope, name, ModuleType::Text, exports))
+  }
+
+  #[allow(clippy::unnecessary_wraps)]
+  pub(crate) fn new_bytes_module(
+    &self,
+    scope: &mut v8::HandleScope,
+    name: impl IntoModuleName,
+    code: ModuleCodeBytes,
+  ) -> Result<ModuleId, ModuleError> {
+    let name = name.into_module_name();
+    let (buf_len, backing_store) = match code {
+      ModuleCodeBytes::Static(bytes) => (
+        bytes.len(),
+        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
+      ),
+      ModuleCodeBytes::Boxed(bytes) => (
+        bytes.len(),
+        v8::ArrayBuffer::new_backing_store_from_boxed_slice(bytes),
+      ),
+      ModuleCodeBytes::Arc(bytes) => (
+        bytes.len(),
+        v8::ArrayBuffer::new_backing_store_from_vec(bytes.to_vec()),
+      ),
+    };
+    let backing_store_shared = backing_store.make_shared();
+    let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
+    let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
+    let value: v8::Local<v8::Value> = uint8_array.into();
+    let exports = vec![(ascii_str!("default"), value)];
+    Ok(self.new_synthetic_module(scope, name, ModuleType::Bytes, exports))
   }
 
   pub(crate) fn instantiate_module(
