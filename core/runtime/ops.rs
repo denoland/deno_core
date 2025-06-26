@@ -1937,7 +1937,7 @@ mod tests {
     pub value: u32,
   }
 
-  impl GarbageCollected for TestResource {
+  unsafe impl GarbageCollected for TestResource {
     fn get_name(&self) -> &'static std::ffi::CStr {
       c"TestResource"
     }
