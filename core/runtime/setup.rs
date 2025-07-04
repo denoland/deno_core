@@ -26,7 +26,7 @@ fn v8_init(
   let base_flags = concat!(
     " --wasm-test-streaming",
     " --no-validate-asm",
-    " --turbo_fast_api_calls",
+    " --turbo-fast-api-calls",
     " --harmony-temporal",
     " --js-float16array",
     " --js-explicit-resource-management",
