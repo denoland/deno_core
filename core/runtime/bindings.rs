@@ -403,7 +403,6 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
         &accessor_store,
         scope,
         prototype,
-        tmpl,
         method,
       );
     }
@@ -428,7 +427,6 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
           &accessor_store,
           scope,
           prototype,
-          tmpl,
           method,
         );
       }
@@ -449,7 +447,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
   let op_ctxs = &op_ctxs[index..];
   for op_ctx in op_ctxs {
-    let mut op_fn =
+    let op_fn =
       op_ctx_function(scope, op_ctx, v8::ConstructorBehavior::Allow);
     let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
@@ -463,7 +461,6 @@ fn op_ctx_template_or_accessor<'s>(
   accessor_store: &AccessorStore,
   scope: &mut v8::HandleScope<'s>,
   tmpl: v8::Local<'s, v8::ObjectTemplate>,
-  constructor: v8::Local<'s, v8::FunctionTemplate>,
   op_ctx: &OpCtx,
 ) {
   if !op_ctx.decl.is_accessor() {

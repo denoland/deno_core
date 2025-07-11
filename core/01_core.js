@@ -134,9 +134,7 @@
   }
 
   let unhandledPromiseRejectionHandler = () => false;
-  let timerDepth = 0;
-  let timersRunning = false;
-  const cancelledTimers = new Set();
+  const timerDepth = 0;
 
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
@@ -739,7 +737,7 @@
       unhandledPromiseRejectionHandler = handler,
     reportUnhandledException: (e) => op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
-    queueUserTimer: (depth, repeat, timeout, task) => {
+    queueUserTimer: (_depth, repeat, timeout, task) => {
       const id = op_timer_queue(repeat, timeout, task);
       if (__isLeakTracingEnabled()) {
         submitTimerTrace(id);
@@ -751,9 +749,6 @@
       op_timer_queue_system(repeat, timeout, task),
     queueImmediate: (task) => op_timer_queue_immediate(task),
     cancelTimer: (id) => {
-      if (timersRunning) {
-        cancelledTimers.add(id);
-      }
       op_timer_cancel(id);
     },
     refTimer: (id) => op_timer_ref(id),

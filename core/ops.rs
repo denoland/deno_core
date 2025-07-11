@@ -210,12 +210,12 @@ impl OpCtx {
       .get_promise(scope, promise_id)
   }
 
-  pub fn resolve_promise<'s>(&self, scope: &mut v8::HandleScope<'s>, promise_id: PromiseId, value: v8::Local<v8::Value>) {
+  pub fn resolve_promise(&self, scope: &mut v8::HandleScope, promise_id: PromiseId, value: v8::Local<v8::Value>) {
     self.op_driver
       .resolve_promise(scope, promise_id, value)
   }
 
-  pub fn reject_promise<'s>(&self, scope: &mut v8::HandleScope<'s>, promise_id: PromiseId, reason: v8::Local<v8::Value>) {
+  pub fn reject_promise(&self, scope: &mut v8::HandleScope, promise_id: PromiseId, reason: v8::Local<v8::Value>) {
     self.op_driver
       .reject_promise(scope, promise_id, reason)
   }

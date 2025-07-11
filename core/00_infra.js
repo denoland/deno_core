@@ -3,25 +3,13 @@
 
 ((window) => {
     const {
-        Array,
-        ArrayPrototypeFill,
         Error,
         ErrorCaptureStackTrace,
-        MapPrototypeDelete,
-        MapPrototypeGet,
-        MapPrototypeHas,
-        MapPrototypeSet,
         ObjectAssign,
-        ObjectDefineProperty,
         ObjectFreeze,
-        Promise,
-        PromiseReject,
-        PromiseResolve,
-        PromisePrototypeCatch,
         RangeError,
         ReferenceError,
         SafeArrayIterator,
-        SafeMap,
         StringPrototypeSplit,
         SymbolFor,
         SyntaxError,
@@ -29,11 +17,6 @@
         URIError,
     } = window.__bootstrap.primordials;
 
-    let nextPromiseId = 0;
-    const promiseMap = new SafeMap();
-    const RING_SIZE = 4 * 1024;
-    const NO_PROMISE = null; // Alias to null is faster than plain nulls
-    const promiseRing = ArrayPrototypeFill(new Array(RING_SIZE), NO_PROMISE);
     // TODO(bartlomieju): in the future use `v8::Private` so it's not visible
     // to users. Currently missing bindings.
     const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");

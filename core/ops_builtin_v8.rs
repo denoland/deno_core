@@ -100,27 +100,27 @@ pub fn op_leak_tracing_submit(
     };
     match application {
       SourceMapApplication::Unchanged => {
-        write!(
+        writeln!(
           string,
-          "{}:{}:{}\n",
+          "{}:{}:{}",
           file_name,
           line_number,
           column_number
         ).unwrap();
       }
       SourceMapApplication::LineAndColumn { line_number, column_number } => {
-        write!(
+        writeln!(
           string,
-          "{}:{}:{}\n",
+          "{}:{}:{}",
           file_name,
           line_number,
           column_number
         ).unwrap();
       }
       SourceMapApplication::LineAndColumnAndFileName { file_name, line_number, column_number } => {
-        write!(
+        writeln!(
           string,
-          "{}:{}:{}\n",
+          "{}:{}:{}",
           file_name,
           line_number,
           column_number

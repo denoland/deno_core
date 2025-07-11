@@ -2723,30 +2723,27 @@ impl JsRuntime {
 
     // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
     // storing the exception-reporting callback.
-    match context_state.timers.poll_timers(cx) {
-      Poll::Ready(timers) => {
-        let traces_enabled = context_state.activity_traces.is_enabled();
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..timers.len() {
-          if traces_enabled {
-            // Timer and interval traces both use RuntimeActivityType::Timer
-            context_state
-              .activity_traces
-              .complete(RuntimeActivityType::Timer, timers[i].0 as _);
-          }
+    if let Poll::Ready(timers) = context_state.timers.poll_timers(cx) {
+      let traces_enabled = context_state.activity_traces.is_enabled();
+      #[allow(clippy::needless_range_loop)]
+      for i in 0..timers.len() {
+        if traces_enabled {
+          // Timer and interval traces both use RuntimeActivityType::Timer
+          context_state
+            .activity_traces
+            .complete(RuntimeActivityType::Timer, timers[i].0 as _);
+        }
 
-          let (_id, function): (_, v8::Local<'_, v8::Function>) = (timers[i].0, v8::Local::new(scope, timers[i].1.clone()));
-          let tc_scope = &mut v8::TryCatch::new(scope);
-          function.call(tc_scope, undefined, &[]).unwrap();
-          if let Some(exception) = tc_scope.exception() {
-            return exception_to_err_result(tc_scope, exception, false, true);
-          }
-          if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-            return Ok(false);
-          }
+        let (_id, function): (_, v8::Local<'_, v8::Function>) = (timers[i].0, v8::Local::new(scope, timers[i].1.clone()));
+        let tc_scope = &mut v8::TryCatch::new(scope);
+        function.call(tc_scope, undefined, &[]).unwrap();
+        if let Some(exception) = tc_scope.exception() {
+          return exception_to_err_result(tc_scope, exception, false, true);
+        }
+        if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+          return Ok(false);
         }
       }
-      _ => {},
     };
 
     Ok(dispatched_ops)

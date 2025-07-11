@@ -143,24 +143,18 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   }
 
   fn resolve_promise(&self, scope: &mut HandleScope<'_>, promise_id: PromiseId, value: Local<Value>) {
-    match self.promises
+    if let Some(resolver) = self.promises
       .borrow_mut()
       .try_remove(promise_id as usize) {
-      Some(resolver) => {
-        Local::new(scope, resolver).resolve(scope, value);
-      },
-      _ => {}
+      Local::new(scope, resolver).resolve(scope, value);
     }
   }
 
   fn reject_promise(&self, scope: &mut HandleScope<'_>, promise_id: PromiseId, reason: Local<Value>) {
-    match self.promises
+    if let Some(resolver) = self.promises
       .borrow_mut()
       .try_remove(promise_id as usize) {
-      Some(resolver) => {
-        Local::new(scope, resolver).reject(scope, reason);
-      },
-      _ => {}
+      Local::new(scope, resolver).reject(scope, reason);
     }
   }
 

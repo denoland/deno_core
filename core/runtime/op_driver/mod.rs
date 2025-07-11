@@ -56,23 +56,23 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     promise_id: PromiseId,
   ) -> Option<v8::Local<'s, v8::Promise>>;
 
-  fn resolve_promise<'s>(
+  fn resolve_promise(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::HandleScope,
     promise_id: PromiseId,
     value: v8::Local<v8::Value>,
   );
 
-  fn reject_promise<'s>(
+  fn reject_promise(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::HandleScope,
     promise_id: PromiseId,
     reason: v8::Local<v8::Value>,
   );
 
-  fn create_promise<'s>(
+  fn create_promise(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::HandleScope,
   ) -> PromiseId;
 
   /// Submits an operation that is expected to complete successfully without errors.
