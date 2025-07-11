@@ -35,8 +35,6 @@
   const {
     __setLeakTracingEnabled,
     __isLeakTracingEnabled,
-    __initializeCoreMethods,
-    __resolvePromise,
   } = window.__infra;
   const {
     op_abort_wasm_streaming,
@@ -120,11 +118,6 @@
   // core/infra collaborative code
   delete window.__infra;
 
-  __initializeCoreMethods(
-    eventLoopTick,
-    submitLeakTrace,
-  );
-
   function submitLeakTrace(id) {
     const error = new Error();
     ErrorCaptureStackTrace(error, submitLeakTrace);
@@ -148,93 +141,52 @@
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
 
+  const bindings = {
+      unhandledPromiseRejectionHandler(rejections) {
+          for (let i = 0; i < rejections.length; i += 2) {
+              const [promise, reason] = [rejections[i], rejections[i + 1]]
+              const handled = unhandledPromiseRejectionHandler(
+                  promise, reason
+              );
+              if (!handled) op_dispatch_exception(reason, true);
+          }
+      },
+      eventLoopTick(tick) {
+          if (tick) // Drain nextTick queue if there's a tick scheduled.
+              for (let i = 0; i < nextTickCallbacks.length; i++) {
+                  nextTickCallbacks[i]();
+              }
+          else op_run_microtasks()
+
+          // drain macrotask queue.
+          for (let i = 0; i < macrotaskCallbacks.length; i++) {
+              const cb = macrotaskCallbacks[i];
+              while (true) {
+                  const res = cb();
+
+                  // If callback returned `undefined` then it has no work to do, we don't
+                  // need to perform microtask checkpoint.
+                  if (res === undefined) {
+                      break;
+                  }
+
+                  op_run_microtasks();
+                  // If callback returned `true` then it has no more work to do, stop
+                  // calling it then.
+                  if (res === true) {
+                      break;
+                  }
+              }
+          }
+      }
+  }
+
   function setMacrotaskCallback(cb) {
     ArrayPrototypePush(macrotaskCallbacks, cb);
   }
 
   function setNextTickCallback(cb) {
     ArrayPrototypePush(nextTickCallbacks, cb);
-  }
-
-  // This function has variable number of arguments. The last argument describes
-  // if there's a "next tick" scheduled by the Node.js compat layer. Arguments
-  // before last are alternating integers and any values that describe the
-  // responses of async ops.
-  function eventLoopTick() {
-    // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 3; i += 3) {
-      const promiseId = arguments[i];
-      const isOk = arguments[i + 1];
-      const res = arguments[i + 2];
-
-      __resolvePromise(promiseId, res, isOk);
-    }
-    // Drain nextTick queue if there's a tick scheduled.
-    if (arguments[arguments.length - 1]) {
-      for (let i = 0; i < nextTickCallbacks.length; i++) {
-        nextTickCallbacks[i]();
-      }
-    } else {
-      op_run_microtasks();
-    }
-
-    // Finally drain macrotask queue.
-    for (let i = 0; i < macrotaskCallbacks.length; i++) {
-      const cb = macrotaskCallbacks[i];
-      while (true) {
-        const res = cb();
-
-        // If callback returned `undefined` then it has no work to do, we don't
-        // need to perform microtask checkpoint.
-        if (res === undefined) {
-          break;
-        }
-
-        op_run_microtasks();
-        // If callback returned `true` then it has no more work to do, stop
-        // calling it then.
-        if (res === true) {
-          break;
-        }
-      }
-    }
-
-    const timers = arguments[arguments.length - 2];
-    if (timers) {
-      timersRunning = true;
-      for (let i = 0; i < timers.length; i += 3) {
-        timerDepth = timers[i];
-        const id = timers[i + 1];
-        if (cancelledTimers.has(id)) {
-          continue;
-        }
-        try {
-          const f = timers[i + 2];
-          f.call(window);
-        } catch (e) {
-          reportExceptionCallback(e);
-        }
-        op_run_microtasks();
-      }
-      timersRunning = false;
-      timerDepth = 0;
-      cancelledTimers.clear();
-    }
-
-    // If we have any rejections for this tick, attempt to process them
-    const rejections = arguments[arguments.length - 3];
-    if (rejections) {
-      for (let i = 0; i < rejections.length; i += 2) {
-        const handled = unhandledPromiseRejectionHandler(
-          rejections[i],
-          rejections[i + 1],
-        );
-        if (!handled) {
-          const err = rejections[i + 1];
-          op_dispatch_exception(err, true);
-        }
-      }
-    }
   }
 
   function refOp(promiseId) {
@@ -652,7 +604,7 @@
     internalRidSymbol: Symbol("Deno.internal.rid"),
     internalFdSymbol: Symbol("Deno.internal.fd"),
     resources,
-    eventLoopTick,
+    bindings,
     BadResource,
     BadResourcePrototype,
     Interrupted,

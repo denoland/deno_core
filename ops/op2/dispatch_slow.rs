@@ -588,6 +588,10 @@ pub fn from_arg(
     Arg::External(External::Ptr(_)) => {
       from_arg_option(generator_state, &arg_ident, "external")
     }
+    Arg::Special(Special::PromiseId) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = #opctx.create_promise(&mut #scope);)
+    },
     Arg::Special(Special::Isolate) => {
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)

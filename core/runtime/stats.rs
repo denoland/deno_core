@@ -48,7 +48,7 @@ impl RuntimeActivityTraces {
     &self,
     activity_type: RuntimeActivityType,
     id: ActivityId,
-    trace: &str,
+    trace: impl Into<Rc<str>>,
   ) {
     debug_assert_ne!(
       activity_type,

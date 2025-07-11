@@ -6,7 +6,7 @@ use super::bindings;
 use super::bindings::create_exports_for_ops_virtual_module;
 use super::bindings::watch_promise;
 use super::exception_state::ExceptionState;
-use super::jsrealm::JsRealmInner;
+use super::jsrealm::{JsBindings, JsRealmInner};
 use super::op_driver::OpDriver;
 use super::setup;
 use super::snapshot;
@@ -1501,7 +1501,7 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
+    let (event_loop_tick, unhandled_promise_rejection, build_custom_error_cb, wasm_instance_fn) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1512,13 +1512,22 @@ impl JsRuntime {
         bindings::get(scope, global, DENO, "Deno");
       let core_obj: v8::Local<v8::Object> =
         bindings::get(scope, deno_obj, CORE, "Deno.core");
+      let bindings_obj: v8::Local<v8::Object> =
+        bindings::get(scope, core_obj, BINDINGS, "Deno.core.bindings");
 
-      let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
+      let event_loop_tick: v8::Local<v8::Function> = bindings::get(
         scope,
-        core_obj,
+        bindings_obj,
         EVENT_LOOP_TICK,
-        "Deno.core.eventLoopTick",
+        "Deno.core.bindings.eventLoopTick",
       );
+      let unhandled_promise_rejection: v8::Local<v8::Function> = bindings::get(
+        scope,
+        bindings_obj,
+        UNHANDLED_PROMISE_REJECTION,
+        "Deno.core.bindings.unhandledPromiseRejectionHandler",
+      );
+
       let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
@@ -1546,7 +1555,8 @@ impl JsRuntime {
       }
 
       (
-        v8::Global::new(scope, event_loop_tick_cb),
+        v8::Global::new(scope, unhandled_promise_rejection),
+        v8::Global::new(scope, event_loop_tick),
         v8::Global::new(scope, build_custom_error_cb),
         wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
       )
@@ -1554,10 +1564,12 @@ impl JsRuntime {
 
     // Put global handles in the realm's ContextState
     let state_rc = realm.0.state();
-    state_rc
-      .js_event_loop_tick_cb
+    state_rc.js_bindings
       .borrow_mut()
-      .replace(event_loop_tick_cb);
+      .replace(JsBindings {
+        unhandled_rejections_cb: unhandled_promise_rejection,
+        event_loop_tick_cb: event_loop_tick,
+      });
     state_rc
       .exception_state
       .js_build_custom_error_cb
@@ -2616,27 +2628,7 @@ impl JsRuntime {
       }
     }
 
-    // We return async responses to JS in bounded batches. Note that because
-    // we're passing these to JS as arguments, it is possible to overflow the
-    // JS stack by just passing too many.
-    const MAX_VEC_SIZE_FOR_OPS: usize = 1024;
-
-    // each batch is a flat vector of tuples:
-    // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
-    // promise_id is a simple integer, op_result is an ops::OpResult
-    // which contains a value OR an error, encoded as a tuple.
-    // This batch is received in JS via the special `arguments` variable
-    // and then each tuple is used to resolve or reject promises
-    let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
-      SmallVec::with_capacity(32);
-
     loop {
-      if args.len() >= MAX_VEC_SIZE_FOR_OPS {
-        // We have too many, bail for now but re-wake the waker
-        cx.waker().wake_by_ref();
-        break;
-      }
-
       let Poll::Ready((promise_id, op_id, res)) =
         context_state.pending_ops.poll_ready(cx)
       else {
@@ -2645,7 +2637,7 @@ impl JsRuntime {
 
       let res = res.unwrap(scope);
 
-      {
+      let op_driver = {
         let op_ctx = &context_state.op_ctxs[op_id as usize];
         if op_ctx.metrics_enabled() {
           if res.is_ok() {
@@ -2654,16 +2646,19 @@ impl JsRuntime {
             dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
           }
         }
-      }
+        op_ctx.op_driver()
+      };
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
       context_state
         .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
+      match res {
+        Ok(value) => op_driver.resolve_promise(scope, promise_id, value),
+        Err(reason) => op_driver.reject_promise(scope, promise_id, reason),
+      }
+
       dispatched_ops |= true;
-      args.push(v8::Integer::new(scope, promise_id).into());
-      args.push(v8::Boolean::new(scope, res.is_ok()).into());
-      args.push(res.unwrap_or_else(std::convert::identity));
     }
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
@@ -2690,7 +2685,15 @@ impl JsRuntime {
       }
     }
 
-    let rejections = if !exception_state
+    let js_bindings = context_state.js_bindings.borrow();
+
+    let event_loop_tick_cb = &js_bindings.as_ref().unwrap().event_loop_tick_cb;
+    let event_loop_tick_cb = event_loop_tick_cb.open(scope);
+    let has_tick_scheduled_value = v8::Boolean::new(scope, has_tick_scheduled);
+    event_loop_tick_cb.call(scope, undefined, &[has_tick_scheduled_value.into()]);
+
+    // rejections
+    if !exception_state
       .pending_promise_rejections
       .borrow_mut()
       .is_empty()
@@ -2698,7 +2701,7 @@ impl JsRuntime {
       // Avoid holding the pending rejection lock longer than necessary
       let mut pending_rejections =
         exception_state.pending_promise_rejections.borrow_mut();
-      let mut rejections = VecDeque::default();
+      let mut rejections = const { VecDeque::new() };
       std::mem::swap(&mut *pending_rejections, &mut rejections);
       drop(pending_rejections);
 
@@ -2712,19 +2715,17 @@ impl JsRuntime {
         arr.set_index(scope, index, value);
         index += 1;
       }
-      arr.into()
-    } else {
-      undefined
-    };
-
-    args.push(rejections);
+      let tc_scope = &mut v8::TryCatch::new(scope);
+      let js_unhandled_rejections_cb = &js_bindings.as_ref().unwrap().unhandled_rejections_cb;
+      let js_unhandled_rejections_cb = js_unhandled_rejections_cb.open(tc_scope);
+      js_unhandled_rejections_cb.call(tc_scope, undefined, &[arr.into()]);
+    }
 
     // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
     // storing the exception-reporting callback.
-    let timers = match context_state.timers.poll_timers(cx) {
+    match context_state.timers.poll_timers(cx) {
       Poll::Ready(timers) => {
         let traces_enabled = context_state.activity_traces.is_enabled();
-        let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
         for i in 0..timers.len() {
           if traces_enabled {
@@ -2733,37 +2734,20 @@ impl JsRuntime {
               .activity_traces
               .complete(RuntimeActivityType::Timer, timers[i].0 as _);
           }
-          // depth, id, function
-          let value = v8::Integer::new(scope, timers[i].1.1 as _);
-          arr.set_index(scope, (i * 3) as _, value.into());
-          let value = v8::Number::new(scope, timers[i].0 as _);
-          arr.set_index(scope, (i * 3 + 1) as _, value.into());
-          let value = v8::Local::new(scope, timers[i].1.0.clone());
-          arr.set_index(scope, (i * 3 + 2) as _, value.into());
+
+          let (_id, function): (_, v8::Local<'_, v8::Function>) = (timers[i].0, v8::Local::new(scope, timers[i].1.clone()));
+          let tc_scope = &mut v8::TryCatch::new(scope);
+          function.call(tc_scope, undefined, &[]).unwrap();
+          if let Some(exception) = tc_scope.exception() {
+            return exception_to_err_result(tc_scope, exception, false, true);
+          }
+          if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+            return Ok(false);
+          }
         }
-        arr.into()
       }
-      _ => undefined,
+      _ => {},
     };
-    args.push(timers);
-
-    let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
-    args.push(has_tick_scheduled.into());
-
-    let tc_scope = &mut v8::TryCatch::new(scope);
-    let js_event_loop_tick_cb = context_state.js_event_loop_tick_cb.borrow();
-    let js_event_loop_tick_cb =
-      js_event_loop_tick_cb.as_ref().unwrap().open(tc_scope);
-
-    js_event_loop_tick_cb.call(tc_scope, undefined, args.as_slice());
-
-    if let Some(exception) = tc_scope.exception() {
-      return exception_to_err_result(tc_scope, exception, false, true);
-    }
-
-    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Ok(false);
-    }
 
     Ok(dispatched_ops)
   }

@@ -20,6 +20,7 @@ use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::fmt::Write;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
@@ -67,13 +68,72 @@ pub fn op_leak_tracing_submit(
   scope: &mut v8::HandleScope,
   #[smi] kind: u8,
   #[smi] id: i32,
-  #[string] trace: &str,
 ) {
   let context_state = JsRealm::state_from_scope(scope);
+  let state = JsRuntime::state_from(scope);
+
+  let mut source_mapper = state.source_mapper.borrow_mut();
+
+  let stack_trace = v8::StackTrace::current_stack_trace(scope, 10).unwrap();
+  let frame_count = stack_trace.get_frame_count();
+  let mut string = String::with_capacity((2 + 1 + 10) * frame_count);
+  for i in 0..frame_count {
+    let frame = stack_trace.get_frame(scope, i).unwrap();
+
+    let line_number = frame.get_line_number();
+    let column_number = frame.get_column();
+
+    let (file_name, application) = match frame.get_script_name(scope) {
+      Some(name) => {
+        let file_name = name.to_rust_string_lossy(scope);
+
+        let application = source_mapper.apply_source_map(&file_name, line_number as u32, column_number as u32);
+        (file_name, application)
+      },
+      None => {
+        if frame.is_eval() {
+          ("[eval]".to_string(), SourceMapApplication::Unchanged)
+        } else {
+          ("[unknown]".to_string(), SourceMapApplication::Unchanged)
+        }
+      }
+    };
+    match application {
+      SourceMapApplication::Unchanged => {
+        write!(
+          string,
+          "{}:{}:{}\n",
+          file_name,
+          line_number,
+          column_number
+        ).unwrap();
+      }
+      SourceMapApplication::LineAndColumn { line_number, column_number } => {
+        write!(
+          string,
+          "{}:{}:{}\n",
+          file_name,
+          line_number,
+          column_number
+        ).unwrap();
+      }
+      SourceMapApplication::LineAndColumnAndFileName { file_name, line_number, column_number } => {
+        write!(
+          string,
+          "{}:{}:{}\n",
+          file_name,
+          line_number,
+          column_number
+        ).unwrap();
+      }
+    };
+  
+  }
+
   context_state.activity_traces.submit(
     RuntimeActivityType::from_u8(kind),
     id as _,
-    trace,
+    &*string,
   );
 }
 
@@ -123,7 +183,6 @@ pub fn op_leak_tracing_get<'s>(
 #[op2]
 pub fn op_timer_queue(
   scope: &mut v8::HandleScope,
-  depth: u32,
   repeat: bool,
   timeout_ms: f64,
   #[global] task: v8::Global<v8::Function>,
@@ -132,11 +191,11 @@ pub fn op_timer_queue(
   if repeat {
     context_state
       .timers
-      .queue_timer_repeat(timeout_ms as _, (task, depth)) as _
+      .queue_timer_repeat(timeout_ms as _, task) as _
   } else {
     context_state
       .timers
-      .queue_timer(timeout_ms as _, (task, depth)) as _
+      .queue_timer(timeout_ms as _, task) as _
   }
 }
 
@@ -153,7 +212,7 @@ pub fn op_timer_queue_system(
   let context_state = JsRealm::state_from_scope(scope);
   context_state
     .timers
-    .queue_system_timer(repeat, timeout_ms as _, (task, 0)) as _
+    .queue_system_timer(repeat, timeout_ms as _, task) as _
 }
 
 /// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
@@ -165,7 +224,7 @@ pub fn op_timer_queue_immediate(
   #[global] task: v8::Global<v8::Function>,
 ) -> f64 {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.timers.queue_timer(0, (task, 0)) as _
+  context_state.timers.queue_timer(0, task) as _
 }
 
 #[op2(fast)]

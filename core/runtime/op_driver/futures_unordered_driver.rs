@@ -5,7 +5,7 @@ use super::OpInflightStats;
 use super::future_arena::FutureAllocation;
 use super::future_arena::FutureArena;
 use super::op_results::*;
-use crate::OpId;
+use crate::{OpId, PromiseResolver};
 use crate::PromiseId;
 use bit_set::BitSet;
 use deno_error::JsErrorClass;
@@ -27,6 +27,7 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
 use std::task::ready;
+use v8::{HandleScope, Local, Promise, Value};
 
 async fn poll_task<C: OpMappingContext>(
   mut results: SubmissionQueueResults<
@@ -63,6 +64,7 @@ pub struct FuturesUnorderedDriver<
   completed_ops: Rc<RefCell<VecDeque<PendingOp<C>>>>,
   completed_waker: Rc<UnsyncWaker>,
   arena: FutureArena<PendingOp<C>, PendingOpInfo>,
+  promises: RefCell<slab::Slab<PromiseResolver>>
 }
 
 impl<C: OpMappingContext + 'static> Drop for FuturesUnorderedDriver<C> {
@@ -91,6 +93,7 @@ impl<C: OpMappingContext> Default for FuturesUnorderedDriver<C> {
       queue,
       completed_waker,
       arena: Default::default(),
+      promises: Default::default(),
     }
   }
 }
@@ -123,6 +126,44 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
 }
 
 impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
+  fn get_promise<'s>(&self, scope: &mut HandleScope<'s>, promise_id: PromiseId) -> Option<v8::Local<'s, Promise>> {
+    self.promises
+      .borrow()
+      .get(promise_id as usize)
+      .map(move |x| v8::Local::new(scope, x).get_promise(scope))
+  }
+
+  fn create_promise<'s>(&self, scope: &mut HandleScope) -> PromiseId {
+    let promise_resolver = v8::PromiseResolver::new(scope).unwrap();
+    let promise_resolver: PromiseResolver = v8::Global::new(scope, promise_resolver);
+    let promise_id = self.promises
+      .borrow_mut()
+      .insert(promise_resolver);
+    promise_id.try_into().expect("promise id overflow")
+  }
+
+  fn resolve_promise(&self, scope: &mut HandleScope<'_>, promise_id: PromiseId, value: Local<Value>) {
+    match self.promises
+      .borrow_mut()
+      .try_remove(promise_id as usize) {
+      Some(resolver) => {
+        Local::new(scope, resolver).resolve(scope, value);
+      },
+      _ => {}
+    }
+  }
+
+  fn reject_promise(&self, scope: &mut HandleScope<'_>, promise_id: PromiseId, reason: Local<Value>) {
+    match self.promises
+      .borrow_mut()
+      .try_remove(promise_id as usize) {
+      Some(resolver) => {
+        Local::new(scope, resolver).reject(scope, reason);
+      },
+      _ => {}
+    }
+  }
+
   fn submit_op_fallible<
     R: 'static,
     E: JsErrorClass + 'static,
@@ -131,7 +172,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   >(
     &self,
     op_id: OpId,
-    promise_id: i32,
+    promise_id: PromiseId,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>> {
@@ -172,7 +213,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   >(
     &self,
     op_id: OpId,
-    promise_id: i32,
+    promise_id: PromiseId,
     op: impl Future<Output = R> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<R> {

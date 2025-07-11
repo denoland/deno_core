@@ -26,7 +26,7 @@ mod ops_builtin;
 mod ops_builtin_types;
 mod ops_builtin_v8;
 mod ops_metrics;
-mod runtime;
+pub mod runtime;
 mod source_map;
 mod tasks;
 mod web_timeout;
@@ -130,6 +130,7 @@ pub use crate::ops::OpMetadata;
 pub use crate::ops::OpStackTraceCallback;
 pub use crate::ops::OpState;
 pub use crate::ops::PromiseId;
+pub use crate::ops::PromiseResolver;
 pub use crate::ops_builtin::op_close;
 pub use crate::ops_builtin::op_print;
 pub use crate::ops_builtin::op_resources;
@@ -241,32 +242,5 @@ mod tests {
       "[ext:core/lib.rs:"
     };
     assert_eq!(&name[..expected.len()], expected);
-  }
-
-  // If the deno command is available, we ensure the async stubs are correctly rebuilt.
-  #[test]
-  fn test_rebuild_async_stubs() {
-    // Check for deno first
-    if let Err(e) = Command::new("deno")
-      .arg("--version")
-      .stderr(Stdio::null())
-      .stdout(Stdio::null())
-      .status()
-    {
-      #[allow(clippy::print_stderr)]
-      {
-        eprintln!("Ignoring test because we couldn't find deno: {e:?}");
-      }
-    }
-    let status = Command::new("deno")
-      .args(["run", "-A", "rebuild_async_stubs.js", "--check"])
-      .stderr(Stdio::null())
-      .stdout(Stdio::null())
-      .status()
-      .unwrap();
-    assert!(
-      status.success(),
-      "Async stubs were not updated, or 'rebuild_async_stubs.js' failed for some other reason"
-    );
   }
 }

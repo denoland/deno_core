@@ -50,11 +50,36 @@ pub enum OpScheduling {
 pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   Default
 {
+  fn get_promise<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    promise_id: PromiseId,
+  ) -> Option<v8::Local<'s, v8::Promise>>;
+
+  fn resolve_promise<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    promise_id: PromiseId,
+    value: v8::Local<v8::Value>,
+  );
+
+  fn reject_promise<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    promise_id: PromiseId,
+    reason: v8::Local<v8::Value>,
+  );
+
+  fn create_promise<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> PromiseId;
+
   /// Submits an operation that is expected to complete successfully without errors.
   fn submit_op_infallible<R: 'static, const LAZY: bool, const DEFERRED: bool>(
     &self,
     op_id: OpId,
-    promise_id: i32,
+    promise_id: PromiseId,
     op: impl Future<Output = R> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<R>;
@@ -65,7 +90,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
-    promise_id: i32,
+    promise_id: PromiseId,
     op: impl Future<Output = R> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<R> {
@@ -91,7 +116,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   >(
     &self,
     op_id: OpId,
-    promise_id: i32,
+    promise_id: PromiseId,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>>;
@@ -103,7 +128,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
-    promise_id: i32,
+    promise_id: PromiseId,
     op: impl Future<Output = Result<R, E>> + 'static,
     rv_map: C::MappingFn<R>,
   ) -> Option<Result<R, E>> {

@@ -4,7 +4,7 @@ use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::_ops::OpMethodDecl;
-use crate::ModuleSourceCode;
+use crate::{ModuleSourceCode, PromiseId};
 use crate::SourceCodeCacheInfo;
 use crate::cppgc::FunctionTemplateData;
 use crate::error::CoreError;
@@ -57,13 +57,18 @@ impl Hasher for IdentityHasher {
 pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 
 pub(crate) type UnrefedOps =
-  Rc<RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>>;
+  Rc<RefCell<HashSet<PromiseId, BuildHasherDefault<IdentityHasher>>>>;
+
+pub(crate) struct JsBindings {
+  pub(crate) unhandled_rejections_cb: v8::Global<v8::Function>,
+  pub(crate) event_loop_tick_cb: v8::Global<v8::Function>,
+}
 
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
-  pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
-  pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) timers: WebTimers<v8::Global<v8::Function>>,
   pub(crate) js_wasm_streaming_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_bindings: RefCell<Option<JsBindings>>,
   pub(crate) wasm_instance_fn: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) unrefed_ops: UnrefedOps,
   pub(crate) activity_traces: RuntimeActivityTraces,
@@ -94,8 +99,8 @@ impl ContextState {
       isolate: Some(isolate_ptr),
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
-      js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
+      js_bindings: Default::default(),
       wasm_instance_fn: Default::default(),
       activity_traces: Default::default(),
       op_ctxs,
@@ -202,7 +207,6 @@ impl JsRealmInner {
     let isolate = unsafe { raw_ptr.as_mut().unwrap() };
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
-    std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
     {
