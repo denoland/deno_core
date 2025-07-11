@@ -740,7 +740,7 @@
     reportUnhandledException: (e) => op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
     queueUserTimer: (depth, repeat, timeout, task) => {
-      const id = op_timer_queue(depth, repeat, timeout, task);
+      const id = op_timer_queue(repeat, timeout, task);
       if (__isLeakTracingEnabled()) {
         submitTimerTrace(id);
       }
