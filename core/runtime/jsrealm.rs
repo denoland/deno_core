@@ -4,7 +4,6 @@ use super::exception_state::ExceptionState;
 #[cfg(test)]
 use super::op_driver::OpDriver;
 use crate::_ops::OpMethodDecl;
-use crate::{ModuleSourceCode, PromiseId};
 use crate::SourceCodeCacheInfo;
 use crate::cppgc::FunctionTemplateData;
 use crate::error::CoreError;
@@ -22,6 +21,7 @@ use crate::ops::OpCtx;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
 use crate::web_timeout::WebTimers;
+use crate::{ModuleSourceCode, PromiseId};
 use futures::stream::StreamExt;
 use std::cell::Cell;
 use std::cell::RefCell;

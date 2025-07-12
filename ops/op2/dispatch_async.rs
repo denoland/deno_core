@@ -15,11 +15,10 @@ use super::dispatch_slow::with_self;
 use super::dispatch_slow::with_stack_trace;
 use super::generator_state::GeneratorState;
 use super::generator_state::gs_quote;
-use super::signature::{Arg, ArgMarker, ArgSlowRetval, ParsedSignature};
 use super::signature::RetVal;
+use super::signature::{Arg, ArgMarker, ArgSlowRetval, ParsedSignature};
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-
 
 pub fn resolve_value_infallible(
   generator_state: &mut GeneratorState,
@@ -204,28 +203,22 @@ pub(crate) fn map_async_return_type(
   let (mapper, return_value_immediate) = match ret_val {
     RetVal::Infallible(r, true)
     | RetVal::Future(r)
-    | RetVal::ResultFuture(r) => (
-      quote!(map_async_op_infallible),
-      {
-        let resolve_result = resolve_value_infallible(generator_state, r)?;
-        gs_quote!(generator_state(scope, opctx, promise_id, retval) => {
-          #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
-          #resolve_result
-        })
-      },
-    ),
+    | RetVal::ResultFuture(r) => (quote!(map_async_op_infallible), {
+      let resolve_result = resolve_value_infallible(generator_state, r)?;
+      gs_quote!(generator_state(scope, opctx, promise_id, retval) => {
+        #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
+        #resolve_result
+      })
+    }),
     RetVal::Result(r, true)
     | RetVal::FutureResult(r)
-    | RetVal::ResultFutureResult(r) => (
-      quote!(map_async_op_fallible),
-      {
-        let resolve_result = resolve_value_result(generator_state, r)?;
-        gs_quote!(generator_state(scope, opctx, promise_id, retval) => {
-          #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
-          #resolve_result
-        })
-      }
-    ),
+    | RetVal::ResultFutureResult(r) => (quote!(map_async_op_fallible), {
+      let resolve_result = resolve_value_result(generator_state, r)?;
+      gs_quote!(generator_state(scope, opctx, promise_id, retval) => {
+        #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
+        #resolve_result
+      })
+    }),
     RetVal::Infallible(_, false) | RetVal::Result(_, false) => {
       return Err("an async return");
     }

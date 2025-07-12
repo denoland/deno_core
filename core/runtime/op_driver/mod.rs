@@ -70,10 +70,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
     reason: v8::Local<v8::Value>,
   );
 
-  fn create_promise(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> PromiseId;
+  fn create_promise(&self, scope: &mut v8::HandleScope) -> PromiseId;
 
   /// Submits an operation that is expected to complete successfully without errors.
   fn submit_op_infallible<R: 'static, const LAZY: bool, const DEFERRED: bool>(

@@ -591,7 +591,7 @@ pub fn from_arg(
     Arg::Special(Special::PromiseId) => {
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.create_promise(&mut #scope);)
-    },
+    }
     Arg::Special(Special::Isolate) => {
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)

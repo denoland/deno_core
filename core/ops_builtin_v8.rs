@@ -19,8 +19,8 @@ use deno_error::JsErrorBox;
 use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
-use std::rc::Rc;
 use std::fmt::Write;
+use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
@@ -87,9 +87,13 @@ pub fn op_leak_tracing_submit(
       Some(name) => {
         let file_name = name.to_rust_string_lossy(scope);
 
-        let application = source_mapper.apply_source_map(&file_name, line_number as u32, column_number as u32);
+        let application = source_mapper.apply_source_map(
+          &file_name,
+          line_number as u32,
+          column_number as u32,
+        );
         (file_name, application)
-      },
+      }
       None => {
         if frame.is_eval() {
           ("[eval]".to_string(), SourceMapApplication::Unchanged)
@@ -100,34 +104,25 @@ pub fn op_leak_tracing_submit(
     };
     match application {
       SourceMapApplication::Unchanged => {
-        writeln!(
-          string,
-          "{}:{}:{}",
-          file_name,
-          line_number,
-          column_number
-        ).unwrap();
+        writeln!(string, "{}:{}:{}", file_name, line_number, column_number)
+          .unwrap();
       }
-      SourceMapApplication::LineAndColumn { line_number, column_number } => {
-        writeln!(
-          string,
-          "{}:{}:{}",
-          file_name,
-          line_number,
-          column_number
-        ).unwrap();
+      SourceMapApplication::LineAndColumn {
+        line_number,
+        column_number,
+      } => {
+        writeln!(string, "{}:{}:{}", file_name, line_number, column_number)
+          .unwrap();
       }
-      SourceMapApplication::LineAndColumnAndFileName { file_name, line_number, column_number } => {
-        writeln!(
-          string,
-          "{}:{}:{}",
-          file_name,
-          line_number,
-          column_number
-        ).unwrap();
+      SourceMapApplication::LineAndColumnAndFileName {
+        file_name,
+        line_number,
+        column_number,
+      } => {
+        writeln!(string, "{}:{}:{}", file_name, line_number, column_number)
+          .unwrap();
       }
     };
-  
   }
 
   context_state.activity_traces.submit(
@@ -193,9 +188,7 @@ pub fn op_timer_queue(
       .timers
       .queue_timer_repeat(timeout_ms as _, task) as _
   } else {
-    context_state
-      .timers
-      .queue_timer(timeout_ms as _, task) as _
+    context_state.timers.queue_timer(timeout_ms as _, task) as _
   }
 }
 

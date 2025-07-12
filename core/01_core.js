@@ -140,44 +140,45 @@
   const nextTickCallbacks = [];
 
   const bindings = {
-      unhandledPromiseRejectionHandler(rejections) {
-          for (let i = 0; i < rejections.length; i += 2) {
-              const [promise, reason] = [rejections[i], rejections[i + 1]]
-              const handled = unhandledPromiseRejectionHandler(
-                  promise, reason
-              );
-              if (!handled) op_dispatch_exception(reason, true);
-          }
-      },
-      eventLoopTick(tick) {
-          if (tick) // Drain nextTick queue if there's a tick scheduled.
-              for (let i = 0; i < nextTickCallbacks.length; i++) {
-                  nextTickCallbacks[i]();
-              }
-          else op_run_microtasks()
-
-          // drain macrotask queue.
-          for (let i = 0; i < macrotaskCallbacks.length; i++) {
-              const cb = macrotaskCallbacks[i];
-              while (true) {
-                  const res = cb();
-
-                  // If callback returned `undefined` then it has no work to do, we don't
-                  // need to perform microtask checkpoint.
-                  if (res === undefined) {
-                      break;
-                  }
-
-                  op_run_microtasks();
-                  // If callback returned `true` then it has no more work to do, stop
-                  // calling it then.
-                  if (res === true) {
-                      break;
-                  }
-              }
-          }
+    unhandledPromiseRejectionHandler(rejections) {
+      for (let i = 0; i < rejections.length; i += 2) {
+        const [promise, reason] = [rejections[i], rejections[i + 1]];
+        const handled = unhandledPromiseRejectionHandler(
+          promise,
+          reason,
+        );
+        if (!handled) op_dispatch_exception(reason, true);
       }
-  }
+    },
+    eventLoopTick(tick) {
+      if (tick) { // Drain nextTick queue if there's a tick scheduled.
+        for (let i = 0; i < nextTickCallbacks.length; i++) {
+          nextTickCallbacks[i]();
+        }
+      } else op_run_microtasks();
+
+      // drain macrotask queue.
+      for (let i = 0; i < macrotaskCallbacks.length; i++) {
+        const cb = macrotaskCallbacks[i];
+        while (true) {
+          const res = cb();
+
+          // If callback returned `undefined` then it has no work to do, we don't
+          // need to perform microtask checkpoint.
+          if (res === undefined) {
+            break;
+          }
+
+          op_run_microtasks();
+          // If callback returned `true` then it has no more work to do, stop
+          // calling it then.
+          if (res === true) {
+            break;
+          }
+        }
+      }
+    },
+  };
 
   function setMacrotaskCallback(cb) {
     ArrayPrototypePush(macrotaskCallbacks, cb);

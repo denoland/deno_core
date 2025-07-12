@@ -399,12 +399,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
         continue;
       }
 
-      op_ctx_template_or_accessor(
-        &accessor_store,
-        scope,
-        prototype,
-        method,
-      );
+      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
     }
 
     index += decl.methods.len();
@@ -423,12 +418,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     // Register async methods at the end since we need to create the template instance.
     for method in method_ctxs.iter() {
       if method.decl.is_async {
-        op_ctx_template_or_accessor(
-          &accessor_store,
-          scope,
-          prototype,
-          method,
-        );
+        op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
       }
     }
 
@@ -447,8 +437,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
   let op_ctxs = &op_ctxs[index..];
   for op_ctx in op_ctxs {
-    let op_fn =
-      op_ctx_function(scope, op_ctx, v8::ConstructorBehavior::Allow);
+    let op_fn = op_ctx_function(scope, op_ctx, v8::ConstructorBehavior::Allow);
     let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());

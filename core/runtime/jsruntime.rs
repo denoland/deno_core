@@ -1501,7 +1501,12 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick, unhandled_promise_rejection, build_custom_error_cb, wasm_instance_fn) = {
+    let (
+      event_loop_tick,
+      unhandled_promise_rejection,
+      build_custom_error_cb,
+      wasm_instance_fn,
+    ) = {
       let scope = &mut realm.handle_scope(self.v8_isolate());
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1564,12 +1569,10 @@ impl JsRuntime {
 
     // Put global handles in the realm's ContextState
     let state_rc = realm.0.state();
-    state_rc.js_bindings
-      .borrow_mut()
-      .replace(JsBindings {
-        unhandled_rejections_cb: unhandled_promise_rejection,
-        event_loop_tick_cb: event_loop_tick,
-      });
+    state_rc.js_bindings.borrow_mut().replace(JsBindings {
+      unhandled_rejections_cb: unhandled_promise_rejection,
+      event_loop_tick_cb: event_loop_tick,
+    });
     state_rc
       .exception_state
       .js_build_custom_error_cb
@@ -2690,7 +2693,11 @@ impl JsRuntime {
     let event_loop_tick_cb = &js_bindings.as_ref().unwrap().event_loop_tick_cb;
     let event_loop_tick_cb = event_loop_tick_cb.open(scope);
     let has_tick_scheduled_value = v8::Boolean::new(scope, has_tick_scheduled);
-    event_loop_tick_cb.call(scope, undefined, &[has_tick_scheduled_value.into()]);
+    event_loop_tick_cb.call(
+      scope,
+      undefined,
+      &[has_tick_scheduled_value.into()],
+    );
 
     // rejections
     if !exception_state
@@ -2716,8 +2723,10 @@ impl JsRuntime {
         index += 1;
       }
       let tc_scope = &mut v8::TryCatch::new(scope);
-      let js_unhandled_rejections_cb = &js_bindings.as_ref().unwrap().unhandled_rejections_cb;
-      let js_unhandled_rejections_cb = js_unhandled_rejections_cb.open(tc_scope);
+      let js_unhandled_rejections_cb =
+        &js_bindings.as_ref().unwrap().unhandled_rejections_cb;
+      let js_unhandled_rejections_cb =
+        js_unhandled_rejections_cb.open(tc_scope);
       js_unhandled_rejections_cb.call(tc_scope, undefined, &[arr.into()]);
     }
 
@@ -2734,7 +2743,8 @@ impl JsRuntime {
             .complete(RuntimeActivityType::Timer, timers[i].0 as _);
         }
 
-        let (_id, function): (_, v8::Local<'_, v8::Function>) = (timers[i].0, v8::Local::new(scope, timers[i].1.clone()));
+        let (_id, function): (_, v8::Local<'_, v8::Function>) =
+          (timers[i].0, v8::Local::new(scope, timers[i].1.clone()));
         let tc_scope = &mut v8::TryCatch::new(scope);
         function.call(tc_scope, undefined, &[]).unwrap();
         if let Some(exception) = tc_scope.exception() {

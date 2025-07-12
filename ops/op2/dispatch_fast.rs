@@ -548,7 +548,9 @@ pub(crate) fn generate_dispatch_fast(
     gs_quote!(generator_state(scope, opctx, promise_id) => (
       let #promise_id = #opctx.create_promise(&mut #scope);
     ))
-  } else { quote!() };
+  } else {
+    quote!()
+  };
 
   let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
