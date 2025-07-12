@@ -8,6 +8,7 @@
     Error,
     ErrorCaptureStackTrace,
     FunctionPrototypeBind,
+    FunctionPrototypeCall,
     ObjectAssign,
     ObjectFreeze,
     ObjectFromEntries,
@@ -134,7 +135,8 @@
   }
 
   let unhandledPromiseRejectionHandler = () => false;
-  const timerDepth = 0;
+  let timerDepth = null;
+  const cancelledTimers = new Set();
 
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
@@ -738,8 +740,20 @@
       unhandledPromiseRejectionHandler = handler,
     reportUnhandledException: (e) => op_dispatch_exception(e, false),
     reportUnhandledPromiseRejection: (e) => op_dispatch_exception(e, true),
-    queueUserTimer: (_depth, repeat, timeout, task) => {
-      const id = op_timer_queue(repeat, timeout, task);
+    queueUserTimer: (depth, repeat, timeout, task) => {
+      const id = op_timer_queue(repeat, timeout, () => {
+          if (cancelledTimers.has(id)) {
+              cancelledTimers.delete(id);
+              return;
+          }
+          const oldTimerDepth = timerDepth
+          timerDepth = depth
+          try {
+              FunctionPrototypeCall(task, window)
+          } finally {
+              timerDepth = oldTimerDepth
+          }
+      });
       if (__isLeakTracingEnabled()) {
         submitTimerTrace(id);
       }
@@ -750,11 +764,12 @@
       op_timer_queue_system(repeat, timeout, task),
     queueImmediate: (task) => op_timer_queue_immediate(task),
     cancelTimer: (id) => {
+      if (timerDepth) cancelledTimers.add(id)
       op_timer_cancel(id);
     },
     refTimer: (id) => op_timer_ref(id),
     unrefTimer: (id) => op_timer_unref(id),
-    getTimerDepth: () => timerDepth,
+    getTimerDepth: () => timerDepth || 0,
     currentUserCallSite,
     wrapConsole,
     v8Console,

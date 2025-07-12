@@ -2745,14 +2745,8 @@ impl JsRuntime {
 
         let (_id, function): (_, v8::Local<'_, v8::Function>) =
           (timers[i].0, v8::Local::new(scope, timers[i].1.clone()));
-        let tc_scope = &mut v8::TryCatch::new(scope);
-        function.call(tc_scope, undefined, &[]).unwrap();
-        if let Some(exception) = tc_scope.exception() {
-          return exception_to_err_result(tc_scope, exception, false, true);
-        }
-        if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-          return Ok(false);
-        }
+        function.call(scope, undefined, &[]).unwrap();
+        scope.perform_microtask_checkpoint();
       }
     };
 
