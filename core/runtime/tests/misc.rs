@@ -467,7 +467,7 @@ async fn test_preserve_float_precision_from_local_inspector_evaluate(
 async fn local_inspector_evaluate(
   runtime: &mut JsRuntime,
   expression: &str,
-) -> Result<Value, CoreError> {
+) -> Result<Value, deno_core::InspectorPostMessageError> {
   let session_options = inspector::InspectorSessionOptions {
     kind: inspector::InspectorSessionKind::NonBlocking {
       wait_for_disconnect: true,

@@ -56,7 +56,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -122,13 +122,10 @@ impl ModuleLoader for TypescriptModuleLoader {
           if path.extension().unwrap_or_default() == "nocompile" {
             (ModuleType::JavaScript, false)
           } else {
-            return Err(
-              JsErrorBox::generic(format!(
-                "Unknown extension {:?}",
-                path.extension()
-              ))
-              .into(),
-            );
+            return Err(JsErrorBox::generic(format!(
+              "Unknown extension {:?}",
+              path.extension()
+            )));
           }
         }
       };

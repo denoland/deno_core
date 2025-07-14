@@ -688,8 +688,15 @@ impl ModuleError {
     match self {
       ModuleError::Exception(exception) => {
         let exception = v8::Local::new(scope, exception);
-        exception_to_err_result::<()>(scope, exception, in_promise, clear_error)
-          .unwrap_err()
+        CoreError::Js(
+          exception_to_err_result::<()>(
+            scope,
+            exception,
+            in_promise,
+            clear_error,
+          )
+          .unwrap_err(),
+        )
       }
       ModuleError::Core(error) => error,
       ModuleError::Concrete(error) => CoreError::Module(error),

@@ -253,7 +253,7 @@ impl InitMode {
 
 #[derive(Default)]
 struct PromiseFuture {
-  resolved: Cell<Option<Result<v8::Global<v8::Value>, CoreError>>>,
+  resolved: Cell<Option<Result<v8::Global<v8::Value>, JsError>>>,
   waker: Cell<Option<Waker>>,
 }
 
@@ -261,7 +261,7 @@ struct PromiseFuture {
 struct RcPromiseFuture(Rc<PromiseFuture>);
 
 impl RcPromiseFuture {
-  pub fn new(res: Result<v8::Global<v8::Value>, CoreError>) -> Self {
+  pub fn new(res: Result<v8::Global<v8::Value>, JsError>) -> Self {
     Self(Rc::new(PromiseFuture {
       resolved: Some(res).into(),
       ..Default::default()
@@ -270,7 +270,8 @@ impl RcPromiseFuture {
 }
 
 impl Future for RcPromiseFuture {
-  type Output = Result<v8::Global<v8::Value>, CoreError>;
+  type Output = Result<v8::Global<v8::Value>, JsError>;
+
   fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
     let this = self.get_mut();
     match this.0.resolved.take() {
@@ -1625,8 +1626,7 @@ impl JsRuntime {
   pub fn call(
     &mut self,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
-  {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, JsError>> + use<> {
     self.call_with_args(function, &[])
   }
 
@@ -1640,8 +1640,7 @@ impl JsRuntime {
   pub fn scoped_call(
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
-  {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, JsError>> + use<> {
     Self::scoped_call_with_args(scope, function, &[])
   }
 
@@ -1656,8 +1655,7 @@ impl JsRuntime {
     &mut self,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
-  {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, JsError>> + use<> {
     let scope = &mut self.handle_scope();
     Self::scoped_call_with_args(scope, function, args)
   }
@@ -1673,8 +1671,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
-  {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, JsError>> + use<> {
     let scope = &mut v8::TryCatch::new(scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
@@ -1792,7 +1789,7 @@ impl JsRuntime {
   fn pump_v8_message_loop(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), CoreError> {
+  ) -> Result<(), JsError> {
     while v8::Platform::pump_message_loop(
       &v8::V8::get_current_platform(),
       scope,
@@ -1841,8 +1838,7 @@ impl JsRuntime {
   pub fn resolve(
     &mut self,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
-  {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, JsError>> + use<> {
     let scope = &mut self.handle_scope();
     Self::scoped_resolve(scope, promise)
   }
@@ -1854,8 +1850,7 @@ impl JsRuntime {
   pub fn scoped_resolve(
     scope: &mut v8::HandleScope,
     promise: v8::Global<v8::Value>,
-  ) -> impl Future<Output = Result<v8::Global<v8::Value>, CoreError>> + use<>
-  {
+  ) -> impl Future<Output = Result<v8::Global<v8::Value>, JsError>> + use<> {
     let promise = v8::Local::new(scope, promise);
     if !promise.is_promise() {
       return RcPromiseFuture::new(Ok(v8::Global::new(scope, promise)));
@@ -1953,14 +1948,11 @@ impl JsRuntime {
     &mut self,
     mut fut: impl Future<Output = Result<T, E>> + Unpin + 'fut,
     poll_options: PollEventLoopOptions,
-  ) -> Result<T, CoreError>
-  where
-    CoreError: From<E>,
-  {
+  ) -> Result<T, E> {
     // Manually implement tokio::select
     poll_fn(|cx| {
       if let Poll::Ready(t) = fut.poll_unpin(cx) {
-        return Poll::Ready(t.map_err(|e| e.into()));
+        return Poll::Ready(t);
       }
       if let Poll::Ready(t) = self.poll_event_loop(cx, poll_options) {
         // TODO(mmastrac): We need to ignore this error for things like the repl to behave as
@@ -2088,9 +2080,9 @@ impl JsRuntime {
       {
         // pass, will be polled again
       } else {
-        return Poll::Ready(Err(
+        return Poll::Ready(Err(CoreError::Js(
           find_and_report_stalled_level_await_in_any_realm(scope, &realm.0),
-        ));
+        )));
       }
     }
 
@@ -2103,9 +2095,9 @@ impl JsRuntime {
       {
         // pass, will be polled again
       } else if realm.modules_idle() {
-        return Poll::Ready(Err(
+        return Poll::Ready(Err(CoreError::Js(
           find_and_report_stalled_level_await_in_any_realm(scope, &realm.0),
-        ));
+        )));
       } else {
         // Delay the above error by one spin of the event loop. A dynamic import
         // evaluation may complete during this, in which case the counter will
@@ -2122,7 +2114,7 @@ impl JsRuntime {
 fn find_and_report_stalled_level_await_in_any_realm(
   scope: &mut v8::HandleScope,
   inner_realm: &JsRealmInner,
-) -> CoreError {
+) -> JsError {
   let module_map = inner_realm.module_map();
   let messages = module_map.find_stalled_top_level_await(scope);
 
@@ -2133,7 +2125,7 @@ fn find_and_report_stalled_level_await_in_any_realm(
     // situation is gonna be very rare, if ever happening).
     let msg = v8::Local::new(scope, &messages[0]);
     let js_error = JsError::from_v8_message(scope, msg);
-    return js_error.into();
+    return js_error;
   }
 
   unreachable!("Expected at least one stalled top-level await");
@@ -2590,7 +2582,7 @@ impl JsRuntime {
     scope: &mut v8::HandleScope,
     context_state: &ContextState,
     exception_state: &ExceptionState,
-  ) -> Result<bool, CoreError> {
+  ) -> Result<bool, JsError> {
     let mut dispatched_ops = false;
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise

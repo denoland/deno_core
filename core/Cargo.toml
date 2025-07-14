@@ -29,6 +29,7 @@ az = "1.2.1"
 bincode.workspace = true
 bit-set.workspace = true
 bit-vec.workspace = true
+boxed_error.workspace = true
 bytes.workspace = true
 capacity_builder = "0.5.0"
 cooked-waker.workspace = true

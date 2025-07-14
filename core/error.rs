@@ -9,6 +9,7 @@ use crate::runtime::JsRuntime;
 use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
+use deno_error::JsError;
 use deno_error::JsErrorClass;
 use deno_error::PropertyValue;
 use deno_error::builtin_classes::*;
@@ -28,70 +29,89 @@ pub type AnyError = anyhow::Error;
 
 deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, JsError)]
 pub enum CoreError {
+  #[class(generic)]
   #[error("Top-level await is not allowed in synchronous evaluation")]
   TLA,
+  #[class(inherit)]
   #[error(transparent)]
   Js(#[from] JsError),
+  #[class(inherit)]
   #[error(transparent)]
   Io(#[from] std::io::Error),
+  #[class(inherit)]
   #[error(transparent)]
   ExtensionTranspiler(deno_error::JsErrorBox),
+  #[class(generic)]
   #[error("Failed to parse {0}")]
   Parse(FastStaticString),
+  #[class(generic)]
   #[error("Failed to execute {0}")]
   Execute(FastStaticString),
+  #[class(generic)]
   #[error(
     "Following modules were passed to ExtModuleLoader but never used:\n{}",
     .0.iter().map(|s| format!("  - {}\n", s)).collect::<Vec<_>>().join("")
   )]
   UnusedModules(Vec<String>),
+  #[class(generic)]
   #[error(
     "Following modules were not evaluated; make sure they are imported from other code:\n{}",
     .0.iter().map(|s| format!("  - {}\n", s)).collect::<Vec<_>>().join("")
   )]
   NonEvaluatedModules(Vec<String>),
+  #[class(generic)]
   #[error("{0} not present in the module map")]
   MissingFromModuleMap(String),
+  #[class(generic)]
   #[error("Could not execute {specifier}")]
   CouldNotExecute {
     #[source]
     error: Box<Self>,
     specifier: String,
   },
+  #[class(inherit)]
   #[error(transparent)]
   JsBox(#[from] deno_error::JsErrorBox),
+  #[class(inherit)]
   #[error(transparent)]
   Url(#[from] url::ParseError),
-  #[error(transparent)]
-  FutureCanceled(#[from] futures::channel::oneshot::Canceled),
+  #[class(generic)]
   #[error(
     "Cannot evaluate module, because JavaScript execution has been terminated"
   )]
   ExecutionTerminated,
+  #[class(generic)]
   #[error(
     "Promise resolution is still pending but the event loop has already resolved"
   )]
   PendingPromiseResolution,
+  #[class(generic)]
   #[error(
     "Cannot evaluate dynamically imported module, because JavaScript execution has been terminated"
   )]
   EvaluateDynamicImportedModule,
+  #[class(inherit)]
   #[error(transparent)]
   Module(ModuleConcreteError),
+  #[class(inherit)]
   #[error(transparent)]
   DataError(DataError),
+  #[class(generic)]
   #[error("Unable to get code cache from unbound module script for {0}")]
   CreateCodeCache(String),
+  #[class(generic)]
   #[error(
     "Extensions from snapshot loaded in wrong order: expected {0} but got {1}"
   )]
   ExtensionSnapshotMismatch(&'static str, &'static str),
+  #[class(generic)]
   #[error(
     "Number of lazy-initialized extensions ({0}) does not match number of arguments ({1})"
   )]
   ExtensionLazyInitCountMismatch(usize, usize),
+  #[class(generic)]
   #[error(
     "Lazy-initialized extensions loaded in wrong order: expected {0} but got {1}"
   )]
@@ -153,86 +173,6 @@ impl CoreError {
 impl From<v8::DataError> for CoreError {
   fn from(err: v8::DataError) -> Self {
     CoreError::DataError(DataError(err))
-  }
-}
-
-impl JsErrorClass for CoreError {
-  fn get_class(&self) -> Cow<'static, str> {
-    match self {
-      CoreError::Js(js_error) => {
-        if let Some(name) = &js_error.name {
-          Cow::Owned(name.clone())
-        } else {
-          Cow::Borrowed(GENERIC_ERROR)
-        }
-      }
-      CoreError::Io(err) => err.get_class(),
-      CoreError::ExtensionTranspiler(err) => err.get_class(),
-      CoreError::CouldNotExecute { error, .. } => error.get_class(),
-      CoreError::JsBox(err) => err.get_class(),
-      CoreError::Url(err) => err.get_class(),
-      CoreError::Module(err) => err.get_class(),
-      CoreError::DataError(err) => err.get_class(),
-      CoreError::FutureCanceled(_) => Cow::Borrowed("Interrupted"),
-      CoreError::TLA
-      | CoreError::Parse(_)
-      | CoreError::Execute(_)
-      | CoreError::UnusedModules(_)
-      | CoreError::NonEvaluatedModules(_)
-      | CoreError::MissingFromModuleMap(_)
-      | CoreError::ExecutionTerminated
-      | CoreError::PendingPromiseResolution
-      | CoreError::CreateCodeCache(_)
-      | CoreError::EvaluateDynamicImportedModule
-      | CoreError::ExtensionSnapshotMismatch(..)
-      | CoreError::ExtensionLazyInitCountMismatch(..)
-      | CoreError::ExtensionLazyInitOrderMismatch(..) => {
-        Cow::Borrowed(GENERIC_ERROR)
-      }
-    }
-  }
-
-  fn get_message(&self) -> Cow<'static, str> {
-    match self {
-      CoreError::Js(js_error) => {
-        if let Some(name) = &js_error.message {
-          Cow::Owned(name.clone())
-        } else {
-          Cow::Borrowed("")
-        }
-      }
-      CoreError::Io(err) => err.get_message(),
-      CoreError::ExtensionTranspiler(err) => err.get_message(),
-      CoreError::CouldNotExecute { error, .. } => error.get_message(),
-      CoreError::JsBox(err) => err.get_message(),
-      CoreError::Url(err) => err.get_message(),
-      CoreError::Module(err) => err.get_message(),
-      CoreError::DataError(err) => err.get_message(),
-      CoreError::TLA
-      | CoreError::Parse(_)
-      | CoreError::Execute(_)
-      | CoreError::UnusedModules(_)
-      | CoreError::NonEvaluatedModules(_)
-      | CoreError::MissingFromModuleMap(_)
-      | CoreError::FutureCanceled(_)
-      | CoreError::ExecutionTerminated
-      | CoreError::PendingPromiseResolution
-      | CoreError::EvaluateDynamicImportedModule
-      | CoreError::CreateCodeCache(_)
-      | CoreError::ExtensionSnapshotMismatch(..)
-      | CoreError::ExtensionLazyInitCountMismatch(..)
-      | CoreError::ExtensionLazyInitOrderMismatch(..) => {
-        self.to_string().into()
-      }
-    }
-  }
-
-  fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
-    Box::new(std::iter::empty()) // TODO
-  }
-
-  fn as_any(&self) -> &dyn Any {
-    self
   }
 }
 
@@ -348,6 +288,44 @@ pub struct JsError {
   pub source_line_frame_index: Option<usize>,
   pub aggregated: Option<Vec<JsError>>,
   pub additional_properties: Vec<(String, String)>,
+}
+
+impl JsErrorClass for JsError {
+  fn get_class(&self) -> Cow<'static, str> {
+    if let Some(name) = &self.name {
+      Cow::Owned(name.clone())
+    } else {
+      Cow::Borrowed(GENERIC_ERROR)
+    }
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    if let Some(message) = &self.message {
+      Cow::Owned(message.clone())
+    } else {
+      Cow::Borrowed("")
+    }
+  }
+
+  fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
+    Box::new(
+      self
+        .additional_properties
+        // todo(dsherret): why does JsErrorClass not allow having references within this struct?
+        .clone()
+        .into_iter()
+        .map(|(k, v)| {
+          (
+            Cow::Owned(k.to_string()),
+            PropertyValue::String(Cow::Owned(v.to_string())),
+          )
+        }),
+    )
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, serde::Deserialize, serde::Serialize)]
@@ -1088,7 +1066,7 @@ pub(crate) fn exception_to_err_result<T>(
   exception: v8::Local<v8::Value>,
   mut in_promise: bool,
   clear_error: bool,
-) -> Result<T, CoreError> {
+) -> Result<T, JsError> {
   let state = JsRealm::exception_state_from_scope(scope);
 
   let mut was_terminating_execution = scope.is_execution_terminating();
@@ -1140,7 +1118,7 @@ pub(crate) fn exception_to_err_result<T>(
   }
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
-  Err(CoreError::Js(js_error))
+  Err(js_error)
 }
 
 v8_static_strings::v8_static_strings! {

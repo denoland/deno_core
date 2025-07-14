@@ -1154,8 +1154,10 @@ impl ModuleMap {
     let Some(value) = module.evaluate(tc_scope) else {
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
         let undefined = v8::undefined(tc_scope).into();
-        _ = sender
-          .send(exception_to_err_result(tc_scope, undefined, true, false));
+        _ = sender.send(
+          exception_to_err_result(tc_scope, undefined, true, false)
+            .map_err(CoreError::Js),
+        );
       } else {
         debug_assert_eq!(module.get_status(), v8::ModuleStatus::Errored);
       }
@@ -1171,7 +1173,10 @@ impl ModuleMap {
       // This will be overridden in `exception_to_err_result()`.
       let exception = v8::undefined(tc_scope).into();
       sender
-        .send(exception_to_err_result(tc_scope, exception, true, false))
+        .send(
+          exception_to_err_result(tc_scope, exception, true, false)
+            .map_err(CoreError::Js),
+        )
         .expect("Failed to send module evaluation error.");
     } else {
       debug_assert!(
@@ -1257,9 +1262,10 @@ impl ModuleMap {
         match promise.state() {
           PromiseState::Fulfilled => {
             if let Some(exception) = tc_scope.exception() {
-              _ = sender.sender.take().unwrap().send(exception_to_err_result(
-                tc_scope, exception, true, false,
-              ));
+              _ = sender.sender.take().unwrap().send(
+                exception_to_err_result(tc_scope, exception, true, false)
+                  .map_err(CoreError::Js),
+              );
             } else {
               // Module loaded OK
               sender.notify(tc_scope);
@@ -1592,7 +1598,7 @@ impl ModuleMap {
     while has_evaluated {
       has_evaluated = false;
       loop {
-        let poll_imports = self.poll_prepare_dyn_imports(cx, scope)?;
+        let poll_imports = self.poll_prepare_dyn_imports(cx, scope);
         assert!(poll_imports.is_ready());
 
         let poll_imports = self.poll_dyn_imports(cx, scope)?;
@@ -1616,9 +1622,9 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Poll<Result<(), CoreError>> {
+  ) -> Poll<()> {
     if !self.preparing_dynamic_imports_pending.get() {
-      return Poll::Ready(Ok(()));
+      return Poll::Ready(());
     }
 
     loop {
@@ -1652,7 +1658,7 @@ impl ModuleMap {
       self
         .preparing_dynamic_imports_pending
         .set(!self.preparing_dynamic_imports.borrow().is_empty());
-      return Poll::Ready(Ok(()));
+      return Poll::Ready(());
     }
   }
 
@@ -1799,7 +1805,8 @@ impl ModuleMap {
 
     if module.get_status() == v8::ModuleStatus::Errored {
       let exception = module.get_exception();
-      return exception_to_err_result(scope, exception, false, false);
+      return exception_to_err_result(scope, exception, false, false)
+        .map_err(CoreError::Js);
     }
 
     assert!(matches!(
@@ -1912,9 +1919,9 @@ impl ModuleMap {
     let promise = v8::Local::<v8::Promise>::try_from(value).unwrap();
     let result = promise.result(scope);
     if !result.is_undefined() {
-      return Err(
+      return Err(CoreError::Js(
         exception_to_err_result::<()>(scope, result, false, true).unwrap_err(),
-      );
+      ));
     }
 
     let status = module_local.get_status();

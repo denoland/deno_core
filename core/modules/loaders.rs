@@ -164,7 +164,7 @@ impl ModuleLoader for NoopModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -248,21 +248,19 @@ impl ModuleLoader for ExtModuleLoader {
       || referrer.starts_with("ext:")
     {
       // add `/` to the referrer to make it a valid base URL, so we can join the specifier to it
-      return Ok(
-        crate::resolve_url(
-          &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())
-            .map_err(JsErrorBox::from_err)?
-            .join(specifier)
-            .map_err(crate::ModuleResolutionError::InvalidBaseUrl)
-            .map_err(JsErrorBox::from_err)?
-            .as_str()
-            // remove the `/` we added
-            .replace("ext:/", "ext:"),
-        )
-        .map_err(JsErrorBox::from_err)?,
-      );
+      return crate::resolve_url(
+        &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())
+          .map_err(JsErrorBox::from_err)?
+          .join(specifier)
+          .map_err(crate::ModuleResolutionError::InvalidBaseUrl)
+          .map_err(JsErrorBox::from_err)?
+          .as_str()
+          // remove the `/` we added
+          .replace("ext:/", "ext:"),
+      )
+      .map_err(JsErrorBox::from_err);
     }
-    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -340,7 +338,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -403,7 +401,7 @@ impl ModuleLoader for FsModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -506,7 +504,7 @@ impl ModuleLoader for StaticModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(

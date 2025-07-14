@@ -4,7 +4,6 @@
 //! <https://chromedevtools.github.io/devtools-protocol/>
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
-use crate::error::CoreError;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
@@ -17,6 +16,8 @@ use crate::futures::stream::StreamExt;
 use crate::futures::task;
 use crate::serde_json::Value;
 use crate::serde_json::json;
+
+use boxed_error::Boxed;
 use deno_error::JsErrorBox;
 use parking_lot::Mutex;
 use std::cell::BorrowMutError;
@@ -33,6 +34,7 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::thread;
+use thiserror::Error;
 use v8::HandleScope;
 
 pub enum InspectorMsgKind {
@@ -804,6 +806,17 @@ impl Stream for InspectorSession {
   }
 }
 
+#[derive(Debug, Boxed)]
+pub struct InspectorPostMessageError(pub Box<InspectorPostMessageErrorKind>);
+
+#[derive(Debug, Error)]
+pub enum InspectorPostMessageErrorKind {
+  #[error(transparent)]
+  Js(JsErrorBox),
+  #[error(transparent)]
+  FutureCanceled(futures::channel::oneshot::Canceled),
+}
+
 /// A local inspector session that can be used to send and receive protocol messages directly on
 /// the same thread as an isolate.
 pub struct LocalInspectorSession {
@@ -843,7 +856,7 @@ impl LocalInspectorSession {
     &mut self,
     method: &str,
     params: Option<T>,
-  ) -> Result<serde_json::Value, CoreError> {
+  ) -> Result<serde_json::Value, InspectorPostMessageError> {
     let id = self.next_message_id;
     self.next_message_id += 1;
 
@@ -865,9 +878,15 @@ impl LocalInspectorSession {
       match select(receive_fut, &mut response_rx).await {
         Either::Left(_) => continue,
         Either::Right((result, _)) => {
-          let response = result?;
+          let response =
+            result.map_err(InspectorPostMessageErrorKind::FutureCanceled)?;
           if let Some(error) = response.get("error") {
-            return Err(JsErrorBox::generic(error.to_string()).into());
+            return Err(
+              InspectorPostMessageErrorKind::Js(JsErrorBox::generic(
+                error.to_string(),
+              ))
+              .into_box(),
+            );
           }
 
           let result = response.get("result").unwrap().clone();

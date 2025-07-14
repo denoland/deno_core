@@ -523,7 +523,7 @@ async fn do_load_job(
       // OK
     }
     v8::ModuleStatus::Errored => {
-      return Err(
+      return Err(CoreError::Js(
         exception_to_err_result::<()>(
           scope,
           module.get_exception(),
@@ -531,7 +531,7 @@ async fn do_load_job(
           false,
         )
         .unwrap_err(),
-      );
+      ));
     }
   }
 
@@ -629,7 +629,7 @@ fn op_import_sync<'s>(
       // OK
     }
     v8::ModuleStatus::Errored => {
-      return Err(
+      return Err(CoreError::Js(
         exception_to_err_result::<()>(
           scope,
           module.get_exception(),
@@ -637,7 +637,7 @@ fn op_import_sync<'s>(
           false,
         )
         .unwrap_err(),
-      );
+      ));
     }
   }
 
@@ -653,7 +653,8 @@ fn op_import_sync<'s>(
   {
     let Some(module) = wrap_module(scope, module) else {
       let exception = scope.exception().unwrap();
-      return exception_to_err_result(scope, exception, false, false);
+      return exception_to_err_result(scope, exception, false, false)
+        .map_err(CoreError::Js);
     };
     Ok(v8::Local::new(scope, module.get_module_namespace()))
   } else {

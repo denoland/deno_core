@@ -342,7 +342,8 @@ impl JsRealm {
       Some(script) => script,
       None => {
         let exception = tc_scope.exception().unwrap();
-        return exception_to_err_result(tc_scope, exception, false, false);
+        return exception_to_err_result(tc_scope, exception, false, false)
+          .map_err(CoreError::Js);
       }
     };
 
@@ -355,6 +356,7 @@ impl JsRealm {
         assert!(tc_scope.has_caught());
         let exception = tc_scope.exception().unwrap();
         exception_to_err_result(tc_scope, exception, false, false)
+          .map_err(CoreError::Js)
       }
     }
   }
@@ -421,7 +423,8 @@ impl JsRealm {
       Some(script) => script,
       None => {
         let exception = tc_scope.exception().unwrap();
-        return exception_to_err_result(tc_scope, exception, false, false);
+        return exception_to_err_result(tc_scope, exception, false, false)
+          .map_err(CoreError::Js);
       }
     };
 
@@ -442,6 +445,7 @@ impl JsRealm {
         assert!(tc_scope.has_caught());
         let exception = tc_scope.exception().unwrap();
         exception_to_err_result(tc_scope, exception, false, false)
+          .map_err(CoreError::Js)
       }
     }
   }
