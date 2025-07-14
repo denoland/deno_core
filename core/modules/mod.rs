@@ -2,7 +2,8 @@
 
 use crate::FastStaticString;
 use crate::error::CoreError;
-use crate::error::exception_to_err_result;
+use crate::error::CoreErrorKind;
+use crate::error::exception_to_err;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
 use serde::Deserialize;
@@ -688,18 +689,16 @@ impl ModuleError {
     match self {
       ModuleError::Exception(exception) => {
         let exception = v8::Local::new(scope, exception);
-        CoreError::Js(
-          exception_to_err_result::<()>(
-            scope,
-            exception,
-            in_promise,
-            clear_error,
-          )
-          .unwrap_err(),
-        )
+        CoreErrorKind::Js(exception_to_err(
+          scope,
+          exception,
+          in_promise,
+          clear_error,
+        ))
+        .into_box()
       }
       ModuleError::Core(error) => error,
-      ModuleError::Concrete(error) => CoreError::Module(error),
+      ModuleError::Concrete(error) => CoreErrorKind::Module(error).into_box(),
     }
   }
 }

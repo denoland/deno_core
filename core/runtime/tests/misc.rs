@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::Mode;
 use crate::runtime::tests::setup;
@@ -291,7 +292,7 @@ async fn test_resolve_value_generic(
           value.to_rust_string_lossy(scope)
         );
       };
-      let CoreError::Js(js_err) = err else {
+      let CoreErrorKind::Js(js_err) = err.into_kind() else {
         unreachable!()
       };
       assert_eq!(e, js_err.exception_message);
@@ -572,15 +573,12 @@ fn test_heap_limits() {
     cb_handle.terminate_execution();
     current_limit * 2
   });
-  let err = runtime
+  let js_err = runtime
     .execute_script(
       "script name",
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
-  let CoreError::Js(js_err) = err else {
-    unreachable!()
-  };
   assert_eq!(
     "Uncaught Error: execution terminated",
     js_err.exception_message
@@ -624,15 +622,12 @@ fn test_heap_limit_cb_multiple() {
     current_limit * 2
   });
 
-  let err = runtime
+  let js_err = runtime
     .execute_script(
       "script name",
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
-  let CoreError::Js(js_err) = err else {
-    unreachable!()
-  };
   assert_eq!(
     "Uncaught Error: execution terminated",
     js_err.exception_message
@@ -953,7 +948,7 @@ async fn test_promise_rejection_handler_generic(
   let res = runtime.run_event_loop(Default::default()).await;
   if let Some(error) = error {
     let err = res.expect_err("Expected a failure");
-    let CoreError::Js(js_error) = err else {
+    let CoreErrorKind::Js(js_error) = err.into_kind() else {
       panic!("Expected a JsError");
     };
     assert_eq!(js_error.exception_message, error);
@@ -1027,7 +1022,7 @@ async fn test_stalled_tla() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let CoreError::Js(js_error) = error else {
+  let CoreErrorKind::Js(js_error) = error.into_kind() else {
     unreachable!()
   };
   assert_eq!(
@@ -1079,7 +1074,7 @@ async fn test_dynamic_import_module_error_stack() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let CoreError::Js(js_error) = error else {
+  let CoreErrorKind::Js(js_error) = error.into_kind() else {
     unreachable!()
   };
   assert_eq!(

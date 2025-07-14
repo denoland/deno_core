@@ -9,6 +9,7 @@ use crate::runtime::JsRuntime;
 use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::url::Url;
+use boxed_error::Boxed;
 use deno_error::JsError;
 use deno_error::JsErrorClass;
 use deno_error::PropertyValue;
@@ -22,6 +23,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
@@ -29,8 +31,56 @@ pub type AnyError = anyhow::Error;
 
 deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
 
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error("Failed to parse {0}")]
+pub struct CoreModuleParseError(pub FastStaticString);
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error("Failed to execute {0}")]
+pub struct CoreModuleExecuteError(pub FastStaticString);
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error("Unable to get code cache from unbound module script for {0}")]
+pub struct CreateCodeCacheError(pub Url);
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error(
+  "Extensions from snapshot loaded in wrong order: expected {} but got {}", .expected, .actual
+)]
+pub struct ExtensionSnapshotMismatchError {
+  pub expected: &'static str,
+  pub actual: &'static str,
+}
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error(
+  "Number of lazy-initialized extensions ({}) does not match number of arguments ({})", .lazy_init_extensions_len, .arguments_len
+)]
+pub struct ExtensionLazyInitCountMismatchError {
+  pub lazy_init_extensions_len: usize,
+  pub arguments_len: usize,
+}
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error(
+  "Lazy-initialized extensions loaded in wrong order: expected {} but got {}", .expected, .actual
+)]
+pub struct ExtensionLazyInitOrderMismatchError {
+  pub expected: &'static str,
+  pub actual: &'static str,
+}
+
+#[derive(Debug, Boxed, JsError)]
+pub struct CoreError(pub Box<CoreErrorKind>);
+
 #[derive(Debug, thiserror::Error, JsError)]
-pub enum CoreError {
+pub enum CoreErrorKind {
   #[class(generic)]
   #[error("Top-level await is not allowed in synchronous evaluation")]
   TLA,
@@ -43,12 +93,12 @@ pub enum CoreError {
   #[class(inherit)]
   #[error(transparent)]
   ExtensionTranspiler(deno_error::JsErrorBox),
-  #[class(generic)]
-  #[error("Failed to parse {0}")]
-  Parse(FastStaticString),
-  #[class(generic)]
-  #[error("Failed to execute {0}")]
-  Execute(FastStaticString),
+  #[class(inherit)]
+  #[error(transparent)]
+  Parse(#[from] CoreModuleParseError),
+  #[class(inherit)]
+  #[error(transparent)]
+  Execute(#[from] CoreModuleExecuteError),
   #[class(generic)]
   #[error(
     "Following modules were passed to ExtModuleLoader but never used:\n{}",
@@ -97,25 +147,19 @@ pub enum CoreError {
   Module(ModuleConcreteError),
   #[class(inherit)]
   #[error(transparent)]
-  DataError(DataError),
-  #[class(generic)]
-  #[error("Unable to get code cache from unbound module script for {0}")]
-  CreateCodeCache(String),
-  #[class(generic)]
-  #[error(
-    "Extensions from snapshot loaded in wrong order: expected {0} but got {1}"
-  )]
-  ExtensionSnapshotMismatch(&'static str, &'static str),
-  #[class(generic)]
-  #[error(
-    "Number of lazy-initialized extensions ({0}) does not match number of arguments ({1})"
-  )]
-  ExtensionLazyInitCountMismatch(usize, usize),
-  #[class(generic)]
-  #[error(
-    "Lazy-initialized extensions loaded in wrong order: expected {0} but got {1}"
-  )]
-  ExtensionLazyInitOrderMismatch(&'static str, &'static str),
+  Data(DataError),
+  #[class(inherit)]
+  #[error(transparent)]
+  CreateCodeCache(#[from] CreateCodeCacheError),
+  #[class(inherit)]
+  #[error(transparent)]
+  ExtensionSnapshotMismatch(ExtensionSnapshotMismatchError),
+  #[class(inherit)]
+  #[error(transparent)]
+  ExtensionLazyInitCountMismatch(ExtensionLazyInitCountMismatchError),
+  #[class(inherit)]
+  #[error(transparent)]
+  ExtensionLazyInitOrderMismatch(ExtensionLazyInitOrderMismatchError),
 }
 
 impl CoreError {
@@ -133,6 +177,15 @@ impl CoreError {
     err_message
   }
 
+  pub fn to_v8_error(
+    &self,
+    scope: &mut v8::HandleScope,
+  ) -> v8::Global<v8::Value> {
+    self.as_kind().to_v8_error(scope)
+  }
+}
+
+impl CoreErrorKind {
   pub fn to_v8_error(
     &self,
     scope: &mut v8::HandleScope,
@@ -172,7 +225,7 @@ impl CoreError {
 
 impl From<v8::DataError> for CoreError {
   fn from(err: v8::DataError) -> Self {
-    CoreError::DataError(DataError(err))
+    CoreErrorKind::Data(DataError(err)).into_box()
   }
 }
 
@@ -1064,9 +1117,18 @@ fn abbrev_file_name(file_name: &str) -> Option<String> {
 pub(crate) fn exception_to_err_result<T>(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
-  mut in_promise: bool,
+  in_promise: bool,
   clear_error: bool,
 ) -> Result<T, JsError> {
+  Err(exception_to_err(scope, exception, in_promise, clear_error))
+}
+
+pub(crate) fn exception_to_err(
+  scope: &mut v8::HandleScope,
+  exception: v8::Local<v8::Value>,
+  mut in_promise: bool,
+  clear_error: bool,
+) -> JsError {
   let state = JsRealm::exception_state_from_scope(scope);
 
   let mut was_terminating_execution = scope.is_execution_terminating();
@@ -1118,7 +1180,7 @@ pub(crate) fn exception_to_err_result<T>(
   }
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
-  Err(js_error)
+  js_error
 }
 
 v8_static_strings::v8_static_strings! {

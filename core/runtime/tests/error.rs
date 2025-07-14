@@ -40,10 +40,7 @@ async fn test_error_builder() {
 fn syntax_error() {
   let mut runtime = JsRuntime::new(Default::default());
   let src = "hocuspocus(";
-  let r = runtime.execute_script("i.js", src);
-  let CoreError::Js(js_error) = r.unwrap_err() else {
-    unreachable!()
-  };
+  let js_error = runtime.execute_script("i.js", src).unwrap_err();
   let frame = js_error.frames.first().unwrap();
   assert_eq!(frame.column_number, Some(12));
 }

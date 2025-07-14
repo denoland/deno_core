@@ -10,7 +10,7 @@ use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use crate::ascii_str;
-use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::error::exception_to_err_result;
 use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::IntoModuleName;
@@ -1424,7 +1424,7 @@ async fn loader_disappears_after_error() {
   let spec = resolve_url("file:///bad_import.js").unwrap();
   let result = runtime.load_main_es_module(&spec).await;
 
-  let CoreError::JsBox(err) = result.unwrap_err() else {
+  let CoreErrorKind::JsBox(err) = result.unwrap_err().into_kind() else {
     unreachable!();
   };
   assert_eq!(

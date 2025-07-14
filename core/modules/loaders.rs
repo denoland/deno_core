@@ -2,6 +2,7 @@
 
 use crate::ModuleSourceCode;
 use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
@@ -223,12 +224,15 @@ impl ExtModuleLoader {
     let unused_modules: Vec<_> = sources.iter().collect();
 
     if !unused_modules.is_empty() {
-      return Err(CoreError::UnusedModules(
-        unused_modules
-          .into_iter()
-          .map(|(name, _)| name.to_string())
-          .collect::<Vec<_>>(),
-      ));
+      return Err(
+        CoreErrorKind::UnusedModules(
+          unused_modules
+            .into_iter()
+            .map(|(name, _)| name.to_string())
+            .collect::<Vec<_>>(),
+        )
+        .into_box(),
+      );
     }
 
     Ok(())
