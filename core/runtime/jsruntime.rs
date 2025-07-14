@@ -1368,10 +1368,10 @@ impl JsRuntime {
 
       let origin = script_origin(scope, name, false, None);
       let script = v8::Script::compile(scope, source, Some(&origin))
-        .ok_or_else(|| CoreModuleParseError(source_file.specifier))?;
+        .ok_or(CoreModuleParseError(source_file.specifier))?;
       script
         .run(scope)
-        .ok_or_else(|| CoreModuleExecuteError(source_file.specifier))?;
+        .ok_or(CoreModuleExecuteError(source_file.specifier))?;
     }
 
     for file_source in &BUILTIN_ES_MODULES {
@@ -1916,7 +1916,7 @@ impl JsRuntime {
   ///  - there are no more pending dynamic imports
   ///  - there are no more pending ops
   ///  - there are no more active inspector sessions (only if
-  ///     `PollEventLoopOptions.wait_for_inspector` is set to true)
+  ///    `PollEventLoopOptions.wait_for_inspector` is set to true)
   pub async fn run_event_loop(
     &mut self,
     poll_options: PollEventLoopOptions,
