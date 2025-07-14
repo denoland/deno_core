@@ -78,13 +78,10 @@ impl ModuleLoader for TypescriptModuleLoader {
         | MediaType::Tsx => (ModuleType::JavaScript, true),
         MediaType::Json => (ModuleType::Json, false),
         _ => {
-          return Err(
-            JsErrorBox::generic(format!(
-              "Unknown extension {:?}",
-              path.extension()
-            ))
-            .into(),
-          );
+          return Err(JsErrorBox::generic(format!(
+            "Unknown extension {:?}",
+            path.extension()
+          )));
         }
       };
 

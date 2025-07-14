@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::CoreError;
 use crate::error::CoreErrorKind;
 use crate::modules::StaticModuleLoader;
 use crate::runtime::tests::Mode;

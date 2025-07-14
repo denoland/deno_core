@@ -2,7 +2,6 @@
 
 use crate::JsRuntime;
 use crate::RuntimeOptions;
-use crate::error::CoreError;
 use crate::op2;
 use deno_error::JsErrorBox;
 use std::future::poll_fn;

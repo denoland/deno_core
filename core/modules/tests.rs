@@ -267,7 +267,7 @@ impl Future for DelayedSourceCodeFuture {
           }),
         )))
       }
-      None => Poll::Ready(Err(JsErrorBox::from_err(MockError::LoadErr).into())),
+      None => Poll::Ready(Err(JsErrorBox::from_err(MockError::LoadErr))),
     }
   }
 }
@@ -288,14 +288,14 @@ impl ModuleLoader for MockLoader {
     let output_specifier = match resolve_import(specifier, referrer) {
       Ok(specifier) => specifier,
       Err(..) => {
-        return Err(JsErrorBox::from_err(MockError::ResolveErr).into());
+        return Err(JsErrorBox::from_err(MockError::ResolveErr));
       }
     };
 
     if mock_source_code(output_specifier.as_ref()).is_some() {
       Ok(output_specifier)
     } else {
-      Err(JsErrorBox::from_err(MockError::ResolveErr).into())
+      Err(JsErrorBox::from_err(MockError::ResolveErr))
     }
   }
 
@@ -1695,7 +1695,7 @@ async fn no_duplicate_loads() {
         referrer
       };
 
-      Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+      resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
     }
 
     fn load(
@@ -1769,7 +1769,7 @@ async fn import_meta_resolve() {
       } else {
         referrer
       };
-      Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
+      resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
     }
 
     fn import_meta_resolve(
@@ -1785,7 +1785,7 @@ async fn import_meta_resolve() {
         return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
       }
 
-      Err(JsErrorBox::generic("unexpected").into())
+      Err(JsErrorBox::generic("unexpected"))
     }
 
     fn load(
