@@ -56,7 +56,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
   }
 
   fn load(
@@ -89,7 +89,7 @@ impl ModuleLoader for TypescriptModuleLoader {
           | RequestedModuleType::Text
           | RequestedModuleType::Other(_)
       ) {
-        let bytes = fs::read(path)?;
+        let bytes = fs::read(path).map_err(JsErrorBox::from_err)?;
         return Ok(ModuleSource::new(
           match requested_module_type {
             RequestedModuleType::Bytes => ModuleType::Bytes,

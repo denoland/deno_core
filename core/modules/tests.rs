@@ -1424,10 +1424,7 @@ async fn loader_disappears_after_error() {
   let spec = resolve_url("file:///bad_import.js").unwrap();
   let result = runtime.load_main_es_module(&spec).await;
 
-  let CoreError::ModuleLoader(err) = result.unwrap_err() else {
-    unreachable!();
-  };
-  let ModuleLoaderError::Core(CoreError::JsBox(err)) = *err else {
+  let CoreError::JsBox(err) = result.unwrap_err() else {
     unreachable!();
   };
   assert_eq!(
@@ -1698,7 +1695,7 @@ async fn no_duplicate_loads() {
         referrer
       };
 
-      Ok(resolve_import(specifier, referrer)?)
+      Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
     }
 
     fn load(
@@ -1772,7 +1769,7 @@ async fn import_meta_resolve() {
       } else {
         referrer
       };
-      Ok(resolve_import(specifier, referrer)?)
+      Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
     }
 
     fn import_meta_resolve(

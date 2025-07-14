@@ -44,7 +44,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -88,7 +88,8 @@ impl ModuleLoader for TypescriptModuleLoader {
         }
       };
 
-      let code = std::fs::read_to_string(&path)?;
+      let code =
+        std::fs::read_to_string(&path).map_err(JsErrorBox::from_err)?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
           specifier: module_specifier.clone(),

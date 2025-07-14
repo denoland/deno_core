@@ -24,57 +24,7 @@ use std::rc::Rc;
 
 use super::SourceCodeCacheInfo;
 
-#[derive(Debug, thiserror::Error, deno_error::JsError)]
-#[class(generic)]
-pub enum ModuleLoaderError {
-  #[error(
-    "Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot."
-  )]
-  SpecifierExcludedFromSnapshot(ModuleSpecifier),
-  #[error(
-    "Specifier \"{0}\" cannot be lazy-loaded as it was not included in the binary."
-  )]
-  SpecifierMissingLazyLoadable(ModuleSpecifier),
-  #[error(
-    "Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."
-  )]
-  JsonMissingAttribute,
-  #[error("Module not found")]
-  NotFound,
-  #[error(
-    "Module loading is not supported; attempted to load: \"{specifier}\" from \"{}\"",
-    .maybe_referrer.as_ref().map_or("(no referrer)", |referrer| referrer.as_str())
-  )]
-  Unsupported {
-    specifier: Box<ModuleSpecifier>,
-    maybe_referrer: Option<Box<ModuleSpecifier>>,
-  },
-  #[class(inherit)]
-  #[error(transparent)]
-  Resolution(
-    #[from]
-    #[inherit]
-    crate::ModuleResolutionError,
-  ),
-  #[class(inherit)]
-  #[error(transparent)]
-  Core(
-    #[from]
-    #[inherit]
-    CoreError,
-  ),
-}
-
-impl From<std::io::Error> for ModuleLoaderError {
-  fn from(err: std::io::Error) -> Self {
-    ModuleLoaderError::Core(CoreError::Io(err))
-  }
-}
-impl From<JsErrorBox> for ModuleLoaderError {
-  fn from(err: JsErrorBox) -> Self {
-    ModuleLoaderError::Core(CoreError::JsBox(err))
-  }
-}
+pub type ModuleLoaderError = JsErrorBox;
 
 /// Result of calling `ModuleLoader::load`.
 pub enum ModuleLoadResponse {
@@ -214,20 +164,19 @@ impl ModuleLoader for NoopModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
   }
 
   fn load(
     &self,
-    module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
+    _module_specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
-    ModuleLoadResponse::Sync(Err(ModuleLoaderError::Unsupported {
-      specifier: Box::new(module_specifier.clone()),
-      maybe_referrer: maybe_referrer.map(|referrer| Box::new(referrer.clone())),
-    }))
+    ModuleLoadResponse::Sync(Err(JsErrorBox::generic(
+      "Module loading is not supported.",
+    )))
   }
 }
 
@@ -299,16 +248,21 @@ impl ModuleLoader for ExtModuleLoader {
       || referrer.starts_with("ext:")
     {
       // add `/` to the referrer to make it a valid base URL, so we can join the specifier to it
-      return Ok(crate::resolve_url(
-        &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())?
-          .join(specifier)
-          .map_err(crate::ModuleResolutionError::InvalidBaseUrl)?
-          .as_str()
-          // remove the `/` we added
-          .replace("ext:/", "ext:"),
-      )?);
+      return Ok(
+        crate::resolve_url(
+          &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())
+            .map_err(JsErrorBox::from_err)?
+            .join(specifier)
+            .map_err(crate::ModuleResolutionError::InvalidBaseUrl)
+            .map_err(JsErrorBox::from_err)?
+            .as_str()
+            // remove the `/` we added
+            .replace("ext:/", "ext:"),
+        )
+        .map_err(JsErrorBox::from_err)?,
+      );
     }
-    Ok(resolve_import(specifier, referrer)?)
+    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
   }
 
   fn load(
@@ -322,11 +276,10 @@ impl ModuleLoader for ExtModuleLoader {
     let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
       None => {
-        return ModuleLoadResponse::Sync(Err(
-          ModuleLoaderError::SpecifierExcludedFromSnapshot(
-            specifier.to_owned(),
-          ),
-        ));
+        return ModuleLoadResponse::Sync(Err(JsErrorBox::generic(format!(
+          "Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot.",
+          specifier
+        ))));
       }
     };
     let code = ModuleSourceCode::String(source);
@@ -387,7 +340,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
   }
 
   fn load(
@@ -401,9 +354,10 @@ impl ModuleLoader for LazyEsmModuleLoader {
     let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
       None => {
-        return ModuleLoadResponse::Sync(Err(
-          ModuleLoaderError::SpecifierMissingLazyLoadable(specifier.clone()),
-        ));
+        return ModuleLoadResponse::Sync(Err(JsErrorBox::generic(format!(
+          "Specifier \"{0}\" cannot be lazy-loaded as it was not included in the binary.",
+          specifier
+        ))));
       }
     };
     ModuleLoadResponse::Sync(Ok(ModuleSource::new(
@@ -449,7 +403,7 @@ impl ModuleLoader for FsModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
   }
 
   fn load(
@@ -492,7 +446,7 @@ impl ModuleLoader for FsModuleLoader {
       if module_type == ModuleType::Json
         && requested_module_type != RequestedModuleType::Json
       {
-        return Err(ModuleLoaderError::JsonMissingAttribute);
+        return Err(JsErrorBox::generic("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."));
       }
 
       let code = std::fs::read(path).map_err(|source| {
@@ -552,7 +506,7 @@ impl ModuleLoader for StaticModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    Ok(resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)?)
   }
 
   fn load(
@@ -570,7 +524,7 @@ impl ModuleLoader for StaticModuleLoader {
         None,
       ))
     } else {
-      Err(ModuleLoaderError::NotFound)
+      Err(JsErrorBox::generic("Module not found"))
     };
     ModuleLoadResponse::Sync(res)
   }

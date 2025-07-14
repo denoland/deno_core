@@ -54,8 +54,6 @@ pub enum CoreError {
   NonEvaluatedModules(Vec<String>),
   #[error("{0} not present in the module map")]
   MissingFromModuleMap(String),
-  #[error(transparent)]
-  ModuleLoader(Box<ModuleLoaderError>),
   #[error("Could not execute {specifier}")]
   CouldNotExecute {
     #[source]
@@ -158,12 +156,6 @@ impl From<v8::DataError> for CoreError {
   }
 }
 
-impl From<ModuleLoaderError> for CoreError {
-  fn from(err: ModuleLoaderError) -> Self {
-    CoreError::ModuleLoader(Box::new(err))
-  }
-}
-
 impl JsErrorClass for CoreError {
   fn get_class(&self) -> Cow<'static, str> {
     match self {
@@ -176,7 +168,6 @@ impl JsErrorClass for CoreError {
       }
       CoreError::Io(err) => err.get_class(),
       CoreError::ExtensionTranspiler(err) => err.get_class(),
-      CoreError::ModuleLoader(err) => err.get_class(),
       CoreError::CouldNotExecute { error, .. } => error.get_class(),
       CoreError::JsBox(err) => err.get_class(),
       CoreError::Url(err) => err.get_class(),
@@ -212,7 +203,6 @@ impl JsErrorClass for CoreError {
       }
       CoreError::Io(err) => err.get_message(),
       CoreError::ExtensionTranspiler(err) => err.get_message(),
-      CoreError::ModuleLoader(err) => err.get_message(),
       CoreError::CouldNotExecute { error, .. } => error.get_message(),
       CoreError::JsBox(err) => err.get_message(),
       CoreError::Url(err) => err.get_message(),
