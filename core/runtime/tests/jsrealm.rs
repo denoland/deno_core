@@ -212,8 +212,8 @@ fn lazy() {
     err,
     CoreErrorKind::ExtensionLazyInitCountMismatch(
       ExtensionLazyInitCountMismatchError {
-        lazy_init_extensions_len: 0,
-        arguments_len: 1,
+        lazy_init_extensions_len: 1,
+        arguments_len: 0,
       }
     )
   ));
