@@ -4,6 +4,8 @@
 //! <https://chromedevtools.github.io/devtools-protocol/>
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
+use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
@@ -812,9 +814,26 @@ pub struct InspectorPostMessageError(pub Box<InspectorPostMessageErrorKind>);
 #[derive(Debug, Error)]
 pub enum InspectorPostMessageErrorKind {
   #[error(transparent)]
-  JsBox(JsErrorBox),
+  JsBox(#[from] JsErrorBox),
   #[error(transparent)]
   FutureCanceled(futures::channel::oneshot::Canceled),
+}
+
+impl From<InspectorPostMessageError> for CoreError {
+  fn from(value: InspectorPostMessageError) -> Self {
+    CoreErrorKind::JsBox(value.into_js_error_box()).into_box()
+  }
+}
+
+impl InspectorPostMessageError {
+  pub fn into_js_error_box(self) -> JsErrorBox {
+    match self.into_kind() {
+      InspectorPostMessageErrorKind::JsBox(e) => e,
+      InspectorPostMessageErrorKind::FutureCanceled(e) => {
+        JsErrorBox::generic(e.to_string())
+      }
+    }
+  }
 }
 
 /// A local inspector session that can be used to send and receive protocol messages directly on
