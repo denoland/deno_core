@@ -310,6 +310,7 @@ fn duplicate_op_names() {
     }
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
   pub fn op_test() -> Result<String, JsErrorBox> {

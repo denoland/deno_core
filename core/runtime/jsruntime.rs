@@ -1948,7 +1948,7 @@ impl JsRuntime {
   ///  - there are no more pending dynamic imports
   ///  - there are no more pending ops
   ///  - there are no more active inspector sessions (only if
-  ///     `PollEventLoopOptions.wait_for_inspector` is set to true)
+  ///    `PollEventLoopOptions.wait_for_inspector` is set to true)
   pub async fn run_event_loop(
     &mut self,
     poll_options: PollEventLoopOptions,
