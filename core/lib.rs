@@ -87,6 +87,7 @@ pub use crate::flags::v8_set_flags;
 pub use crate::inspector::InspectorMsg;
 pub use crate::inspector::InspectorMsgKind;
 pub use crate::inspector::InspectorPostMessageError;
+pub use crate::inspector::InspectorPostMessageErrorKind;
 pub use crate::inspector::InspectorSessionKind;
 pub use crate::inspector::InspectorSessionOptions;
 pub use crate::inspector::InspectorSessionProxy;
