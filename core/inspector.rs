@@ -812,7 +812,7 @@ pub struct InspectorPostMessageError(pub Box<InspectorPostMessageErrorKind>);
 #[derive(Debug, Error)]
 pub enum InspectorPostMessageErrorKind {
   #[error(transparent)]
-  Js(JsErrorBox),
+  JsBox(JsErrorBox),
   #[error(transparent)]
   FutureCanceled(futures::channel::oneshot::Canceled),
 }
@@ -882,7 +882,7 @@ impl LocalInspectorSession {
             result.map_err(InspectorPostMessageErrorKind::FutureCanceled)?;
           if let Some(error) = response.get("error") {
             return Err(
-              InspectorPostMessageErrorKind::Js(JsErrorBox::generic(
+              InspectorPostMessageErrorKind::JsBox(JsErrorBox::generic(
                 error.to_string(),
               ))
               .into_box(),
