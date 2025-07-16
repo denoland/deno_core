@@ -204,20 +204,12 @@ pub(crate) fn map_async_return_type(
     RetVal::Infallible(r, true)
     | RetVal::Future(r)
     | RetVal::ResultFuture(r) => (quote!(map_async_op_infallible), {
-      let resolve_result = resolve_value_infallible(generator_state, r)?;
-      gs_quote!(generator_state(scope, opctx, promise_id, retval) => {
-        #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
-        #resolve_result
-      })
+      resolve_value_infallible(generator_state, r)?
     }),
     RetVal::Result(r, true)
     | RetVal::FutureResult(r)
     | RetVal::ResultFutureResult(r) => (quote!(map_async_op_fallible), {
-      let resolve_result = resolve_value_result(generator_state, r)?;
-      gs_quote!(generator_state(scope, opctx, promise_id, retval) => {
-        #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
-        #resolve_result
-      })
+      resolve_value_result(generator_state, r)?
     }),
     RetVal::Infallible(_, false) | RetVal::Result(_, false) => {
       return Err("an async return");
@@ -298,6 +290,9 @@ pub(crate) fn generate_dispatch_async(
       }
     }));
   }
+  output.extend(gs_quote!(generator_state(retval, opctx, scope, promise_id) => {
+    #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
+  }));
   output.extend(quote!(return 2;));
 
   let with_opstate =
