@@ -19,7 +19,7 @@
 
   // TODO(bartlomieju): in the future use `v8::Private` so it's not visible
   // to users. Currently missing bindings.
-  const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
+  // const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
 
   let isLeakTracingEnabled = false;
 
@@ -112,7 +112,6 @@
     registerErrorBuilder,
     buildCustomError,
     registerErrorClass,
-    promiseIdSymbol,
   });
 
   const infra = {

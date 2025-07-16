@@ -64,7 +64,7 @@ pub struct FuturesUnorderedDriver<
   completed_ops: Rc<RefCell<VecDeque<PendingOp<C>>>>,
   completed_waker: Rc<UnsyncWaker>,
   arena: FutureArena<PendingOp<C>, PendingOpInfo>,
-  promises: RefCell<slab::Slab<PromiseResolver>>,
+  promises: RefCell<slab::Slab<PromiseResolver>>
 }
 
 impl<C: OpMappingContext + 'static> Drop for FuturesUnorderedDriver<C> {
@@ -126,7 +126,19 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
 }
 
 impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
-  fn get_promise<'s>(
+  fn create_promise<'s>(&self, scope: &mut HandleScope) -> PromiseId {
+    let promise_resolver = v8::PromiseResolver::new(scope).unwrap();
+    let promise_resolver: PromiseResolver =
+      v8::Global::new(scope, promise_resolver);
+    let promise_id = self.promises.borrow_mut().insert(promise_resolver);
+    promise_id.try_into().expect("promise id overflow")
+  }
+
+  fn has_promise(&self, promise_id: PromiseId) -> bool {
+    self.promises.borrow().get(promise_id as usize).is_some()
+  }
+
+  fn _get_promise<'s>(
     &self,
     scope: &mut HandleScope<'s>,
     promise_id: PromiseId,
@@ -136,14 +148,6 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
       .borrow()
       .get(promise_id as usize)
       .map(move |x| v8::Local::new(scope, x).get_promise(scope))
-  }
-
-  fn create_promise<'s>(&self, scope: &mut HandleScope) -> PromiseId {
-    let promise_resolver = v8::PromiseResolver::new(scope).unwrap();
-    let promise_resolver: PromiseResolver =
-      v8::Global::new(scope, promise_resolver);
-    let promise_id = self.promises.borrow_mut().insert(promise_resolver);
-    promise_id.try_into().expect("promise id overflow")
   }
 
   fn resolve_promise(

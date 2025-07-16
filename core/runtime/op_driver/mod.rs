@@ -21,6 +21,7 @@ pub use self::op_results::OpResult;
 use self::op_results::PendingOpInfo;
 pub use self::op_results::V8OpMappingContext;
 pub use self::op_results::V8RetValMapper;
+use crate::runtime::v8_static_strings::INTERNAL_PROMISE_ID;
 
 #[derive(Default)]
 /// Returns a set of stats on inflight ops.
@@ -50,11 +51,44 @@ pub enum OpScheduling {
 pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   Default
 {
-  fn get_promise<'s>(
+  fn get_private_promise_id_symbol<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> v8::Local<'s, v8::Private> {
+    let name = INTERNAL_PROMISE_ID.v8_string(scope).unwrap();
+    v8::Private::for_api(scope, Some(name))
+  }
+
+  fn _get_promise<'s>(
     &self,
     scope: &mut v8::HandleScope<'s>,
     promise_id: PromiseId,
   ) -> Option<v8::Local<'s, v8::Promise>>;
+
+  fn has_promise(&self, promise_id: PromiseId) -> bool;
+
+  fn promise_id_from_promise(&self, scope: &mut v8::HandleScope<'_>, promise: v8::Local<v8::Promise>) -> Option<PromiseId> {
+    let symbol = self.get_private_promise_id_symbol(scope);
+    let value = promise.get_private(scope, symbol);
+    value
+      .and_then(|x| TryInto::<v8::Local<v8::Integer>>::try_into(x).ok())
+      .map(|x| x.int32_value(scope).unwrap())
+  }
+
+  /// Get the promise with the `promise_id`, set a private promiseIdSymbol to the promise id
+  fn get_promise<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    promise_id: PromiseId,
+  ) -> Option<v8::Local<'s, v8::Promise>> {
+    let maybe_promise = self._get_promise(scope, promise_id);
+    maybe_promise.map(|promise| {
+      let id = v8::Integer::new(scope, promise_id);
+      let symbol = self.get_private_promise_id_symbol(scope);
+      promise.set_private(scope, symbol, id.into());
+      promise
+    })
+  }
 
   fn resolve_promise(
     &self,

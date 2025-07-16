@@ -29,8 +29,6 @@
   } = window.__bootstrap.primordials;
   const {
     ops,
-    hasPromise,
-    promiseIdSymbol,
     registerErrorClass,
   } = window.Deno.core;
   const {
@@ -59,6 +57,7 @@
     op_print,
     op_queue_microtask,
     op_ref_op,
+    op_ref_op_promise,
     op_resources,
     op_run_microtasks,
     op_serialize,
@@ -74,7 +73,9 @@
     op_timer_queue_immediate,
     op_timer_ref,
     op_timer_unref,
+    op_unref_op_promise,
     op_unref_op,
+    op_promise_promise_id,
     op_cancel_handle,
     op_leak_tracing_enable,
     op_leak_tracing_submit,
@@ -191,25 +192,19 @@
   }
 
   function refOp(promiseId) {
-    if (!hasPromise(promiseId)) {
-      return;
-    }
     op_ref_op(promiseId);
   }
 
   function unrefOp(promiseId) {
-    if (!hasPromise(promiseId)) {
-      return;
-    }
     op_unref_op(promiseId);
   }
 
   function refOpPromise(promise) {
-    refOp(promise[promiseIdSymbol]);
+    op_ref_op_promise(promise);
   }
 
   function unrefOpPromise(promise) {
-    unrefOp(promise[promiseIdSymbol]);
+    op_unref_op_promise(promise);
   }
 
   function resources() {
@@ -639,7 +634,7 @@
       return new SafeMap(traces);
     },
     getLeakTraceForPromise: (promise) =>
-      op_leak_tracing_get(0, promise[promiseIdSymbol]),
+      op_leak_tracing_get(0, op_promise_promise_id(promise)),
     setMacrotaskCallback,
     setNextTickCallback,
     runMicrotasks: () => op_run_microtasks(),

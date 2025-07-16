@@ -23,6 +23,7 @@ use std::fmt::Write;
 use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
+use crate::runtime::op_driver::OpDriver;
 
 #[op2]
 pub fn op_add_main_module_handler(
@@ -46,15 +47,45 @@ pub fn op_set_handled_promise_rejection_handler(
 }
 
 #[op2(fast)]
+pub fn op_ref_op_promise(scope: &mut v8::HandleScope, promise: v8::Local<v8::Promise>) {
+  let context_state = JsRealm::state_from_scope(scope);
+  let promise_id = match context_state.pending_ops.promise_id_from_promise(scope, promise) {
+    Some(promise_id) => promise_id,
+    None => return
+  };
+  context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+}
+
+#[op2(fast)]
+pub fn op_unref_op_promise(scope: &mut v8::HandleScope, promise: v8::Local<v8::Promise>) {
+  let context_state = JsRealm::state_from_scope(scope);
+  let promise_id = match context_state.pending_ops.promise_id_from_promise(scope, promise) {
+    Some(promise_id) => promise_id,
+    None => return
+  };
+  context_state.unrefed_ops.borrow_mut().insert(promise_id);
+}
+
+#[op2(fast)]
 pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+  if context_state.pending_ops.has_promise(promise_id) {
+    context_state.unrefed_ops.borrow_mut().remove(&promise_id);
+  }
 }
 
 #[op2(fast)]
 pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
-  context_state.unrefed_ops.borrow_mut().insert(promise_id);
+  if context_state.pending_ops.has_promise(promise_id) {
+    context_state.unrefed_ops.borrow_mut().insert(promise_id);
+  }
+}
+
+#[op2]
+pub fn op_promise_promise_id(scope: &mut v8::HandleScope, promise: v8::Local<v8::Promise>) -> Option<i32> {
+  let context_state = JsRealm::state_from_scope(scope);
+  context_state.pending_ops.promise_id_from_promise(scope, promise)
 }
 
 #[op2(fast)]

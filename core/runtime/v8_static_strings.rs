@@ -37,6 +37,7 @@ v8_static_strings!(
   BINDINGS = "bindings",
   EVENT_LOOP_TICK = "eventLoopTick",
   UNHANDLED_PROMISE_REJECTION = "unhandledPromiseRejectionHandler",
+  INTERNAL_PROMISE_ID = "Promise#Deno.core.internalPromiseId",
   WASM_INSTANCE = "WasmInstance",
   WEBASSEMBLY = "WebAssembly",
   ESMODULE = "__esModule",
