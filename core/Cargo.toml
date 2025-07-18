@@ -31,7 +31,6 @@ bit-set.workspace = true
 bit-vec.workspace = true
 bytes.workspace = true
 capacity_builder = "0.5.0"
-cooked-waker.workspace = true
 deno_core_icudata = { workspace = true, optional = true }
 deno_error.workspace = true
 deno_ops.workspace = true
