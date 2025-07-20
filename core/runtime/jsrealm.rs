@@ -207,6 +207,7 @@ impl JsRealmInner {
     let isolate = unsafe { raw_ptr.as_mut().unwrap() };
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
+    std::mem::take(&mut *state.js_bindings.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
     {

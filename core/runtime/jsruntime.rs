@@ -1560,8 +1560,8 @@ impl JsRuntime {
       }
 
       (
-        v8::Global::new(scope, unhandled_promise_rejection),
         v8::Global::new(scope, event_loop_tick),
+        v8::Global::new(scope, unhandled_promise_rejection),
         v8::Global::new(scope, build_custom_error_cb),
         wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
       )
@@ -2693,11 +2693,21 @@ impl JsRuntime {
     let event_loop_tick_cb = &js_bindings.as_ref().unwrap().event_loop_tick_cb;
     let event_loop_tick_cb = event_loop_tick_cb.open(scope);
     let has_tick_scheduled_value = v8::Boolean::new(scope, has_tick_scheduled);
-    event_loop_tick_cb.call(
-      scope,
-      undefined,
-      &[has_tick_scheduled_value.into()],
-    );
+    {
+      let tc_scope = &mut v8::TryCatch::new(scope);
+      event_loop_tick_cb.call(
+        tc_scope,
+        undefined,
+        &[has_tick_scheduled_value.into()],
+      );
+
+      if let Some(exception) = tc_scope.exception() {
+        return exception_to_err_result(tc_scope, exception, false, true);
+      }
+      if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+        return Ok(false);
+      }
+    }
 
     // rejections
     if !exception_state
@@ -2728,6 +2738,13 @@ impl JsRuntime {
       let js_unhandled_rejections_cb =
         js_unhandled_rejections_cb.open(tc_scope);
       js_unhandled_rejections_cb.call(tc_scope, undefined, &[arr.into()]);
+
+      if let Some(exception) = tc_scope.exception() {
+        return exception_to_err_result(tc_scope, exception, false, true);
+      }
+      if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+        return Ok(false);
+      }
     }
 
     // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
