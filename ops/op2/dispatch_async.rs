@@ -268,11 +268,17 @@ pub(crate) fn generate_dispatch_async(
     }));
   }
 
+  output.extend(
+    gs_quote!(generator_state(retval, opctx, scope, promise_id) => {
+      let #promise_id = #opctx.create_promise(&mut #scope);
+      #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
+    }),
+  );
+
   if config.async_lazy || config.async_deferred {
     let lazy = config.async_lazy;
     let deferred = config.async_deferred;
     output.extend(gs_quote!(generator_state(promise_id, result, opctx, scope) => {
-      let #promise_id = #opctx.create_promise(&mut #scope);
       // Lazy and deferred results will always return None
       deno_core::_ops::#mapper(#opctx, #lazy, #deferred, #promise_id, #result, |#scope, #result| {
         #return_value
@@ -280,7 +286,6 @@ pub(crate) fn generate_dispatch_async(
     }));
   } else {
     output.extend(gs_quote!(generator_state(promise_id, result, opctx, scope) => {
-      let #promise_id = #opctx.create_promise(&mut #scope);
       if let Some(#result) = deno_core::_ops::#mapper(#opctx, false, false, #promise_id, #result, |#scope, #result| {
         #return_value
       }) {
@@ -290,9 +295,6 @@ pub(crate) fn generate_dispatch_async(
       }
     }));
   }
-  output.extend(gs_quote!(generator_state(retval, opctx, scope, promise_id) => {
-    #retval.set(#opctx.get_promise(&mut #scope, #promise_id).unwrap().into());
-  }));
   output.extend(quote!(return 2;));
 
   let with_opstate =
