@@ -366,14 +366,6 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   let deno_core_ops_obj: v8::Local<v8::Object> =
     get(scope, deno_core_obj, OPS, "Deno.core.ops");
 
-  let set_up_async_stub_fn: v8::Local<v8::Function> = get(
-    scope,
-    deno_core_obj,
-    SET_UP_ASYNC_STUB,
-    "Deno.core.setUpAsyncStub",
-  );
-
-  let undefined = v8::undefined(scope);
   let mut index = 0;
 
   for decl in op_method_decls {
@@ -407,14 +399,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
         continue;
       }
 
-      op_ctx_template_or_accessor(
-        &accessor_store,
-        set_up_async_stub_fn,
-        scope,
-        prototype,
-        tmpl,
-        method,
-      );
+      op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
     }
 
     index += decl.methods.len();
@@ -433,14 +418,7 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
     // Register async methods at the end since we need to create the template instance.
     for method in method_ctxs.iter() {
       if method.decl.is_async {
-        op_ctx_template_or_accessor(
-          &accessor_store,
-          set_up_async_stub_fn,
-          scope,
-          prototype,
-          tmpl,
-          method,
-        );
+        op_ctx_template_or_accessor(&accessor_store, scope, prototype, method);
       }
     }
 
@@ -459,19 +437,8 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
   let op_ctxs = &op_ctxs[index..];
   for op_ctx in op_ctxs {
-    let mut op_fn =
-      op_ctx_function(scope, op_ctx, v8::ConstructorBehavior::Allow);
+    let op_fn = op_ctx_function(scope, op_ctx, v8::ConstructorBehavior::Allow);
     let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
-
-    // For async ops we need to set them up, by calling `Deno.core.setUpAsyncStub` -
-    // this call will generate an optimized function that binds to the provided
-    // op, while keeping track of promises and error remapping.
-    if op_ctx.decl.is_async {
-      let result = set_up_async_stub_fn
-        .call(scope, undefined.into(), &[key.into(), op_fn.into()])
-        .unwrap();
-      op_fn = result.try_into().unwrap()
-    }
 
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
 
@@ -481,31 +448,13 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
 
 fn op_ctx_template_or_accessor<'s>(
   accessor_store: &AccessorStore,
-  set_up_async_stub_fn: v8::Local<v8::Function>,
   scope: &mut v8::HandleScope<'s>,
   tmpl: v8::Local<'s, v8::ObjectTemplate>,
-  constructor: v8::Local<'s, v8::FunctionTemplate>,
   op_ctx: &OpCtx,
 ) {
   if !op_ctx.decl.is_accessor() {
     let op_fn = op_ctx_template(scope, op_ctx, v8::ConstructorBehavior::Throw);
     let method_key = name_key(scope, &op_ctx.decl);
-    if op_ctx.decl.is_async {
-      let undefined = v8::undefined(scope);
-      let op_fn = op_fn.get_function(scope).unwrap();
-
-      let tmpl_fn = constructor.get_function(scope).unwrap();
-
-      let _result = set_up_async_stub_fn
-        .call(
-          scope,
-          undefined.into(),
-          &[method_key.into(), op_fn.into(), tmpl_fn.into()],
-        )
-        .unwrap();
-
-      return;
-    }
 
     tmpl.set(method_key, op_fn.into());
 

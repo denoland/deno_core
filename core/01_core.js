@@ -36,7 +36,6 @@
     __setLeakTracingEnabled,
     __isLeakTracingEnabled,
     __initializeCoreMethods,
-    __resolvePromise,
   } = window.__infra;
   const {
     op_abort_wasm_streaming,
@@ -60,6 +59,7 @@
     op_print,
     op_queue_microtask,
     op_ref_op,
+    op_ref_op_promise,
     op_resources,
     op_run_microtasks,
     op_serialize,
@@ -76,6 +76,7 @@
     op_timer_ref,
     op_timer_unref,
     op_unref_op,
+    op_unref_op_promise,
     op_cancel_handle,
     op_leak_tracing_enable,
     op_leak_tracing_submit,
@@ -160,17 +161,9 @@
   // if there's a "next tick" scheduled by the Node.js compat layer. Arguments
   // before last are alternating integers and any values that describe the
   // responses of async ops.
-  function eventLoopTick() {
-    // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 3; i += 3) {
-      const promiseId = arguments[i];
-      const isOk = arguments[i + 1];
-      const res = arguments[i + 2];
-
-      __resolvePromise(promiseId, res, isOk);
-    }
+  function eventLoopTick(rejections, timers, hasTickScheduled) {
     // Drain nextTick queue if there's a tick scheduled.
-    if (arguments[arguments.length - 1]) {
+    if (hasTickScheduled) {
       for (let i = 0; i < nextTickCallbacks.length; i++) {
         nextTickCallbacks[i]();
       }
@@ -199,8 +192,8 @@
       }
     }
 
-    const timers = arguments[arguments.length - 2];
     if (timers) {
+      op_print(`${timers.join("%")}`)
       timersRunning = true;
       for (let i = 0; i < timers.length; i += 3) {
         timerDepth = timers[i];
@@ -222,7 +215,6 @@
     }
 
     // If we have any rejections for this tick, attempt to process them
-    const rejections = arguments[arguments.length - 3];
     if (rejections) {
       for (let i = 0; i < rejections.length; i += 2) {
         const handled = unhandledPromiseRejectionHandler(
@@ -238,25 +230,19 @@
   }
 
   function refOp(promiseId) {
-    if (!hasPromise(promiseId)) {
-      return;
-    }
     op_ref_op(promiseId);
   }
 
   function unrefOp(promiseId) {
-    if (!hasPromise(promiseId)) {
-      return;
-    }
     op_unref_op(promiseId);
   }
 
   function refOpPromise(promise) {
-    refOp(promise[promiseIdSymbol]);
+    op_ref_op_promise(promise);
   }
 
   function unrefOpPromise(promise) {
-    unrefOp(promise[promiseIdSymbol]);
+    op_unref_op_promise(promise);
   }
 
   function resources() {

@@ -33,7 +33,7 @@ v8_static_strings!(
   NAME = "name",
   OPS = "ops",
   RESOLVE = "resolve",
-  SET_UP_ASYNC_STUB = "setUpAsyncStub",
+  INTERNAL_PROMISE_ID = "Promise#Deno.core.internalPromiseId",
   STACK = "stack",
   URL = "url",
   WASM_INSTANCE = "WasmInstance",

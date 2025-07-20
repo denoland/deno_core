@@ -46,7 +46,7 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
                     .value() as *const deno_core::_ops::OpCtx)
             };
             let result = {
-                let arg0 = args.get(1usize as i32);
+                let arg0 = args.get(0usize as i32);
                 let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
                     deno_core::v8::String,
                 >(arg0) else {
@@ -56,8 +56,8 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
                 let arg0 = deno_core::v8::Global::new(&mut scope, arg0);
                 Self::call(arg0)
             };
-            let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
-                .unwrap_or_default();
+            let promise_id = opctx.create_promise(&mut scope);
+            rv.set(opctx.get_promise(&mut scope, promise_id).unwrap().into());
             if let Some(result) = deno_core::_ops::map_async_op_infallible(
                 opctx,
                 false,
@@ -66,7 +66,8 @@ pub const fn op_async_v8_global() -> ::deno_core::_ops::OpDecl {
                 result,
                 |scope, result| { Ok(deno_core::_ops::RustToV8::to_v8(result, scope)) },
             ) {
-                deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+                let value = deno_core::_ops::RustToV8::to_v8(result, &mut scope);
+                opctx.resolve_promise(&mut scope, promise_id, value);
                 return 0;
             }
             return 2;

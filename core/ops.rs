@@ -9,6 +9,7 @@ use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
 use crate::runtime::UnrefedOps;
+use crate::runtime::op_driver::OpDriver;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -22,6 +23,7 @@ use v8::Isolate;
 use v8::fast_api::CFunction;
 
 pub type PromiseId = i32;
+pub type PromiseResolver = v8::Global<v8::PromiseResolver>;
 pub type OpId = u16;
 
 #[cfg(debug_assertions)]
@@ -196,6 +198,36 @@ impl OpCtx {
 
   pub(crate) fn op_driver(&self) -> &OpDriverImpl {
     &self.op_driver
+  }
+
+  pub fn create_promise(&self, scope: &mut v8::HandleScope) -> PromiseId {
+    self.op_driver.create_promise(scope)
+  }
+
+  pub fn get_promise<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    promise_id: PromiseId,
+  ) -> Option<v8::Local<'s, v8::Promise>> {
+    self.op_driver.get_promise(scope, promise_id)
+  }
+
+  pub fn resolve_promise(
+    &self,
+    scope: &mut v8::HandleScope,
+    promise_id: PromiseId,
+    value: v8::Local<v8::Value>,
+  ) {
+    self.op_driver.resolve_promise(scope, promise_id, value)
+  }
+
+  pub fn reject_promise(
+    &self,
+    scope: &mut v8::HandleScope,
+    promise_id: PromiseId,
+    reason: v8::Local<v8::Value>,
+  ) {
+    self.op_driver.reject_promise(scope, promise_id, reason)
   }
 
   /// Get the [`JsRuntimeState`] for this op.

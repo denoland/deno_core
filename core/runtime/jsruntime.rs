@@ -2616,27 +2616,7 @@ impl JsRuntime {
       }
     }
 
-    // We return async responses to JS in bounded batches. Note that because
-    // we're passing these to JS as arguments, it is possible to overflow the
-    // JS stack by just passing too many.
-    const MAX_VEC_SIZE_FOR_OPS: usize = 1024;
-
-    // each batch is a flat vector of tuples:
-    // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
-    // promise_id is a simple integer, op_result is an ops::OpResult
-    // which contains a value OR an error, encoded as a tuple.
-    // This batch is received in JS via the special `arguments` variable
-    // and then each tuple is used to resolve or reject promises
-    let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
-      SmallVec::with_capacity(32);
-
     loop {
-      if args.len() >= MAX_VEC_SIZE_FOR_OPS {
-        // We have too many, bail for now but re-wake the waker
-        cx.waker().wake_by_ref();
-        break;
-      }
-
       let Poll::Ready((promise_id, op_id, res)) =
         context_state.pending_ops.poll_ready(cx)
       else {
@@ -2645,25 +2625,28 @@ impl JsRuntime {
 
       let res = res.unwrap(scope);
 
-      {
-        let op_ctx = &context_state.op_ctxs[op_id as usize];
-        if op_ctx.metrics_enabled() {
-          if res.is_ok() {
-            dispatch_metrics_async(op_ctx, OpMetricsEvent::CompletedAsync);
-          } else {
-            dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
+      let op_driver = {
+          let op_ctx = &context_state.op_ctxs[op_id as usize];
+          if op_ctx.metrics_enabled() {
+              if res.is_ok() {
+                  dispatch_metrics_async(op_ctx, OpMetricsEvent::CompletedAsync);
+              } else {
+                  dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
+              }
           }
-        }
-      }
+          op_ctx.op_driver()
+      };
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
       context_state
-        .activity_traces
-        .complete(RuntimeActivityType::AsyncOp, promise_id as _);
+          .activity_traces
+          .complete(RuntimeActivityType::AsyncOp, promise_id as _);
+      match res {
+          Ok(value) => op_driver.resolve_promise(scope, promise_id, value),
+          Err(reason) => op_driver.reject_promise(scope, promise_id, reason),
+      }
+
       dispatched_ops |= true;
-      args.push(v8::Integer::new(scope, promise_id).into());
-      args.push(v8::Boolean::new(scope, res.is_ok()).into());
-      args.push(res.unwrap_or_else(std::convert::identity));
     }
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
@@ -2717,8 +2700,6 @@ impl JsRuntime {
       undefined
     };
 
-    args.push(rejections);
-
     // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
     // storing the exception-reporting callback.
     let timers = match context_state.timers.poll_timers(cx) {
@@ -2745,17 +2726,15 @@ impl JsRuntime {
       }
       _ => undefined,
     };
-    args.push(timers);
 
-    let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
-    args.push(has_tick_scheduled.into());
+    let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled).into();
 
     let tc_scope = &mut v8::TryCatch::new(scope);
     let js_event_loop_tick_cb = context_state.js_event_loop_tick_cb.borrow();
     let js_event_loop_tick_cb =
       js_event_loop_tick_cb.as_ref().unwrap().open(tc_scope);
 
-    js_event_loop_tick_cb.call(tc_scope, undefined, args.as_slice());
+    js_event_loop_tick_cb.call(tc_scope, undefined, &[rejections, timers, has_tick_scheduled]);
 
     if let Some(exception) = tc_scope.exception() {
       return exception_to_err_result(tc_scope, exception, false, true);

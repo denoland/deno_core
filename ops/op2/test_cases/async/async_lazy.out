@@ -23,14 +23,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                     Self::v8_fn_ptr_fast as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         CType::Void.as_info(),
-                        &[
-                            CType::V8Value.as_info(),
-                            v8::fast_api::CTypeInfo::new(
-                                CType::Int32,
-                                v8::fast_api::Flags::Clamp,
-                            ),
-                            CType::CallbackOptions.as_info(),
-                        ],
+                        &[CType::V8Value.as_info(), CType::CallbackOptions.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -42,14 +35,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                     Self::v8_fn_ptr_fast_metrics as _,
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         CType::Void.as_info(),
-                        &[
-                            CType::V8Value.as_info(),
-                            v8::fast_api::CTypeInfo::new(
-                                CType::Int32,
-                                v8::fast_api::Flags::Clamp,
-                            ),
-                            CType::CallbackOptions.as_info(),
-                        ],
+                        &[CType::V8Value.as_info(), CType::CallbackOptions.as_info()],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
                 )
@@ -66,7 +52,6 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
-            promise_id: i32,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
                 's,
             >,
@@ -84,7 +69,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Dispatched,
             );
-            let res = Self::v8_fn_ptr_fast(this, promise_id, fast_api_callback_options);
+            let res = Self::v8_fn_ptr_fast(this, fast_api_callback_options);
             deno_core::_ops::dispatch_metrics_fast(
                 opctx,
                 deno_core::_ops::OpMetricsEvent::Completed,
@@ -94,7 +79,6 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast<'s>(
             this: deno_core::v8::Local<deno_core::v8::Object>,
-            promise_id: i32,
             fast_api_callback_options: *mut deno_core::v8::fast_api::FastApiCallbackOptions<
                 's,
             >,
@@ -106,6 +90,9 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
+            let mut scope = unsafe {
+                deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
+            };
             let opctx: &'s _ = unsafe {
                 &*(deno_core::v8::Local::<
                     deno_core::v8::External,
@@ -113,6 +100,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                     .value() as *const deno_core::_ops::OpCtx)
             };
             let result = { Self::call() };
+            let promise_id = opctx.create_promise(&mut scope);
             deno_core::_ops::map_async_op_fallible(
                 opctx,
                 true,
@@ -129,6 +117,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
+            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -140,8 +129,8 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                     .value() as *const deno_core::_ops::OpCtx)
             };
             let result = { Self::call() };
-            let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
-                .unwrap_or_default();
+            let promise_id = opctx.create_promise(&mut scope);
+            rv.set(opctx.get_promise(&mut scope, promise_id).unwrap().into());
             deno_core::_ops::map_async_op_fallible(
                 opctx,
                 true,

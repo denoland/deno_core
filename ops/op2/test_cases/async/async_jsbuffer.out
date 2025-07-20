@@ -46,7 +46,7 @@ pub const fn op_async_v8_buffer() -> ::deno_core::_ops::OpDecl {
                     .value() as *const deno_core::_ops::OpCtx)
             };
             let result = {
-                let arg0 = args.get(1usize as i32);
+                let arg0 = args.get(0usize as i32);
                 let mut arg0_temp;
                 arg0_temp = match unsafe { deno_core::_ops::to_v8_slice::<u8>(arg0) } {
                     Ok(arg0) => arg0,
@@ -58,8 +58,8 @@ pub const fn op_async_v8_buffer() -> ::deno_core::_ops::OpDecl {
                 let arg0 = deno_core::serde_v8::JsBuffer::from_parts(arg0_temp);
                 Self::call(arg0)
             };
-            let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
-                .unwrap_or_default();
+            let promise_id = opctx.create_promise(&mut scope);
+            rv.set(opctx.get_promise(&mut scope, promise_id).unwrap().into());
             if let Some(result) = deno_core::_ops::map_async_op_infallible(
                 opctx,
                 false,
@@ -74,10 +74,13 @@ pub const fn op_async_v8_buffer() -> ::deno_core::_ops::OpDecl {
                     result,
                     &mut scope,
                 ) {
-                    Ok(v) => rv.set(v),
+                    Ok(v) => opctx.resolve_promise(&mut scope, promise_id, v),
                     Err(rv_err) => {
-                        deno_core::_ops::throw_error_js_error_class(&mut scope, &rv_err);
-                        return 1;
+                        let exception = deno_core::error::to_v8_error(
+                            &mut scope,
+                            &rv_err,
+                        );
+                        opctx.reject_promise(&mut scope, promise_id, exception)
                     }
                 };
                 return 0;

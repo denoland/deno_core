@@ -1084,7 +1084,7 @@ async fn test_dynamic_import_module_error_stack() {
   };
   assert_eq!(
     js_error.to_string(),
-    "TypeError: foo
+    "TypeError: fo1
     at async file:///import.js:1:43"
   );
 }

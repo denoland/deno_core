@@ -40,7 +40,6 @@ pub(crate) enum FastArg {
     arg: Arg,
   },
   CallbackOptions,
-  PromiseId,
 }
 
 #[derive(Clone)]
@@ -60,7 +59,6 @@ impl FastSignature {
       .args
       .iter()
       .filter_map(|arg| match arg {
-        FastArg::PromiseId => Some(V8FastCallType::I32.quote_ctype()),
         FastArg::CallbackOptions => {
           Some(V8FastCallType::CallbackOptions.quote_ctype())
         }
@@ -81,10 +79,6 @@ impl FastSignature {
         FastArg::CallbackOptions => Some((
           generator_state.fast_api_callback_options.clone(),
           V8FastCallType::CallbackOptions.quote_rust_type(),
-        )),
-        FastArg::PromiseId => Some((
-          generator_state.promise_id.clone(),
-          V8FastCallType::I32.quote_rust_type(),
         )),
         FastArg::Actual {
           arg_type, name_in, ..
@@ -114,7 +108,7 @@ impl FastSignature {
             generator_state.needs_scope = true;
           }
         }
-        FastArg::CallbackOptions | FastArg::PromiseId => {}
+        FastArg::CallbackOptions => {}
       }
     }
     Ok(call_args)
@@ -132,7 +126,7 @@ impl FastSignature {
             call_names.push(quote!(#name_out));
           }
         }
-        FastArg::CallbackOptions | FastArg::PromiseId => {}
+        FastArg::CallbackOptions => {}
       }
     }
     call_names
@@ -165,10 +159,6 @@ impl FastSignature {
       self.has_fast_api_callback_options = true;
       self.args.push(FastArg::CallbackOptions);
     }
-  }
-
-  fn insert_promise_id(&mut self) {
-    self.args.insert(0, FastArg::PromiseId)
   }
 }
 
@@ -403,10 +393,6 @@ pub(crate) fn generate_dispatch_fast(
     _ => quote!(),
   };
 
-  if signature.ret_val.is_async() {
-    fastsig.insert_promise_id();
-  }
-
   // Note that this triggers needs_* values in generator_state
   let call_args = fastsig.call_args(generator_state)?;
 
@@ -558,6 +544,14 @@ pub(crate) fn generate_dispatch_fast(
   let (fastcall_names, fastcall_types): (Vec<_>, Vec<_>) =
     fastsig.input_args(generator_state).into_iter().unzip();
 
+  let maybe_promise = if config.r#async {
+    gs_quote!(generator_state(scope, opctx, promise_id) => (
+      let #promise_id = #opctx.create_promise(&mut #scope);
+    ))
+  } else {
+    quote!()
+  };
+
   let fast_fn = gs_quote!(generator_state(result, fast_api_callback_options, fast_function, fast_function_metrics) => {
     #[allow(clippy::too_many_arguments)]
     extern "C" fn #fast_function_metrics<'s>(
@@ -597,6 +591,7 @@ pub(crate) fn generate_dispatch_fast(
         #(#call_args)*
         #call (#(#call_names),*)
       };
+      #maybe_promise
       #handle_error
       #handle_result
     }
@@ -645,6 +640,7 @@ fn map_v8_fastcall_arg_to_arg(
     js_runtime_state,
     scope,
     needs_opctx,
+    needs_scope,
     needs_fast_api_callback_options,
     needs_fast_isolate,
     needs_js_runtime_state,
@@ -721,6 +717,11 @@ fn map_v8_fastcall_arg_to_arg(
       gs_quote!(generator_state(fast_api_callback_options) => {
        let #arg_ident = #fast_api_callback_options.isolate;
       })
+    }
+    Arg::Special(Special::PromiseId) => {
+      *needs_opctx = true;
+      *needs_scope = true;
+      quote!(let #arg_ident = #opctx.create_promise(&mut #scope);)
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
       *needs_opctx = true;
@@ -908,6 +909,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::VarArgs
     | Arg::This
     | Arg::Special(Special::Isolate)
+    | Arg::Special(Special::PromiseId)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
