@@ -2724,7 +2724,8 @@ impl JsRuntime {
     let timers = match context_state.timers.poll_timers(cx) {
       Poll::Ready(timers) => {
         let traces_enabled = context_state.activity_traces.is_enabled();
-        let arr = v8::Array::new(scope, (timers.len() * 3) as _);
+        // todo(CyanChanges): give a zero-length array now, waiting for https://github.com/denoland/deno_core/pull/1163
+        let arr = v8::Array::new(scope, 0);
         #[allow(clippy::needless_range_loop)]
         for i in 0..timers.len() {
           if traces_enabled {
@@ -2733,13 +2734,13 @@ impl JsRuntime {
               .activity_traces
               .complete(RuntimeActivityType::Timer, timers[i].0 as _);
           }
-          // depth, id, function
-          let value = v8::Integer::new(scope, timers[i].1.1 as _);
-          arr.set_index(scope, (i * 3) as _, value.into());
-          let value = v8::Number::new(scope, timers[i].0 as _);
-          arr.set_index(scope, (i * 3 + 1) as _, value.into());
-          let value = v8::Local::new(scope, timers[i].1.0.clone());
-          arr.set_index(scope, (i * 3 + 2) as _, value.into());
+
+          let (id, depth, function) = (
+            v8::Number::new(scope, timers[i].0 as _),
+            v8::Integer::new(scope, timers[i].1.1 as _),
+            timers[i].1.0.open(scope),
+          );
+          function.call(scope, undefined, &[id.into(), depth.into()]);
         }
         arr.into()
       }
