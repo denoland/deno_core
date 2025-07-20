@@ -64,7 +64,7 @@ pub struct FuturesUnorderedDriver<
   completed_ops: Rc<RefCell<VecDeque<PendingOp<C>>>>,
   completed_waker: Rc<UnsyncWaker>,
   arena: FutureArena<PendingOp<C>, PendingOpInfo>,
-  promises: RefCell<slab::Slab<PromiseResolver>>
+  promises: RefCell<slab::Slab<PromiseResolver>>,
 }
 
 impl<C: OpMappingContext + 'static> Drop for FuturesUnorderedDriver<C> {

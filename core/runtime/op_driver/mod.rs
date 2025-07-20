@@ -67,7 +67,11 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
 
   fn has_promise(&self, promise_id: PromiseId) -> bool;
 
-  fn promise_id_from_promise(&self, scope: &mut v8::HandleScope<'_>, promise: v8::Local<v8::Promise>) -> Option<PromiseId> {
+  fn promise_id_from_promise(
+    &self,
+    scope: &mut v8::HandleScope<'_>,
+    promise: v8::Local<v8::Promise>,
+  ) -> Option<PromiseId> {
     let symbol = self.get_private_promise_id_symbol(scope);
     let value = promise.get_private(scope, symbol);
     value
