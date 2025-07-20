@@ -2626,24 +2626,24 @@ impl JsRuntime {
       let res = res.unwrap(scope);
 
       let op_driver = {
-          let op_ctx = &context_state.op_ctxs[op_id as usize];
-          if op_ctx.metrics_enabled() {
-              if res.is_ok() {
-                  dispatch_metrics_async(op_ctx, OpMetricsEvent::CompletedAsync);
-              } else {
-                  dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
-              }
+        let op_ctx = &context_state.op_ctxs[op_id as usize];
+        if op_ctx.metrics_enabled() {
+          if res.is_ok() {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::CompletedAsync);
+          } else {
+            dispatch_metrics_async(op_ctx, OpMetricsEvent::ErrorAsync);
           }
-          op_ctx.op_driver()
+        }
+        op_ctx.op_driver()
       };
 
       context_state.unrefed_ops.borrow_mut().remove(&promise_id);
       context_state
-          .activity_traces
-          .complete(RuntimeActivityType::AsyncOp, promise_id as _);
+        .activity_traces
+        .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       match res {
-          Ok(value) => op_driver.resolve_promise(scope, promise_id, value),
-          Err(reason) => op_driver.reject_promise(scope, promise_id, reason),
+        Ok(value) => op_driver.resolve_promise(scope, promise_id, value),
+        Err(reason) => op_driver.reject_promise(scope, promise_id, reason),
       }
 
       dispatched_ops |= true;
@@ -2734,7 +2734,11 @@ impl JsRuntime {
     let js_event_loop_tick_cb =
       js_event_loop_tick_cb.as_ref().unwrap().open(tc_scope);
 
-    js_event_loop_tick_cb.call(tc_scope, undefined, &[rejections, timers, has_tick_scheduled]);
+    js_event_loop_tick_cb.call(
+      tc_scope,
+      undefined,
+      &[rejections, timers, has_tick_scheduled],
+    );
 
     if let Some(exception) = tc_scope.exception() {
       return exception_to_err_result(tc_scope, exception, false, true);

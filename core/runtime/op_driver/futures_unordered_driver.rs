@@ -155,9 +155,9 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
     promise_id: PromiseId,
     value: v8::Local<v8::Value>,
   ) {
-    let maybe_resolver = self.promises.borrow_mut().try_remove(promise_id as usize);
-    if let Some(resolver) = maybe_resolver
-    {
+    let maybe_resolver =
+      self.promises.borrow_mut().try_remove(promise_id as usize);
+    if let Some(resolver) = maybe_resolver {
       resolver.open(scope).resolve(scope, value);
     }
   }
@@ -168,9 +168,9 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
     promise_id: PromiseId,
     reason: v8::Local<v8::Value>,
   ) {
-    let maybe_resolver = self.promises.borrow_mut().try_remove(promise_id as usize);
-    if let Some(resolver) = maybe_resolver
-    {
+    let maybe_resolver =
+      self.promises.borrow_mut().try_remove(promise_id as usize);
+    if let Some(resolver) = maybe_resolver {
       resolver.open(scope).reject(scope, reason);
     }
   }
