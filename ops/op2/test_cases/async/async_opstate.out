@@ -34,6 +34,7 @@ pub const fn op_async_opstate() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
+            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -49,8 +50,8 @@ pub const fn op_async_opstate() -> ::deno_core::_ops::OpDecl {
                 let arg0 = opstate.clone();
                 Self::call(arg0)
             };
-            let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
-                .unwrap_or_default();
+            let promise_id = opctx.create_promise(&mut scope);
+            rv.set(opctx.get_promise(&mut scope, promise_id).unwrap().into());
             if let Some(result) = deno_core::_ops::map_async_op_fallible(
                 opctx,
                 false,
@@ -61,14 +62,12 @@ pub const fn op_async_opstate() -> ::deno_core::_ops::OpDecl {
             ) {
                 match result {
                     Ok(result) => {
-                        deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv)
+                        let value = deno_core::_ops::RustToV8::to_v8(result, &mut scope);
+                        opctx.resolve_promise(&mut scope, promise_id, value);
                     }
                     Err(err) => {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(info)
-                        };
                         let exception = deno_core::error::to_v8_error(&mut scope, &err);
-                        scope.throw_exception(exception);
+                        opctx.reject_promise(&mut scope, promise_id, exception);
                         return 1;
                     }
                 };
