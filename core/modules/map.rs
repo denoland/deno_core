@@ -12,7 +12,9 @@ use crate::ModuleSource;
 use crate::ModuleSourceCode;
 use crate::ModuleSpecifier;
 use crate::ascii_str;
+use crate::error::CoreErrorKind;
 use crate::error::JsError;
+use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
 use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleCodeString;
@@ -67,7 +69,7 @@ type CodeCacheReadyFuture = dyn Future<Output = ()>;
 
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
-  sender: Option<oneshot::Sender<Result<(), CoreError>>>,
+  sender: Option<oneshot::Sender<Result<(), JsError>>>,
   module: Option<v8::Global<v8::Module>>,
   notify: Vec<v8::Global<v8::Function>>,
 }
@@ -178,10 +180,13 @@ impl ModuleMap {
       let module = v8::Local::new(scope, handle);
       match module.get_status() {
         v8::ModuleStatus::Errored => {
-          return Err(CoreError::Js(JsError::from_v8_exception(
-            scope,
-            module.get_exception(),
-          )));
+          return Err(
+            CoreErrorKind::Js(JsError::from_v8_exception(
+              scope,
+              module.get_exception(),
+            ))
+            .into_box(),
+          );
         }
         v8::ModuleStatus::Evaluated => {}
         _ => {
@@ -191,7 +196,7 @@ impl ModuleMap {
     }
 
     if !not_evaluated.is_empty() {
-      return Err(CoreError::NonEvaluatedModules(not_evaluated));
+      return Err(CoreErrorKind::NonEvaluatedModules(not_evaluated).into_box());
     }
 
     Ok(())
@@ -422,7 +427,7 @@ impl ModuleMap {
           &module_url_found,
           code,
         )
-        .map_err(|e| ModuleError::Core(CoreError::JsBox(e)))?;
+        .map_err(|e| ModuleError::Core(e.into()))?;
 
         match module_evaluation_kind {
           // Simple case, we just got a single value so we create a regular
@@ -1147,9 +1152,12 @@ impl ModuleMap {
       id,
     );
 
-    let (sender, receiver) = oneshot::channel();
-    let receiver = receiver
-      .map(|res| res.unwrap_or_else(|_| Err(CoreError::ExecutionTerminated)));
+    let (sender, receiver) = oneshot::channel::<Result<_, JsError>>();
+    let receiver = receiver.map(|res| {
+      res
+        .map(|r| r.map_err(|r| CoreErrorKind::Js(r).into_box()))
+        .unwrap_or_else(|_| Err(CoreErrorKind::ExecutionTerminated.into_box()))
+    });
 
     let Some(value) = module.evaluate(tc_scope) else {
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
@@ -1269,7 +1277,7 @@ impl ModuleMap {
             // Module was rejected
             let err = promise.result(tc_scope);
             let err = JsError::from_v8_exception(tc_scope, err);
-            _ = sender.sender.take().unwrap().send(Err(err.into()));
+            _ = sender.sender.take().unwrap().send(Err(err));
           }
           PromiseState::Pending => {
             // User code shouldn't be able to both cause the runtime to fail and leave the promise as
@@ -1319,20 +1327,22 @@ impl ModuleMap {
     );
 
     if module.is_graph_async() {
-      return Err(CoreError::TLA);
+      return Err(CoreErrorKind::TLA.into_box());
     }
 
     let Some(value) = module.evaluate(tc_scope) else {
       let exception = tc_scope.exception().unwrap();
-      return Err(CoreError::Js(JsError::from_v8_exception(
-        tc_scope, exception,
-      )));
+      return Err(
+        CoreErrorKind::Js(JsError::from_v8_exception(tc_scope, exception))
+          .into_box(),
+      );
     };
 
     if let Some(exception) = tc_scope.exception() {
-      return Err(CoreError::Js(JsError::from_v8_exception(
-        tc_scope, exception,
-      )));
+      return Err(
+        CoreErrorKind::Js(JsError::from_v8_exception(tc_scope, exception))
+          .into_box(),
+      );
     }
 
     let status = module.get_status();
@@ -1347,7 +1357,10 @@ impl ModuleMap {
       PromiseState::Fulfilled => Ok(()),
       PromiseState::Rejected => {
         let err = promise.result(tc_scope);
-        Err(CoreError::Js(JsError::from_v8_exception(tc_scope, err)))
+        Err(
+          CoreErrorKind::Js(JsError::from_v8_exception(tc_scope, err))
+            .into_box(),
+        )
       }
       PromiseState::Pending => {
         unreachable!()
@@ -1447,7 +1460,7 @@ impl ModuleMap {
         .push(dyn_import_mod_evaluate);
       self.pending_dyn_mod_evaluations_pending.set(true);
     } else if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Err(CoreError::EvaluateDynamicImportedModule);
+      return Err(CoreErrorKind::EvaluateDynamicImportedModule.into_box());
     } else {
       assert_eq!(status, v8::ModuleStatus::Errored);
     }
@@ -1592,7 +1605,7 @@ impl ModuleMap {
     while has_evaluated {
       has_evaluated = false;
       loop {
-        let poll_imports = self.poll_prepare_dyn_imports(cx, scope)?;
+        let poll_imports = self.poll_prepare_dyn_imports(cx, scope);
         assert!(poll_imports.is_ready());
 
         let poll_imports = self.poll_dyn_imports(cx, scope)?;
@@ -1616,9 +1629,9 @@ impl ModuleMap {
     &self,
     cx: &mut Context,
     scope: &mut v8::HandleScope,
-  ) -> Poll<Result<(), CoreError>> {
+  ) -> Poll<()> {
     if !self.preparing_dynamic_imports_pending.get() {
-      return Poll::Ready(Ok(()));
+      return Poll::Ready(());
     }
 
     loop {
@@ -1652,7 +1665,7 @@ impl ModuleMap {
       self
         .preparing_dynamic_imports_pending
         .set(!self.preparing_dynamic_imports.borrow().is_empty());
-      return Poll::Ready(Ok(()));
+      return Poll::Ready(());
     }
   }
 
@@ -1700,7 +1713,7 @@ impl ModuleMap {
                       ModuleError::Exception(e) => e,
                       ModuleError::Core(e) => e.to_v8_error(scope),
                       ModuleError::Concrete(e) => {
-                        CoreError::Module(e).to_v8_error(scope)
+                        CoreErrorKind::Module(e).to_v8_error(scope)
                       }
                     };
                     self.dynamic_import_reject(scope, dyn_import_id, exception)
@@ -1799,7 +1812,8 @@ impl ModuleMap {
 
     if module.get_status() == v8::ModuleStatus::Errored {
       let exception = module.get_exception();
-      return exception_to_err_result(scope, exception, false, false);
+      return exception_to_err_result(scope, exception, false, false)
+        .map_err(|e| CoreErrorKind::Js(e).into_box());
     }
 
     assert!(matches!(
@@ -1899,7 +1913,7 @@ impl ModuleMap {
 
     self.instantiate_module(scope, mod_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false, true).unwrap_err()
+      exception_to_err(scope, exception, false, true)
     })?;
 
     let module_handle = self.get_handle(mod_id).unwrap();
@@ -1913,7 +1927,8 @@ impl ModuleMap {
     let result = promise.result(scope);
     if !result.is_undefined() {
       return Err(
-        exception_to_err_result::<()>(scope, result, false, true).unwrap_err(),
+        CoreErrorKind::Js(exception_to_err(scope, result, false, true))
+          .into_box(),
       );
     }
 
