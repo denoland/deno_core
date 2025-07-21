@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.352.0"
+version = "0.352.1"
 dependencies = [
  "anyhow",
  "az",
@@ -753,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.228.0"
+version = "0.228.1"
 dependencies = [
  "indexmap",
  "pretty_assertions",
@@ -2156,7 +2156,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.261.0"
+version = "0.261.1"
 dependencies = [
  "bencher",
  "deno_error",
@@ -3147,9 +3147,9 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "137.1.0"
+version = "137.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "be127b878f582d3b7602bd2e26a39f90a95b388deb940da7f6554617aedcdf40"
+checksum = "1ca393e2032ddba2a57169e15cac5d0a81cdb3d872a8886f4468bc0f486098d2"
 dependencies = [
  "bindgen",
  "bitflags",
