@@ -549,6 +549,7 @@ mod tests {
   use crate::convert::Number;
   use crate::convert::Smi;
   use crate::error::CoreError;
+  use crate::error::CoreErrorKind;
   use crate::external;
   use crate::external::ExternalPointer;
   use crate::op2;
@@ -943,7 +944,7 @@ mod tests {
       "op_test_result_void_switch();",
     )
     .expect_err("Expected this to fail");
-    let CoreError::Js(js_err) = err else {
+    let CoreErrorKind::Js(js_err) = err.into_kind() else {
       unreachable!();
     };
     assert_eq!(js_err.message, Some("failed!!!".into()));

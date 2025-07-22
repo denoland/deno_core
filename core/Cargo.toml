@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.352.1"
+version = "0.353.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -29,6 +29,7 @@ az = "1.2.1"
 bincode.workspace = true
 bit-set.workspace = true
 bit-vec.workspace = true
+boxed_error.workspace = true
 bytes.workspace = true
 capacity_builder = "0.5.0"
 cooked-waker.workspace = true

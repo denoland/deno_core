@@ -20,6 +20,8 @@ use crate::OpDecl;
 use crate::cppgc::FunctionTemplateData;
 use crate::cppgc::cppgc_template_constructor;
 use crate::error::CoreError;
+use crate::error::CoreModuleExecuteError;
+use crate::error::CoreModuleParseError;
 use crate::error::JsStackFrame;
 use crate::error::callsite_fns;
 use crate::error::has_call_site;
@@ -326,10 +328,10 @@ pub(crate) fn initialize_primordials_and_infra(
     let origin = crate::modules::script_origin(scope, name, false, None);
     // TODO(bartlomieju): these two calls will panic if there's any problem in the JS code
     let script = v8::Script::compile(scope, source, Some(&origin))
-      .ok_or_else(|| CoreError::Parse(source_file.specifier))?;
+      .ok_or(CoreModuleParseError(source_file.specifier))?;
     script
       .run(scope)
-      .ok_or_else(|| CoreError::Execute(source_file.specifier))?;
+      .ok_or(CoreModuleExecuteError(source_file.specifier))?;
   }
 
   Ok(())

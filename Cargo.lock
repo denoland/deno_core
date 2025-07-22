@@ -275,6 +275,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "boxed_error"
+version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "17d4f95e880cfd28c4ca5a006cf7f6af52b4bcb7b5866f573b2faa126fb7affb"
+dependencies = [
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "build-your-own-js-snapshot"
 version = "0.1.0"
 dependencies = [
@@ -638,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.352.1"
+version = "0.353.0"
 dependencies = [
  "anyhow",
  "az",
@@ -646,6 +656,7 @@ dependencies = [
  "bincode",
  "bit-set",
  "bit-vec",
+ "boxed_error",
  "bytes",
  "capacity_builder",
  "cooked-waker",
@@ -742,7 +753,7 @@ dependencies = [
 
 [[package]]
 name = "deno_ops"
-version = "0.228.1"
+version = "0.229.0"
 dependencies = [
  "indexmap",
  "pretty_assertions",
@@ -2145,7 +2156,7 @@ dependencies = [
 
 [[package]]
 name = "serde_v8"
-version = "0.261.1"
+version = "0.262.0"
 dependencies = [
  "bencher",
  "deno_error",
