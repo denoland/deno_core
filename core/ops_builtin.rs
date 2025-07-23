@@ -115,6 +115,7 @@ builtin_ops! {
   ops_builtin_v8::op_decode,
   ops_builtin_v8::op_serialize,
   ops_builtin_v8::op_deserialize,
+  ops_builtin_v8::op_structured_clone,
   ops_builtin_v8::op_set_promise_hooks,
   ops_builtin_v8::op_get_promise_details,
   ops_builtin_v8::op_get_proxy_details,
