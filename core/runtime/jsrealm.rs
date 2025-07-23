@@ -8,6 +8,9 @@ use crate::ModuleSourceCode;
 use crate::SourceCodeCacheInfo;
 use crate::cppgc::FunctionTemplateData;
 use crate::error::CoreError;
+use crate::error::CreateCodeCacheError;
+use crate::error::JsError;
+use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
@@ -322,14 +325,12 @@ impl JsRealm {
   ///   - "[native code]"
   ///
   /// The same `name` value can be used for multiple executions.
-  ///
-  /// `Error` can usually be downcast to `JsError`.
   pub fn execute_script(
     &self,
     isolate: &mut v8::Isolate,
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, CoreError> {
+  ) -> Result<v8::Global<v8::Value>, JsError> {
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.into_module_code().v8_string(scope).unwrap();
@@ -421,7 +422,7 @@ impl JsRealm {
       Some(script) => script,
       None => {
         let exception = tc_scope.exception().unwrap();
-        return exception_to_err_result(tc_scope, exception, false, false);
+        return Ok(exception_to_err_result(tc_scope, exception, false, false)?);
       }
     };
 
@@ -429,7 +430,7 @@ impl JsRealm {
       let unbound_script = script.get_unbound_script(tc_scope);
       let code_cache = unbound_script
         .create_code_cache()
-        .ok_or_else(|| CoreError::CreateCodeCache(specifier.to_string()))?;
+        .ok_or_else(|| CreateCodeCacheError(specifier.clone()))?;
       cache_ready(specifier, code_cache_hash, &code_cache);
     }
 
@@ -441,7 +442,7 @@ impl JsRealm {
       None => {
         assert!(tc_scope.has_caught());
         let exception = tc_scope.exception().unwrap();
-        exception_to_err_result(tc_scope, exception, false, false)
+        Ok(exception_to_err_result(tc_scope, exception, false, false)?)
       }
     }
   }
@@ -515,7 +516,7 @@ impl JsRealm {
     let scope = &mut self.handle_scope(isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false, false).unwrap_err()
+      exception_to_err(scope, exception, false, false)
     })?;
     Ok(root_id)
   }
@@ -561,7 +562,7 @@ impl JsRealm {
     let scope = &mut self.handle_scope(isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
-      exception_to_err_result::<()>(scope, exception, false, false).unwrap_err()
+      exception_to_err(scope, exception, false, false)
     })?;
     Ok(root_id)
   }

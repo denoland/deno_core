@@ -3,7 +3,9 @@
 use crate::JsRuntime;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
-use crate::error::CoreError;
+use crate::error::CoreErrorKind;
+use crate::error::ExtensionLazyInitCountMismatchError;
+use crate::error::ExtensionLazyInitOrderMismatchError;
 use crate::modules::StaticModuleLoader;
 use crate::op2;
 use std::future::poll_fn;
@@ -46,9 +48,7 @@ fn test_set_format_exception_callback_realms() {
         format!("throw new Error('{realm_name}');"),
       );
       assert!(result.is_err());
-      let CoreError::Js(error) = result.unwrap_err() else {
-        unreachable!()
-      };
+      let error = result.unwrap_err();
       assert_eq!(
         error.exception_message,
         format!("{realm_name} / Error: {realm_name}")
@@ -68,7 +68,7 @@ fn test_set_format_exception_callback_realms() {
       let result =
         futures::executor::block_on(runtime.run_event_loop(Default::default()));
       assert!(result.is_err());
-      let CoreError::Js(error) = result.unwrap_err() else {
+      let CoreErrorKind::Js(error) = result.unwrap_err().into_kind() else {
         unreachable!()
       };
       assert_eq!(
@@ -204,16 +204,32 @@ fn lazy() {
     ..Default::default()
   });
 
+  let err = runtime
+    .lazy_init_extensions(vec![])
+    .unwrap_err()
+    .into_kind();
   assert!(matches!(
-    runtime.lazy_init_extensions(vec![]),
-    Err(CoreError::ExtensionLazyInitCountMismatch(0, 1))
+    err,
+    CoreErrorKind::ExtensionLazyInitCountMismatch(
+      ExtensionLazyInitCountMismatchError {
+        lazy_init_extensions_len: 1,
+        arguments_len: 0,
+      }
+    )
   ));
 
+  let err = runtime
+    .lazy_init_extensions(vec![lazy_bad::args()])
+    .unwrap_err()
+    .into_kind();
   assert!(matches!(
-    runtime.lazy_init_extensions(vec![lazy_bad::args()]),
-    Err(CoreError::ExtensionLazyInitOrderMismatch(
-      "lazy_ext", "lazy_bad"
-    ))
+    err,
+    CoreErrorKind::ExtensionLazyInitOrderMismatch(
+      ExtensionLazyInitOrderMismatchError {
+        expected: "lazy_ext",
+        actual: "lazy_bad",
+      }
+    )
   ));
 
   assert!(!CALLED.load(Ordering::Relaxed));

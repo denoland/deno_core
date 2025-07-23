@@ -9,6 +9,7 @@ use crate::OpMetricsFactoryFn;
 use crate::OpState;
 use crate::SourceMapData;
 use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::extensions::Extension;
 use crate::extensions::ExtensionSourceType;
 use crate::extensions::GlobalObjectMiddlewareFn;
@@ -292,7 +293,7 @@ fn load(
   if let Some(transpiler) = transpiler {
     (source_code, source_map) =
       transpiler(ModuleName::from_static(source.specifier), source_code)
-        .map_err(CoreError::ExtensionTranspiler)?;
+        .map_err(CoreErrorKind::ExtensionTranspiler)?;
   }
   let mut maybe_source_map = None;
   if let Some(source_map) = source_map {
@@ -331,7 +332,15 @@ pub fn into_sources_and_source_maps(
 
     if let Some(name) = extension_in_snapshot {
       if extension.name != *name {
-        return Err(CoreError::ExtensionSnapshotMismatch(name, extension.name));
+        return Err(
+          CoreErrorKind::ExtensionSnapshotMismatch(
+            crate::error::ExtensionSnapshotMismatchError {
+              expected: name,
+              actual: extension.name,
+            },
+          )
+          .into_box(),
+        );
       }
       continue;
     }
