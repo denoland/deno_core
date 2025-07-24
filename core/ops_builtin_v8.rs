@@ -766,7 +766,8 @@ pub fn op_deserialize<'a>(
   }
 }
 
-#[op2(reentrant)]
+// Specialized op for `structuredClone` API called with no `options` argument.
+#[op2]
 pub fn op_structured_clone<'a>(
   scope: &mut v8::HandleScope<'a>,
   value: v8::Local<v8::Value>,
