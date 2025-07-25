@@ -48,6 +48,7 @@
     op_encode,
     op_encode_binary_string,
     op_eval_context,
+    op_structured_clone,
     op_event_loop_has_more_work,
     op_get_extras_binding_object,
     op_get_promise_details,
@@ -719,6 +720,7 @@
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
     decode: (buffer) => op_decode(buffer),
+    structuredClone: (value) => op_structured_clone(value),
     serialize: (
       value,
       options,
