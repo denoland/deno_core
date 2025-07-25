@@ -783,9 +783,9 @@ dependencies = [
 
 [[package]]
 name = "deno_path_util"
-version = "0.4.0"
+version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "516f813389095889776b81cc9108ff6f336fd9409b4b12fc0138aea23d2708e1"
+checksum = "90f0909515a02cd532663f13abd3889fd897b090ae3676d90ce1949769afcd8f"
 dependencies = [
  "deno_error",
  "percent-encoding",
