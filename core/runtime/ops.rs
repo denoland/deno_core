@@ -1938,10 +1938,12 @@ mod tests {
     pub value: u32,
   }
 
-  impl GarbageCollected for TestResource {
+  unsafe impl GarbageCollected for TestResource {
     fn get_name(&self) -> &'static std::ffi::CStr {
       c"TestResource"
     }
+
+    fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
   }
 
   #[op2]

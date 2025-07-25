@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -13,6 +12,7 @@ use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
+use deno_core::v8::cppgc::GcCell;
 use deno_error::JsErrorBox;
 
 use super::Output;
@@ -74,10 +74,12 @@ pub fn op_stats_delete(
 
 pub struct TestObjectWrap {}
 
-impl GarbageCollected for TestObjectWrap {
+unsafe impl GarbageCollected for TestObjectWrap {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestObjectWrap"
   }
+
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
 }
 
 fn int(
@@ -161,10 +163,12 @@ impl TestObjectWrap {
 
 pub struct DOMPoint {}
 
-impl GarbageCollected for DOMPoint {
+unsafe impl GarbageCollected for DOMPoint {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"DOMPoint"
   }
+
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
 }
 
 impl DOMPointReadOnly {
@@ -184,47 +188,49 @@ impl DOMPointReadOnly {
     }
 
     Ok(DOMPointReadOnly {
-      x: get(scope, other, "x").unwrap_or(0.0).into(),
-      y: get(scope, other, "y").unwrap_or(0.0).into(),
-      z: get(scope, other, "z").unwrap_or(0.0).into(),
-      w: get(scope, other, "w").unwrap_or(0.0).into(),
+      x: GcCell::new(get(scope, other, "x").unwrap_or(0.0)),
+      y: GcCell::new(get(scope, other, "y").unwrap_or(0.0)),
+      z: GcCell::new(get(scope, other, "z").unwrap_or(0.0)),
+      w: GcCell::new(get(scope, other, "w").unwrap_or(0.0)),
     })
   }
 }
 
 pub struct DOMPointReadOnly {
-  x: Cell<f64>,
-  y: Cell<f64>,
-  z: Cell<f64>,
-  w: Cell<f64>,
+  x: GcCell<f64>,
+  y: GcCell<f64>,
+  z: GcCell<f64>,
+  w: GcCell<f64>,
 }
 
-impl GarbageCollected for DOMPointReadOnly {
+unsafe impl GarbageCollected for DOMPointReadOnly {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"DOMPointReadOnly"
   }
+
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
 }
 
 #[op2(base)]
 impl DOMPointReadOnly {
   #[getter]
-  fn x(&self) -> f64 {
-    self.x.get()
+  fn x(&self, scope: &mut v8::HandleScope) -> f64 {
+    *self.x.get(scope)
   }
 
   #[getter]
-  fn y(&self) -> f64 {
-    self.y.get()
+  fn y(&self, scope: &mut v8::HandleScope) -> f64 {
+    *self.y.get(scope)
   }
 
   #[getter]
-  fn z(&self) -> f64 {
-    self.z.get()
+  fn z(&self, scope: &mut v8::HandleScope) -> f64 {
+    *self.z.get(scope)
   }
 
   #[getter]
-  fn w(&self) -> f64 {
-    self.w.get()
+  fn w(&self, scope: &mut v8::HandleScope) -> f64 {
+    *self.w.get(scope)
   }
 }
 
@@ -239,10 +245,10 @@ impl DOMPoint {
     w: Option<f64>,
   ) -> (DOMPointReadOnly, DOMPoint) {
     let ro = DOMPointReadOnly {
-      x: Cell::new(x.unwrap_or(0.0)),
-      y: Cell::new(y.unwrap_or(0.0)),
-      z: Cell::new(z.unwrap_or(0.0)),
-      w: Cell::new(w.unwrap_or(0.0)),
+      x: GcCell::new(x.unwrap_or(0.0)),
+      y: GcCell::new(y.unwrap_or(0.0)),
+      z: GcCell::new(z.unwrap_or(0.0)),
+      w: GcCell::new(w.unwrap_or(0.0)),
     };
 
     (ro, DOMPoint {})
@@ -269,43 +275,79 @@ impl DOMPoint {
   }
 
   #[setter]
-  fn x(&self, x: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.x.set(x);
+  fn x(
+    &self,
+    scope: &mut v8::HandleScope,
+    x: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.x.set(scope, x);
   }
 
   #[getter]
-  fn x(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.x.get()
+  fn x(
+    &self,
+    scope: &mut v8::HandleScope,
+    #[proto] ro: &DOMPointReadOnly,
+  ) -> f64 {
+    *ro.x.get(scope)
   }
 
   #[setter]
-  fn y(&self, y: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.y.set(y);
+  fn y(
+    &self,
+    scope: &mut v8::HandleScope,
+    y: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.y.set(scope, y);
   }
 
   #[getter]
-  fn y(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.y.get()
+  fn y(
+    &self,
+    scope: &mut v8::HandleScope,
+    #[proto] ro: &DOMPointReadOnly,
+  ) -> f64 {
+    *ro.y.get(scope)
   }
 
   #[setter]
-  fn z(&self, z: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.z.set(z);
+  fn z(
+    &self,
+    scope: &mut v8::HandleScope,
+    z: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.z.set(scope, z);
   }
 
   #[getter]
-  fn z(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.z.get()
+  fn z(
+    &self,
+    scope: &mut v8::HandleScope,
+    #[proto] ro: &DOMPointReadOnly,
+  ) -> f64 {
+    *ro.z.get(scope)
   }
 
   #[setter]
-  fn w(&self, w: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.w.set(w);
+  fn w(
+    &self,
+    scope: &mut v8::HandleScope,
+    w: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.w.set(scope, w);
   }
 
   #[getter]
-  fn w(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.w.get()
+  fn w(
+    &self,
+    scope: &mut v8::HandleScope,
+    #[proto] ro: &DOMPointReadOnly,
+  ) -> f64 {
+    *ro.w.get(scope)
   }
 
   #[fast]
@@ -329,10 +371,12 @@ pub enum TestEnumWrap {
   A,
 }
 
-impl GarbageCollected for TestEnumWrap {
+unsafe impl GarbageCollected for TestEnumWrap {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestEnumWrap"
   }
+
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
 }
 
 #[op2]
@@ -350,10 +394,12 @@ pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
 
 pub struct Foo;
 
-impl deno_core::GarbageCollected for Foo {
+unsafe impl deno_core::GarbageCollected for Foo {
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"Foo"
   }
+
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
 }
 
 #[op2(fast)]

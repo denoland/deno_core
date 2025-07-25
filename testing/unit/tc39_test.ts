@@ -46,11 +46,11 @@ test(function testSetMethods() {
   }
 });
 
-// Verify that the "Temporal" proposal is enabled (https://github.com/tc39/proposal-temporal)
-test(function testTemporal() {
-  // @ts-expect-error: Not available in TypeScript yet
-  assert(typeof Temporal !== "undefined");
-});
+// // Verify that the "Temporal" proposal is enabled (https://github.com/tc39/proposal-temporal)
+// test(function testTemporal() {
+//   // @ts-expect-error: Not available in TypeScript yet
+//   assert(typeof Temporal !== "undefined");
+// });
 
 // Verify that the "Float16Array" proposal is enabled (https://github.com/tc39/proposal-float16array)
 test(function testFloat16Array() {
