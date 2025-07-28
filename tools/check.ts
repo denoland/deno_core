@@ -1,5 +1,5 @@
 #!/usr/bin/env -S deno run --quiet --allow-read --allow-write --allow-run --allow-env
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 import $, * as dax from "https://deno.land/x/dax@0.39.2/mod.ts";
 
@@ -166,19 +166,19 @@ async function runCommands(
   }
 }
 
+const CLIPPY_FEATURES =
+  `deno_core/default deno_core/include_js_files_for_snapshotting deno_core/unsafe_runtime_options deno_core/unsafe_use_unprotected_platform`;
+
 export async function main(command: string, flag: string) {
   if (command == "format") {
     const check = flag == "--check";
     if (check) {
       await runCommands("Formatting (--check)", {
-        "cargo fmt": $`cargo fmt -- --check`,
-        "deno fmt":
-          $`deno fmt --check ./core/ ./ops/ ./serde_v8/ ./testing/ ./tools/`,
+        "dprint fmt": $`deno run -A npm:dprint@0.47.6 check`,
       });
     } else {
       await runCommands("Formatting", {
-        "cargo fmt": $`cargo fmt`,
-        "deno fmt": $`deno fmt ./core/ ./ops/ ./serde_v8/ ./testing/ ./tools/`,
+        "dprint fmt": $`deno run -A npm:dprint@0.47.6 fmt`,
       });
     }
   } else if (command == "lint") {
@@ -187,7 +187,7 @@ export async function main(command: string, flag: string) {
       await runCommands("Linting (--fix)", {
         "copyright": $`tools/copyright_checker.js --fix`,
         "cargo clippy":
-          $`cargo clippy --fix --allow-dirty --allow-staged --locked --release --all-features --all-targets -- -D clippy::all`,
+          $`cargo clippy --fix --allow-dirty --allow-staged --locked --release --features ${CLIPPY_FEATURES} --all-targets -- -D clippy::all`,
       });
     } else {
       await runCommands("Linting", {
@@ -199,7 +199,7 @@ export async function main(command: string, flag: string) {
         "tsc":
           $`deno run --allow-read --allow-env npm:typescript@5.5.3/tsc --noEmit -p testing/tsconfig.json`,
         "cargo clippy":
-          $`cargo clippy --locked --release --all-features --all-targets -- -D clippy::all`,
+          $`cargo clippy --locked --release --features ${CLIPPY_FEATURES} --all-targets -- -D clippy::all`,
       });
     }
   }

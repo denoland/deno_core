@@ -1,4 +1,7 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use crate::checkin::runner::Output;
+use crate::checkin::runner::TestData;
 use crate::checkin::runner::ops;
 use crate::checkin::runner::ops_async;
 use crate::checkin::runner::ops_buffer;
@@ -7,8 +10,6 @@ use crate::checkin::runner::ops_fs;
 use crate::checkin::runner::ops_io;
 use crate::checkin::runner::ops_transpiler;
 use crate::checkin::runner::ops_worker;
-use crate::checkin::runner::Output;
-use crate::checkin::runner::TestData;
 
 pub trait SomeType {}
 
@@ -27,6 +28,7 @@ deno_core::extension!(
     ops::op_nop_generic<P>,
     ops_io::op_pipe_create,
     ops_io::op_file_open,
+    ops_io::op_path_to_url,
     ops_async::op_task_submit,
     ops_async::op_async_yield,
     ops_async::op_async_barrier_create,
@@ -35,6 +37,8 @@ deno_core::extension!(
     ops_async::op_async_make_cppgc_resource,
     ops_async::op_async_get_cppgc_resource,
     ops_async::op_async_never_resolves,
+    ops_async::op_async_fake,
+    ops_async::op_async_promise_id,
     ops_error::op_async_throw_error_eager,
     ops_error::op_async_throw_error_lazy,
     ops_error::op_async_throw_error_deferred,
@@ -43,6 +47,7 @@ deno_core::extension!(
     ops_error::op_error_context_async,
     ops_fs::op_fs_read_text_file,
     ops_fs::op_fs_write_text_file,
+    ops_error::op_error_custom_with_code_sync,
     ops_buffer::op_v8slice_store,
     ops_buffer::op_v8slice_clone,
     ops_worker::op_worker_spawn,
@@ -53,18 +58,26 @@ deno_core::extension!(
     ops_worker::op_worker_terminate,
     ops_transpiler::op_transpile,
   ],
+  objects = [
+    ops::DOMPointReadOnly,
+    ops::DOMPoint,
+    ops::TestObjectWrap,
+    ops::TestEnumWrap
+  ],
   esm_entry_point = "ext:checkin_runtime/__init.js",
   esm = [
     dir "checkin/runtime",
     "__init.js",
     "checkin:async" = "async.ts",
     "checkin:console" = "console.ts",
+    "checkin:object" = "object.ts",
     "checkin:error" = "error.ts",
     "checkin:fs" = "fs.ts",
     "checkin:throw" = "throw.ts",
     "checkin:timers" = "timers.ts",
     "checkin:transpiler" = "transpiler.ts",
     "checkin:worker" = "worker.ts",
+    "checkin:callsite" = "callsite.ts",
   ],
   state = |state| {
     state.put(TestData::default());

@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use std::marker::PhantomData;
 use std::mem::ManuallyDrop;
 
@@ -15,9 +16,7 @@ macro_rules! external {
         // SAFETY: Wash the pointer through black_box so the compiler cannot see what we're going to do with it and needs
         // to assume it will be used for valid purposes. We are taking the address of a static item, but we avoid taking an
         // intermediate mutable reference to make this safe.
-        let ptr = ::std::hint::black_box(unsafe {
-          ::std::ptr::addr_of_mut!(DEFINITION)
-        });
+        let ptr = ::std::hint::black_box(::std::ptr::addr_of_mut!(DEFINITION));
         ptr as ::core::primitive::usize
       }
 
@@ -111,9 +110,11 @@ impl<E: Externalizable> ExternalPointer<E> {
   /// The lifetime of the return value is tied to the pointer itself, however you must take care not to use methods that
   /// mutate the underlying pointer such as `unsafely_take` while this reference is alive.
   pub unsafe fn unsafely_deref(&self) -> &E {
-    let validated_ptr = self.validate_pointer();
-    let external = std::ptr::addr_of!((*validated_ptr).external);
-    &*external
+    unsafe {
+      let validated_ptr = self.validate_pointer();
+      let external = std::ptr::addr_of!((*validated_ptr).external);
+      &*external
+    }
   }
 
   /// Unsafely takes the object from this external.
@@ -125,16 +126,18 @@ impl<E: Externalizable> ExternalPointer<E> {
   ///
   /// You must ensure that no other references to this object are alive at the time you call this method.
   pub unsafe fn unsafely_take(self) -> E {
-    let validated_ptr = self.validate_pointer();
-    let marker = std::ptr::addr_of_mut!((*validated_ptr).marker);
-    // Ensure that this object has not been taken
-    assert_ne!(std::ptr::replace(marker, 0), 0);
-    std::ptr::write(marker, 0);
-    let external =
-      std::ptr::read(std::ptr::addr_of!((*validated_ptr).external));
-    // Deallocate without dropping
-    _ = Box::<ManuallyDrop<ExternalWithMarker<E>>>::from_raw(self.ptr);
-    external
+    unsafe {
+      let validated_ptr = self.validate_pointer();
+      let marker = std::ptr::addr_of_mut!((*validated_ptr).marker);
+      // Ensure that this object has not been taken
+      assert_ne!(std::ptr::replace(marker, 0), 0);
+      std::ptr::write(marker, 0);
+      let external =
+        std::ptr::read(std::ptr::addr_of!((*validated_ptr).external));
+      // Deallocate without dropping
+      _ = Box::<ManuallyDrop<ExternalWithMarker<E>>>::from_raw(self.ptr);
+      external
+    }
   }
 }
 

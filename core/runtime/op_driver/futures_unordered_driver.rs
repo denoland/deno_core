@@ -1,31 +1,32 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use super::OpDriver;
+use super::OpInflightStats;
 use super::future_arena::FutureAllocation;
 use super::future_arena::FutureArena;
 use super::op_results::*;
-use super::OpDriver;
-use super::OpInflightStats;
 use crate::OpId;
 use crate::PromiseId;
-use anyhow::Error;
 use bit_set::BitSet;
-use deno_unsync::spawn;
+use deno_error::JsErrorClass;
 use deno_unsync::JoinHandle;
 use deno_unsync::UnsyncWaker;
-use futures::future::poll_fn;
-use futures::stream::FuturesUnordered;
-use futures::task::noop_waker_ref;
+use deno_unsync::spawn;
 use futures::FutureExt;
 use futures::Stream;
+use futures::stream::FuturesUnordered;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::future::ready;
 use std::future::Future;
+use std::future::poll_fn;
+use std::future::ready;
 use std::pin::Pin;
 use std::rc::Rc;
-use std::task::ready;
 use std::task::Context;
 use std::task::Poll;
+use std::task::Waker;
+use std::task::ready;
 
 async fn poll_task<C: OpMappingContext>(
   mut results: SubmissionQueueResults<
@@ -124,7 +125,7 @@ impl<C: OpMappingContext> FuturesUnorderedDriver<C> {
 impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
   fn submit_op_fallible<
     R: 'static,
-    E: Into<Error> + 'static,
+    E: JsErrorClass + 'static,
     const LAZY: bool,
     const DEFERRED: bool,
   >(
@@ -148,7 +149,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      match pinned.poll_unpin(&mut Context::from_waker(noop_waker_ref())) {
+      match pinned.poll_unpin(&mut Context::from_waker(Waker::noop())) {
         Poll::Pending => self.spawn(pinned.erase()),
         Poll::Ready(res) => {
           if DEFERRED {
@@ -189,8 +190,7 @@ impl<C: OpMappingContext> OpDriver<C> for FuturesUnorderedDriver<C> {
 
       // We poll every future here because it's much faster to return a result than
       // spin the event loop to get it.
-      match Pin::new(&mut pinned)
-        .poll(&mut Context::from_waker(noop_waker_ref()))
+      match Pin::new(&mut pinned).poll(&mut Context::from_waker(Waker::noop()))
       {
         Poll::Pending => self.spawn(pinned.erase()),
         Poll::Ready(res) => {
@@ -312,8 +312,8 @@ impl<F: SubmissionQueueFutures> SubmissionQueue<F> {
 /// Create a [`SubmissionQueue`] and [`SubmissionQueueResults`] that allow for submission of tasks
 /// and reception of task results. We may add work to the [`SubmissionQueue`] from any task, and the
 /// [`SubmissionQueueResults`] will be polled from a single location.
-pub fn new_submission_queue<F: SubmissionQueueFutures>(
-) -> (SubmissionQueue<F>, SubmissionQueueResults<F>) {
+pub fn new_submission_queue<F: SubmissionQueueFutures>()
+-> (SubmissionQueue<F>, SubmissionQueueResults<F>) {
   let queue: Rc<Queue<F>> = Default::default();
   (
     SubmissionQueue {

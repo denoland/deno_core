@@ -1,5 +1,5 @@
 // deno-lint-ignore-file no-explicit-any
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 const { op_test_register } = Deno.core.ops;
 
@@ -19,6 +19,28 @@ export function assert(value: any, message?: string | undefined) {
     console.debug(assertion);
     throw new Error(assertion);
   }
+}
+
+export function assertThrows(
+  fn: () => void,
+  errorClass: any,
+  message?: string | undefined,
+) {
+  try {
+    fn();
+  } catch (e) {
+    if (e instanceof errorClass) {
+      if (message) {
+        assert(
+          e.message.includes(message),
+          `Expected message to include ${message}`,
+        );
+      }
+      return;
+    }
+    throw e;
+  }
+  throw new Error("Expected function to throw");
 }
 
 /**

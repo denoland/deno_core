@@ -1,6 +1,7 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use deno_core::op2;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use deno_core::JsBuffer;
+use deno_core::op2;
 
 use super::TestData;
 

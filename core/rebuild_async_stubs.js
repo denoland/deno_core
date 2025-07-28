@@ -1,5 +1,5 @@
 #!/usr/bin/env deno run --allow-read --allow-write
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 const doNotModify =
   "/* DO NOT MODIFY: use rebuild_async_stubs.js to regenerate */\n";
@@ -8,7 +8,8 @@ const doNotModify =
 function __TEMPLATE__(__ARGS_PARAM__) {
   const id = nextPromiseId;
   try {
-    const maybeResult = __OP__(__ARGS__);
+    // deno-fmt-ignore
+    const maybeResult = __OP__.call(this, __ARGS__);
     if (maybeResult !== undefined) {
       return PromiseResolve(maybeResult);
     }

@@ -1,8 +1,8 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 const { ops } = Deno.core;
 
-// The WASM module is generated using assemblyscript@0.24.1
+// The Wasm module is generated using assemblyscript@0.24.1
 // asc core/examples/wasm.ts --exportStart --initialMemory 6400 -O -o core/examples/wasm.wasm
 
 const bytes = ops.op_get_wasm_module();

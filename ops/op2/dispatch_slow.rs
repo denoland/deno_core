@@ -1,15 +1,21 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use crate::op2::signature::AttributeModifier;
+
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
+use super::generator_state::GeneratorState;
 use super::generator_state::gs_extract;
 use super::generator_state::gs_quote;
-use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
+use super::signature::Attributes;
 use super::signature::BufferMode;
 use super::signature::BufferSource;
 use super::signature::BufferType;
@@ -21,14 +27,14 @@ use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
-use super::signature::WasmMemorySource;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
+use super::signature::WebIDLPairs;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
 use syn::Type;
+use syn::parse2;
 
 pub(crate) fn generate_dispatch_slow_call(
   generator_state: &mut GeneratorState,
@@ -40,13 +46,13 @@ pub(crate) fn generate_dispatch_slow_call(
   let mut args = TokenStream::new();
   let mut deferred = TokenStream::new();
 
-  for (index, arg) in signature.args.iter().enumerate() {
+  for (index, (arg, attrs)) in signature.args.iter().enumerate() {
     let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
       .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
     } else {
-      args.extend(extract_arg(generator_state, index, input_index));
+      args.extend(extract_arg(generator_state, attrs, index, input_index));
       args.extend(arg_mapped);
       input_index += 1;
     }
@@ -64,32 +70,38 @@ pub(crate) fn generate_dispatch_slow(
 ) -> Result<TokenStream, V8SignatureMappingError> {
   let mut output = TokenStream::new();
 
-  // Fast ops require the slow op to check op_ctx for the last error
-  if config.fast && matches!(signature.ret_val, RetVal::Result(_)) {
-    generator_state.needs_opctx = true;
-    let throw_exception = throw_exception(generator_state);
-    // If the fast op returned an error, we must throw it rather than doing work.
-    output.extend(quote!{
-      // FASTCALL FALLBACK: This is where we pick up the errors for the slow-call error pickup
-      // path. There is no code running between this and the other FASTCALL FALLBACK comment,
-      // except some V8 code required to perform the fallback process. This is why the below call is safe.
-
-      // SAFETY: We guarantee that OpCtx has no mutable references once ops are live and being called,
-      // allowing us to perform this one little bit of mutable magic.
-      if let Some(err) = unsafe { opctx.unsafely_take_last_error_for_ops_only() } {
-        #throw_exception
-      }
-    });
-  }
-
   let args = generate_dispatch_slow_call(generator_state, signature, 0)?;
 
   output.extend(gs_quote!(generator_state(result) => (let #result = {
     #args
   };)));
-  output.extend(return_value(generator_state, &signature.ret_val).map_err(
-    |s| V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone()),
-  )?);
+  if !config.setter {
+    output.extend(return_value(generator_state, &signature.ret_val).map_err(
+      |s| {
+        V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+      },
+    )?);
+  }
+
+  let with_validate = if let Some(validate) = &config.validate {
+    generator_state.needs_scope = true;
+    generator_state.needs_args = true;
+
+    let exception = throw_exception(generator_state);
+    gs_quote!(generator_state(scope, fn_args) => {
+      if let Err(err) = #validate(&mut #scope, &#fn_args) {
+        #exception;
+      }
+    })
+  } else {
+    quote!()
+  };
+
+  let with_stack_trace = if generator_state.needs_stack_trace {
+    with_stack_trace(generator_state)
+  } else {
+    quote!()
+  };
 
   // We only generate the isolate if we need it but don't need a scope. We call it `scope`.
   let with_isolate =
@@ -129,9 +141,15 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
+  let with_required_check = if generator_state.needs_args && config.required > 0
+  {
+    with_required_check(generator_state, config.required)
+  } else {
+    quote!()
+  };
+
   let with_self = if generator_state.needs_self {
     with_self(generator_state, &signature.ret_val)
-      .map_err(V8SignatureMappingError::NoSelfMapping)?
   } else {
     quote!()
   };
@@ -144,7 +162,6 @@ pub(crate) fn generate_dispatch_slow(
 
   Ok(
     gs_quote!(generator_state(opctx, info, slow_function, slow_function_metrics) => {
-      #[inline(always)]
       fn slow_function_impl<'s>(#info: &'s deno_core::v8::FunctionCallbackInfo) -> usize {
         #[cfg(debug_assertions)]
         let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(&<Self as deno_core::_ops::Op>::DECL);
@@ -152,11 +169,14 @@ pub(crate) fn generate_dispatch_slow(
         #with_scope
         #with_retval
         #with_args
+        #with_validate
+        #with_required_check
         #with_opctx
+        #with_self
         #with_isolate
         #with_opstate
+        #with_stack_trace
         #with_js_runtime_state
-        #with_self
 
         #output;
         return 0;
@@ -170,6 +190,7 @@ pub(crate) fn generate_dispatch_slow(
       extern "C" fn #slow_function_metrics<'s>(#info: *const deno_core::v8::FunctionCallbackInfo) {
         let info: &'s _ = unsafe { &*#info };
         let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(info);
+
         let #opctx: &'s _ = unsafe {
           &*(deno_core::v8::Local::<deno_core::v8::External>::cast_unchecked(args.data()).value()
               as *const deno_core::_ops::OpCtx)
@@ -202,6 +223,24 @@ pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   )
 }
 
+pub(crate) fn with_stack_trace(
+  generator_state: &mut GeneratorState,
+) -> TokenStream {
+  generator_state.needs_opctx = true;
+  generator_state.needs_opstate = true;
+  generator_state.needs_scope = true;
+
+  gs_quote!(generator_state(opctx, scope, opstate) =>
+    (if #opctx.enable_stack_trace {
+      let stack_trace_msg = deno_core::v8::String::empty(&mut #scope);
+      let stack_trace_error = deno_core::v8::Exception::error(&mut #scope, stack_trace_msg.into());
+      let js_error = deno_core::error::JsError::from_v8_exception(&mut #scope, stack_trace_error);
+      let mut op_state = ::std::cell::RefCell::borrow_mut(&#opstate);
+      op_state.op_stack_trace_callback.as_ref().unwrap()(js_error.frames)
+    })
+  )
+}
+
 pub(crate) fn with_retval(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(retval, info) =>
     (let mut #retval = deno_core::v8::ReturnValue::from_function_callback_info(#info);)
@@ -213,6 +252,52 @@ pub(crate) fn with_fn_args(
 ) -> TokenStream {
   gs_quote!(generator_state(info, fn_args) =>
     (let #fn_args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(#info);)
+  )
+}
+
+pub(crate) fn get_prefix(generator_state: &mut GeneratorState) -> String {
+  if generator_state.needs_self {
+    format!(
+      "Failed to execute '{}' on '{}'",
+      generator_state.name, generator_state.self_ty
+    )
+  } else if generator_state.use_this_cppgc {
+    format!("Failed to construct '{}'", generator_state.self_ty)
+  } else {
+    format!(
+      "Failed to execute '{}.{}'",
+      generator_state.self_ty, generator_state.name
+    )
+  }
+}
+
+pub(crate) fn with_required_check(
+  generator_state: &mut GeneratorState,
+  required: u8,
+) -> TokenStream {
+  generator_state.needs_scope = true;
+  let arguments_lit = if required > 1 {
+    "arguments"
+  } else {
+    "argument"
+  };
+
+  let prefix = get_prefix(generator_state);
+
+  gs_quote!(generator_state(fn_args, scope) =>
+    (if #fn_args.length() < #required as i32 {
+      let msg = format!(
+        "{}: {} {} required, but only {} present",
+        #prefix,
+        #required,
+        #arguments_lit,
+        #fn_args.length()
+      );
+      let msg = deno_core::v8::String::new(&mut #scope, &msg).unwrap();
+      let exception = deno_core::v8::Exception::type_error(&mut #scope, msg.into());
+      #scope.throw_exception(exception);
+      return 1;
+    })
   )
 }
 
@@ -247,17 +332,16 @@ pub(crate) fn with_js_runtime_state(
 pub(crate) fn with_self(
   generator_state: &mut GeneratorState,
   ret_val: &RetVal,
-) -> Result<TokenStream, V8MappingError> {
+) -> TokenStream {
   generator_state.needs_opctx = true;
   generator_state.needs_scope = true;
   let throw_exception = throw_type_error(
     generator_state,
     format!("expected {}", &generator_state.self_ty),
-  )?;
-  let tokens = if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
-  {
-    let tokens = gs_quote!(generator_state(self_ty, fn_args, scope) => {
-      let Some(mut self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
+  );
+  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+    let tokens = gs_quote!(generator_state(self_ty, fn_args, scope, try_unwrap_cppgc) => {
+      let Some(mut self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
       };
       self_.root();
@@ -269,26 +353,46 @@ pub(crate) fn with_self(
 
     tokens
   } else {
-    gs_quote!(generator_state(self_ty, fn_args, scope) => {
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
+    gs_quote!(generator_state(self_ty, fn_args, scope, try_unwrap_cppgc) => {
+      let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
       };
       let self_ = &*self_;
     })
-  };
-  Ok(tokens)
+  }
 }
 
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
+  attrs: &Attributes,
   index: usize,
   input_index: usize,
 ) -> TokenStream {
-  let GeneratorState { fn_args, .. } = &generator_state;
+  let exception = throw_exception(generator_state);
   let arg_ident = generator_state.args.get(index);
 
+  let mut early_validate = quote! {};
+
+  for attr in &attrs.rest {
+    if let AttributeModifier::Validate(path) = attr {
+      generator_state.needs_scope = true;
+      let scope = &generator_state.scope;
+
+      early_validate = quote! {
+        match #path(&mut #scope, #arg_ident) {
+          Ok(_) => {}
+          Err(err) => {
+            #exception;
+          }
+        };
+      };
+    }
+  }
+
+  let fn_args = &generator_state.fn_args;
   quote!(
     let #arg_ident = #fn_args.get(#input_index as i32);
+    #early_validate
   )
 }
 
@@ -308,6 +412,7 @@ pub fn from_arg(
     needs_isolate,
     needs_opstate,
     needs_opctx,
+    fn_args,
     needs_js_runtime_state,
     ..
   } = &mut generator_state;
@@ -323,29 +428,29 @@ pub fn from_arg(
     Arg::Numeric(NumericArg::u8, _)
     | Arg::Numeric(NumericArg::u16, _)
     | Arg::Numeric(NumericArg::u32, _) => {
-      from_arg_option(generator_state, &arg_ident, "u32")?
+      from_arg_option(generator_state, &arg_ident, "u32")
     }
     Arg::Numeric(NumericArg::i8, _)
     | Arg::Numeric(NumericArg::i16, _)
     | Arg::Numeric(NumericArg::i32, _)
     | Arg::Numeric(NumericArg::__SMI__, _) => {
-      from_arg_option(generator_state, &arg_ident, "i32")?
+      from_arg_option(generator_state, &arg_ident, "i32")
     }
     Arg::Numeric(NumericArg::u64 | NumericArg::usize, NumericFlag::None) => {
-      from_arg_option(generator_state, &arg_ident, "u64")?
+      from_arg_option(generator_state, &arg_ident, "u64")
     }
     Arg::Numeric(NumericArg::i64 | NumericArg::isize, NumericFlag::None) => {
-      from_arg_option(generator_state, &arg_ident, "i64")?
+      from_arg_option(generator_state, &arg_ident, "i64")
     }
     Arg::Numeric(
       NumericArg::u64 | NumericArg::usize | NumericArg::i64 | NumericArg::isize,
       NumericFlag::Number,
-    ) => from_arg_option(generator_state, &arg_ident, "f64")?,
+    ) => from_arg_option(generator_state, &arg_ident, "f64"),
     Arg::Numeric(NumericArg::f32, _) => {
-      from_arg_option(generator_state, &arg_ident, "f32")?
+      from_arg_option(generator_state, &arg_ident, "f32")
     }
     Arg::Numeric(NumericArg::f64, _) => {
-      from_arg_option(generator_state, &arg_ident, "f64")?
+      from_arg_option(generator_state, &arg_ident, "f64")
     }
     Arg::OptionNumeric(numeric, flag) => {
       let some = from_arg(
@@ -377,33 +482,51 @@ pub fn from_arg(
     Arg::String(Strings::String) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
+
       quote! {
         let #arg_ident = deno_core::_ops::to_string(&mut #scope, &#arg_ident);
       }
     }
-    Arg::String(Strings::RefStr) => {
+    Arg::String(Strings::RefStr) | Arg::String(Strings::CowStr) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
-      quote! {
+      let maybe_scope = if *needs_scope {
+        quote!()
+      } else {
+        with_scope(generator_state)
+      };
+
+      let maybe_ref = if matches!(arg, Arg::String(Strings::RefStr)) {
+        quote!(&)
+      } else {
+        quote!()
+      };
+
+      gs_quote!(generator_state(scope) => {
         // Trade stack space for potentially non-allocating strings
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = &deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
-      }
-    }
-    Arg::String(Strings::CowStr) => {
-      // Only requires isolate, not a full scope
-      *needs_isolate = true;
-      quote! {
-        // Trade stack space for potentially non-allocating strings
-        let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
-        let #arg_ident = deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
-      }
+        let #arg_ident = if !#arg_ident.is_string() {
+            #maybe_scope
+            let mut tc = deno_core::v8::TryCatch::new(&mut #scope);
+            match #arg_ident.to_string(&mut tc) {
+                Some(v) => v.into(),
+                None => {
+                    tc.rethrow();
+                    return 1;
+                }
+            }
+        } else {
+            #arg_ident
+        };
+
+        let #arg_ident = #maybe_ref deno_core::_ops::to_str(&mut #scope, &#arg_ident, &mut #arg_temp);
+      })
     }
     Arg::String(Strings::CowByte) => {
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       let throw_exception =
-        throw_type_error_static_string(generator_state, &arg_ident)?;
+        throw_type_error_static_string(generator_state, &arg_ident);
       gs_quote!(generator_state(scope) => {
         // Trade stack space for potentially non-allocating strings
         let #arg_ident = match deno_core::_ops::to_cow_one_byte(&mut #scope, &#arg_ident) {
@@ -412,6 +535,17 @@ pub fn from_arg(
             #throw_exception
           }
         };
+      })
+    }
+    Arg::VarArgs => {
+      gs_quote!(generator_state(fn_args) => {
+        let #arg_ident = Some(&#fn_args);
+      })
+    }
+    Arg::This => {
+      *needs_isolate = true;
+      gs_quote!(generator_state(scope, fn_args) => {
+        let #arg_ident = deno_core::v8::Global::new(&mut #scope, #fn_args.this());
       })
     }
     Arg::Buffer(buffer_type, mode, source) => {
@@ -452,7 +586,7 @@ pub fn from_arg(
       }
     }
     Arg::External(External::Ptr(_)) => {
-      from_arg_option(generator_state, &arg_ident, "external")?
+      from_arg_option(generator_state, &arg_ident, "external")
     }
     Arg::Special(Special::Isolate) => {
       *needs_opctx = true;
@@ -518,8 +652,12 @@ pub fn from_arg(
     | Arg::OptionV8Local(v8)
     | Arg::V8Ref(RefType::Ref, v8)
     | Arg::OptionV8Ref(RefType::Ref, v8) => {
-      let throw_type_error =
-        || throw_type_error(generator_state, format!("expected {v8:?}"));
+      let throw_type_error = || {
+        Ok(throw_type_error(
+          generator_state,
+          format!("expected {v8:?}"),
+        ))
+      };
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
@@ -527,24 +665,21 @@ pub fn from_arg(
       // Only requires isolate, not a full scope
       *needs_isolate = true;
       let scope = scope.clone();
-      let throw_type_error =
-        || throw_type_error(generator_state, format!("expected {v8:?}"));
+      let throw_type_error = || {
+        Ok(throw_type_error(
+          generator_state,
+          format!("expected {v8:?}"),
+        ))
+      };
       let extract_intermediate =
         v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
-    }
-    Arg::WasmMemory(_, WasmMemorySource::Caller) => throw_type_error(
-      generator_state,
-      "WASM caller memory unavailable in slowcalls".into(),
-    )?,
-    Arg::OptionWasmMemory(_, WasmMemorySource::Caller) => {
-      quote!(let #arg_ident = None;)
     }
     Arg::SerdeV8(_class) => {
       *needs_scope = true;
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
-      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      let throw_exception = throw_type_error_string(generator_state, &err);
       quote! {
         let #arg_ident = match deno_core::_ops::serde_v8_to_rust(&mut #scope, #arg_ident) {
           Ok(t) => t,
@@ -560,7 +695,7 @@ pub fn from_arg(
         syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
-      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      let throw_exception = throw_type_error_string(generator_state, &err);
       quote! {
         let #arg_ident = match <#ty as deno_core::FromV8>::from_v8(&mut #scope, #arg_ident) {
           Ok(t) => t,
@@ -570,16 +705,121 @@ pub fn from_arg(
         };
       }
     }
-    Arg::CppGcResource(ty) => {
+    Arg::WebIDL(ty, options, default) => {
       *needs_scope = true;
+      let ty =
+        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
       let scope = scope.clone();
+      let err = format_ident!("{}_err", arg_ident);
+      let throw_exception = throw_type_error_string(generator_state, &err);
+      let prefix = get_prefix(generator_state);
+      let context = format!("Argument {}", index);
+
+      let (alias, options) = if options.is_empty() {
+        (None, quote!(Default::default()))
+      } else {
+        let inner = options
+          .iter()
+          .map(|WebIDLPairs(k, v)| quote!(#k: #v))
+          .collect::<Vec<_>>();
+
+        let alias = format_ident!("{arg_ident}_webidl_alias");
+        // Type-alias to workaround https://github.com/rust-lang/rust/issues/86935
+        (
+          Some(quote! {
+            type #alias<'a> = <#ty as ::deno_core::webidl::WebIdlConverter<'a>>::Options;
+          }),
+          quote! {
+            #alias {
+              #(#inner),*,
+              ..Default::default()
+            }
+          },
+        )
+      };
+
+      let default = if let Some(default) = default {
+        let tokens = default.0.to_token_stream();
+        let default = match parse2::<syn::LitStr>(tokens.clone()) {
+          Ok(lit) => {
+            if lit.value().is_empty() {
+              quote! {
+                deno_core::v8::String::empty(&mut #scope)
+              }
+            } else {
+              return Err("unsupported WebIDL default value");
+            }
+          }
+          _ => match parse2::<syn::LitInt>(tokens.clone()) {
+            Ok(lit) => {
+              quote! {
+                deno_core::v8::Number::new(&mut #scope, #lit as _)
+              }
+            }
+            _ => match parse2::<syn::LitFloat>(tokens) {
+              Ok(lit) => {
+                quote! {
+                  deno_core::v8::Number::new(&mut #scope, #lit)
+                }
+              }
+              _ => {
+                return Err("unsupported WebIDL default value");
+              }
+            },
+          },
+        };
+
+        quote! {
+          let #arg_ident = if #arg_ident.is_undefined() {
+            #default.into()
+          } else {
+            #arg_ident
+          };
+        }
+      } else {
+        quote!()
+      };
+
+      quote! {
+        #default
+        #alias
+        let #arg_ident = match <#ty as deno_core::webidl::WebIdlConverter>::convert(
+          &mut #scope,
+          #arg_ident,
+          #prefix.into(),
+          deno_core::webidl::ContextFn::new_borrowed(&|| std::borrow::Cow::Borrowed(#context)),
+          &#options,
+        ) {
+          Ok(t) => t,
+          Err(#err) => {
+            #throw_exception;
+          }
+        };
+      }
+    }
+    Arg::CppGcResource(proto, ty) => {
+      *needs_scope = true;
+      let from_ident = if *proto {
+        quote!(#fn_args.this().into())
+      } else {
+        quote!(#arg_ident)
+      };
       let throw_exception =
-        throw_type_error(generator_state, format!("expected {}", &ty))?;
+        throw_type_error(generator_state, format!("expected {}", &ty));
+
+      let scope = &generator_state.scope;
+      let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+      if matches!(
+        ret_val,
+        RetVal::Future(_)
+          | RetVal::FutureResult(_)
+          | RetVal::Infallible(.., true)
+          | RetVal::Result(.., true)
+      ) {
         let tokens = quote! {
-          let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+          let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
           #arg_ident.root();
@@ -590,7 +830,7 @@ pub fn from_arg(
         tokens
       } else {
         quote! {
-          let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+          let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
           let #arg_ident = &*#arg_ident;
@@ -600,15 +840,22 @@ pub fn from_arg(
     Arg::OptionCppGcResource(ty) => {
       *needs_scope = true;
       let throw_exception =
-        throw_type_error(generator_state, format!("expected {}", &ty))?;
+        throw_type_error(generator_state, format!("expected {}", &ty));
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       let scope = &generator_state.scope;
-      if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+      let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
+      if matches!(
+        ret_val,
+        RetVal::Future(_)
+          | RetVal::FutureResult(_)
+          | RetVal::Infallible(.., true)
+          | RetVal::Result(.., true)
+      ) {
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
-          } else if let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+          } else if let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) {
             #arg_ident.root();
             Some(#arg_ident)
           } else {
@@ -644,16 +891,16 @@ pub fn from_arg_option(
   generator_state: &mut GeneratorState,
   arg_ident: &Ident,
   numeric: &str,
-) -> Result<TokenStream, V8MappingError> {
+) -> TokenStream {
   let exception =
-    throw_type_error(generator_state, format!("expected {numeric}"))?;
+    throw_type_error(generator_state, format!("expected {numeric}"));
   let convert = format_ident!("to_{numeric}_option");
-  Ok(quote!(
+  quote!(
     let Some(#arg_ident) = deno_core::_ops::#convert(&#arg_ident) else {
       #exception
     };
     let #arg_ident = #arg_ident as _;
-  ))
+  )
 }
 
 pub fn from_arg_array_or_buffer(
@@ -697,7 +944,7 @@ pub fn from_arg_buffer(
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   let err = format_ident!("{}_err", arg_ident);
-  let throw_exception = throw_type_error_static_string(generator_state, &err)?;
+  let throw_exception = throw_type_error_static_string(generator_state, &err);
 
   let array = buffer_type.element();
 
@@ -733,7 +980,7 @@ pub fn from_arg_arraybuffer(
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   let err = format_ident!("{}_err", arg_ident);
-  let throw_exception = throw_type_error_static_string(generator_state, &err)?;
+  let throw_exception = throw_type_error_static_string(generator_state, &err);
 
   let to_v8_slice = if matches!(buffer_mode, BufferMode::Detach) {
     quote!(to_v8_slice_buffer_detachable)
@@ -766,7 +1013,7 @@ pub fn from_arg_any_buffer(
   temp: &Ident,
 ) -> Result<TokenStream, V8MappingError> {
   let err = format_ident!("{}_err", arg_ident);
-  let throw_exception = throw_type_error_static_string(generator_state, &err)?;
+  let throw_exception = throw_type_error_static_string(generator_state, &err);
 
   let to_v8_slice = if matches!(buffer_mode, BufferMode::Detach) {
     quote!(to_v8_slice_any_detachable)
@@ -824,6 +1071,11 @@ pub fn call(
       #moves
       #call.await
     })
+  } else if matches!(
+    ret_val,
+    RetVal::Infallible(.., true) | RetVal::Result(.., true)
+  ) {
+    return quote!(std::future::ready(#call));
   } else {
     call
   }
@@ -834,10 +1086,12 @@ pub fn return_value(
   ret_type: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   match ret_type {
-    RetVal::Infallible(ret_type) => {
+    RetVal::Infallible(ret_type, ..) => {
       return_value_infallible(generator_state, ret_type)
     }
-    RetVal::Result(ret_type) => return_value_result(generator_state, ret_type),
+    RetVal::Result(ret_type, ..) => {
+      return_value_result(generator_state, ret_type)
+    }
     _ => todo!(),
   }
 }
@@ -862,6 +1116,33 @@ pub fn return_value_infallible(
     ArgMarker::Number => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
+    ArgMarker::Cppgc if generator_state.use_this_cppgc => {
+      generator_state.needs_isolate = true;
+      let wrap_object = match ret_type {
+        Arg::CppGcProtochain(chain) => {
+          let wrap_object = format_ident!("wrap_object{}", chain.len());
+          quote!(#wrap_object)
+        }
+        _ => {
+          if generator_state.use_proto_cppgc {
+            quote!(wrap_object1)
+          } else {
+            quote!(wrap_object)
+          }
+        }
+      };
+      gs_quote!(generator_state(result, scope) => (
+           Some(deno_core::cppgc::#wrap_object(&mut #scope, args.this(), #result))
+      ))
+    }
+    ArgMarker::Cppgc if generator_state.use_proto_cppgc => {
+      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcProtoMarker, _>::from);
+      if ret_type.is_option() {
+        gs_quote!(generator_state(result) => (#result.map(#marker)))
+      } else {
+        gs_quote!(generator_state(result) => (#marker(#result)))
+      }
+    }
     ArgMarker::Cppgc => {
       let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
       if ret_type.is_option() {
@@ -873,7 +1154,12 @@ pub fn return_value_infallible(
     ArgMarker::ToV8 => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
     }
-    ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
+    ArgMarker::Undefined => {
+      gs_quote!(generator_state(scope) => (deno_core::v8::undefined(&mut #scope)))
+    }
+    ArgMarker::None => {
+      gs_quote!(generator_state(result) => (#result))
+    }
   };
   let res = match ret_type.slow_retval() {
     ArgSlowRetval::RetVal => {
@@ -882,7 +1168,7 @@ pub fn return_value_infallible(
     ArgSlowRetval::RetValFallible => {
       generator_state.needs_scope = true;
       let err = format_ident!("{}_err", generator_state.retval);
-      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      let throw_exception = throw_type_error_string(generator_state, &err);
 
       gs_quote!(generator_state(scope, retval) => (match deno_core::_ops::RustToV8Fallible::to_v8_fallible(#result, &mut #scope) {
         Ok(v) => #retval.set(v),
@@ -901,7 +1187,7 @@ pub fn return_value_infallible(
     ArgSlowRetval::V8LocalFalliable => {
       generator_state.needs_scope = true;
       let err = format_ident!("{}_err", generator_state.retval);
-      let throw_exception = throw_type_error_string(generator_state, &err)?;
+      let throw_exception = throw_type_error_string(generator_state, &err);
 
       gs_quote!(generator_state(scope, retval) => (match deno_core::_ops::RustToV8Fallible::to_v8_fallible(#result, &mut #scope) {
         Ok(v) => #retval.set(v),
@@ -936,7 +1222,12 @@ pub fn return_value_v8_value(
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result))
     }
     ArgMarker::Cppgc => {
-      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
+      let marker = if !generator_state.use_this_cppgc {
+        quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from)
+      } else {
+        quote!((|x| { deno_core::cppgc::wrap_object(#scope, args.this(), x) }))
+      };
+
       if ret_type.is_option() {
         quote!(#result.map(#marker))
       } else {
@@ -945,6 +1236,9 @@ pub fn return_value_v8_value(
     }
     ArgMarker::ToV8 => {
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result))
+    }
+    ArgMarker::Undefined => {
+      quote!(deno_core::v8::undefined(#scope).into())
     }
     ArgMarker::None => quote!(#result),
   };
@@ -1005,14 +1299,12 @@ pub(crate) fn throw_exception(
     with_fn_args(generator_state)
   };
 
-  gs_quote!(generator_state(scope, opctx) => {
+  gs_quote!(generator_state(scope) => {
     #maybe_scope
     #maybe_args
     #maybe_opctx
-    let err = err.into();
     let exception = deno_core::error::to_v8_error(
       &mut #scope,
-      #opctx.get_error_class_fn,
       &err,
     );
     #scope.throw_exception(exception);
@@ -1024,62 +1316,41 @@ pub(crate) fn throw_exception(
 fn throw_type_error(
   generator_state: &mut GeneratorState,
   message: String,
-) -> Result<TokenStream, V8MappingError> {
+) -> TokenStream {
   // Sanity check ASCII and a valid/reasonable message size
   debug_assert!(message.is_ascii() && message.len() < 1024);
 
-  let maybe_scope = if generator_state.needs_scope {
-    quote!()
-  } else {
-    with_scope(generator_state)
-  };
-
-  Ok(gs_quote!(generator_state(scope) => {
-    #maybe_scope
-    let msg = deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+  gs_quote!(generator_state(info) => {
+    deno_core::_ops::throw_error_one_byte_info(&#info, #message);
     return 1;
-  }))
+  })
 }
 
 /// Generates code to throw an exception from a string variable, adding required additional dependencies as needed.
 fn throw_type_error_string(
   generator_state: &mut GeneratorState,
   message: &Ident,
-) -> Result<TokenStream, V8MappingError> {
+) -> TokenStream {
   let maybe_scope = if generator_state.needs_scope {
     quote!()
   } else {
     with_scope(generator_state)
   };
 
-  Ok(gs_quote!(generator_state(scope) => {
+  gs_quote!(generator_state(scope) => {
     #maybe_scope
-    // TODO(mmastrac): This might be allocating too much, even if it's on the error path
-    let msg = deno_core::v8::String::new(&mut #scope, &format!("{}", deno_core::anyhow::Error::from(#message))).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+    deno_core::_ops::throw_error_js_error_class(&mut #scope, &#message);
     return 1;
-  }))
+  })
 }
 
 /// Generates code to throw an exception from a string variable, adding required additional dependencies as needed.
 fn throw_type_error_static_string(
   generator_state: &mut GeneratorState,
   message: &Ident,
-) -> Result<TokenStream, V8MappingError> {
-  let maybe_scope = if generator_state.needs_scope {
-    quote!()
-  } else {
-    with_scope(generator_state)
-  };
-
-  Ok(gs_quote!(generator_state(scope) => {
-    #maybe_scope
-    let msg = deno_core::v8::String::new_from_one_byte(&mut #scope, #message.as_bytes(), deno_core::v8::NewStringType::Normal).unwrap();
-    let exc = deno_core::v8::Exception::type_error(&mut #scope, msg);
-    #scope.throw_exception(exc);
+) -> TokenStream {
+  gs_quote!(generator_state(info) => {
+    deno_core::_ops::throw_error_one_byte_info(&#info, #message);
     return 1;
-  }))
+  })
 }

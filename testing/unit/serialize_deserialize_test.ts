@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 import { assertArrayEquals, assertEquals, test } from "checkin:testing";
 
 test(function testIssue20727() {
@@ -93,4 +93,19 @@ test(function testCircularObject() {
     new Uint8Array(circularObjectSerialized),
   );
   assertEquals(deserializedCircularObject.test, deserializedCircularObject);
+});
+
+test(function structuredClone() {
+  const primitiveValueArray = ["test", "a", null, undefined];
+  assertArrayEquals(
+    Deno.core.structuredClone(primitiveValueArray),
+    primitiveValueArray,
+  );
+
+  const circularObject = { test: null as unknown, test2: "dd", test3: "aa" };
+  circularObject.test = circularObject;
+  const cloned = Deno.core.structuredClone(circularObject);
+  assertEquals(cloned.test, cloned);
+  assertEquals(cloned.test2, circularObject.test2);
+  assertEquals(cloned.test3, circularObject.test3);
 });

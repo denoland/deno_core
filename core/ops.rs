@@ -1,27 +1,25 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::AnyError;
-use crate::error::GetErrorClassFn;
+use crate::OpDecl;
+use crate::ResourceId;
+use crate::error::JsStackFrame;
 use crate::gotham_state::GothamState;
 use crate::io::ResourceTable;
 use crate::ops_metrics::OpMetricsFn;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
-use crate::FeatureChecker;
-use crate::OpDecl;
+use crate::runtime::UnrefedOps;
 use futures::task::AtomicWaker;
 use std::cell::RefCell;
-use std::cell::UnsafeCell;
+use std::collections::HashSet;
 use std::ops::Deref;
 use std::ops::DerefMut;
-use std::ptr::NonNull;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
-use v8::fast_api::CFunctionInfo;
-use v8::fast_api::CTypeInfo;
 use v8::Isolate;
+use v8::fast_api::CFunction;
 
 pub type PromiseId = i32;
 pub type OpId = u16;
@@ -51,7 +49,10 @@ pub fn reentrancy_check(decl: &'static OpDecl) -> Option<ReentrancyGuard> {
 
   let current = CURRENT_OP.with(|f| f.get());
   if let Some(current) = current {
-    panic!("op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}", current.name, decl.name);
+    panic!(
+      "op {} was not marked as #[op2(reentrant)], but re-entrantly invoked op {}",
+      current.name, decl.name
+    );
   }
   CURRENT_OP.with(|f| f.set(Some(decl)));
   Some(ReentrancyGuard {})
@@ -74,12 +75,6 @@ impl OpMetadata {
   }
 }
 
-#[derive(Clone, Copy)]
-pub(crate) struct FastFunctionInfo {
-  pub(crate) fn_info: NonNull<CFunctionInfo>,
-  pub(crate) fn_sig: (NonNull<CTypeInfo>, NonNull<CTypeInfo>),
-}
-
 /// Per-op context.
 ///
 // Note: We don't worry too much about the size of this struct because it's allocated once per realm, and is
@@ -95,13 +90,11 @@ pub struct OpCtx {
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
   #[doc(hidden)]
-  pub get_error_class_fn: GetErrorClassFn,
+  pub enable_stack_trace: bool,
 
   pub(crate) decl: OpDecl,
-  pub(crate) fast_fn_info: Option<FastFunctionInfo>,
+  pub(crate) fast_fn_info: Option<CFunction>,
   pub(crate) metrics_fn: Option<OpMetricsFn>,
-  /// If the last fast op failed, stores the error to be picked up by the slow op.
-  pub(crate) last_fast_error: UnsafeCell<Option<AnyError>>,
 
   op_driver: Rc<OpDriverImpl>,
   runtime_state: *const JsRuntimeState,
@@ -116,50 +109,29 @@ impl OpCtx {
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,
     runtime_state: *const JsRuntimeState,
-    get_error_class_fn: GetErrorClassFn,
     metrics_fn: Option<OpMetricsFn>,
+    enable_stack_trace: bool,
   ) -> Self {
     // If we want metrics for this function, create the fastcall `CFunctionInfo` from the metrics
-    // `FastFunction`. For some extremely fast ops, the parameter list may change for the metrics
+    // `CFunction`. For some extremely fast ops, the parameter list may change for the metrics
     // version and require a slightly different set of arguments (for example, it may need the fastcall
     // callback information to get the `OpCtx`).
-    let fast_fn = if metrics_fn.is_some() {
-      &decl.fast_fn_with_metrics
+    let fast_fn_info = if metrics_fn.is_some() {
+      decl.fast_fn_with_metrics
     } else {
-      &decl.fast_fn
+      decl.fast_fn
     };
-
-    let fast_fn_info = fast_fn.map(|fast_fn| {
-      let args = CTypeInfo::new_from_slice(fast_fn.args);
-      let ret = CTypeInfo::new(fast_fn.return_type);
-
-      // SAFETY: all arguments are coming from the trait and they have
-      // static lifetime
-      let c_fn = unsafe {
-        CFunctionInfo::new(
-          args.as_ptr(),
-          fast_fn.args.len(),
-          ret.as_ptr(),
-          fast_fn.repr,
-        )
-      };
-      FastFunctionInfo {
-        fn_info: c_fn,
-        fn_sig: (args, ret),
-      }
-    });
 
     Self {
       id,
       state,
-      get_error_class_fn,
       runtime_state,
       decl,
       op_driver,
       fast_fn_info,
-      last_fast_error: UnsafeCell::new(None),
       isolate,
       metrics_fn,
+      enable_stack_trace,
     }
   }
 
@@ -190,13 +162,13 @@ impl OpCtx {
         function: self.decl.slow_fn_with_metrics,
       };
       if let (Some(fast_fn), Some(fast_fn_info)) =
-        (&self.decl.fast_fn_with_metrics, &self.fast_fn_info)
+        (self.decl.fast_fn_with_metrics, self.fast_fn_info)
       {
         let fast_fn = v8::ExternalReference {
-          pointer: fast_fn.function as _,
+          pointer: fast_fn.address() as _,
         };
         let fast_info = v8::ExternalReference {
-          pointer: fast_fn_info.fn_info.as_ptr() as _,
+          type_info: fast_fn_info.type_info(),
         };
         [ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {
@@ -207,45 +179,19 @@ impl OpCtx {
         function: self.decl.slow_fn,
       };
       if let (Some(fast_fn), Some(fast_fn_info)) =
-        (&self.decl.fast_fn, &self.fast_fn_info)
+        (self.decl.fast_fn, self.fast_fn_info)
       {
         let fast_fn = v8::ExternalReference {
-          pointer: fast_fn.function as _,
+          pointer: fast_fn.address() as _,
         };
         let fast_info = v8::ExternalReference {
-          pointer: fast_fn_info.fn_info.as_ptr() as _,
+          type_info: fast_fn_info.type_info(),
         };
         [ctx_ptr, slow_fn, fast_fn, fast_info]
       } else {
         [ctx_ptr, slow_fn, null, null]
       }
     }
-  }
-
-  /// This takes the last error from an [`OpCtx`], assuming that no other code anywhere
-  /// can hold a `&mut` to the last_fast_error field.
-  ///
-  /// # Safety
-  ///
-  /// Must only be called from op implementations.
-  #[inline(always)]
-  pub unsafe fn unsafely_take_last_error_for_ops_only(
-    &self,
-  ) -> Option<AnyError> {
-    let opt_mut = &mut *self.last_fast_error.get();
-    opt_mut.take()
-  }
-
-  /// This set the last error for an [`OpCtx`], assuming that no other code anywhere
-  /// can hold a `&mut` to the last_fast_error field.
-  ///
-  /// # Safety
-  ///
-  /// Must only be called from op implementations.
-  #[inline(always)]
-  pub unsafe fn unsafely_set_last_error_for_ops_only(&self, error: AnyError) {
-    let opt_mut = &mut *self.last_fast_error.get();
-    *opt_mut = Some(error);
   }
 
   pub(crate) fn op_driver(&self) -> &OpDriverImpl {
@@ -276,11 +222,7 @@ impl ExternalOpsTracker {
       self
         .counter
         .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |x| {
-          if x == 0 {
-            None
-          } else {
-            Some(x - 1)
-          }
+          if x == 0 { None } else { Some(x - 1) }
         });
   }
 
@@ -289,25 +231,36 @@ impl ExternalOpsTracker {
   }
 }
 
+pub type OpStackTraceCallback = Box<dyn Fn(Vec<JsStackFrame>)>;
+
 /// Maintains the resources and ops inside a JS runtime.
 pub struct OpState {
   pub resource_table: ResourceTable,
   pub(crate) gotham_state: GothamState,
   pub waker: Arc<AtomicWaker>,
-  pub feature_checker: Arc<FeatureChecker>,
   pub external_ops_tracker: ExternalOpsTracker,
+  pub op_stack_trace_callback: Option<OpStackTraceCallback>,
+  /// Reference to the unrefered ops state in `ContextState`.
+  pub(crate) unrefed_ops: UnrefedOps,
+  /// Resources that are not referenced by the event loop. All async
+  /// resource ops on these resources will not keep the event loop alive.
+  ///
+  /// Used to implement `uv_ref` and `uv_unref` methods for Node compat.
+  pub(crate) unrefed_resources: HashSet<ResourceId>,
 }
 
 impl OpState {
-  pub fn new(maybe_feature_checker: Option<Arc<FeatureChecker>>) -> OpState {
+  pub fn new(op_stack_trace_callback: Option<OpStackTraceCallback>) -> OpState {
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
       waker: Arc::new(AtomicWaker::new()),
-      feature_checker: maybe_feature_checker.unwrap_or_default(),
       external_ops_tracker: ExternalOpsTracker {
         counter: Arc::new(AtomicUsize::new(0)),
       },
+      op_stack_trace_callback,
+      unrefed_ops: Default::default(),
+      unrefed_resources: Default::default(),
     }
   }
 
@@ -315,6 +268,19 @@ impl OpState {
   pub(crate) fn clear(&mut self) {
     std::mem::take(&mut self.gotham_state);
     std::mem::take(&mut self.resource_table);
+  }
+
+  // Silly but improves readability.
+  pub fn uv_unref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.insert(resource_id);
+  }
+
+  pub fn uv_ref(&mut self, resource_id: ResourceId) {
+    self.unrefed_resources.remove(&resource_id);
+  }
+
+  pub fn has_ref(&self, resource_id: ResourceId) -> bool {
+    !self.unrefed_resources.contains(&resource_id)
   }
 }
 

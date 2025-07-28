@@ -1,22 +1,25 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
-use anyhow::Context;
+use clap::ArgMatches;
 use clap::builder::Arg;
 use clap::builder::Command;
-use clap::ArgMatches;
 use deno_core::anyhow::Error;
 
+use deno_core::RuntimeOptions;
 use deno_core_testing::create_runtime_from_snapshot;
 
 use std::net::SocketAddr;
 
+use anyhow::Context;
 use std::sync::Arc;
 
 static SNAPSHOT: &[u8] =
   include_bytes!(concat!(env!("OUT_DIR"), "/SNAPSHOT.bin"));
 
 mod inspector_server;
+mod metrics;
 use crate::inspector_server::InspectorServer;
+use crate::metrics::create_metrics;
 
 fn main() -> Result<(), Error> {
   eprintln!(
@@ -39,8 +42,42 @@ fn main() -> Result<(), Error> {
     None
   };
 
-  let mut js_runtime =
-    create_runtime_from_snapshot(SNAPSHOT, inspector_server.is_some(), vec![]);
+  let mut v8_flags = Vec::new();
+  if let Some(flags) = matches.remove_many("v8-flags") {
+    v8_flags = flags.collect();
+  }
+
+  init_v8_flags(&v8_flags);
+
+  let (metrics_summary, mut js_runtime, _worker_host_side) =
+    if matches.get_flag("strace-ops") || matches.get_flag("strace-ops-summary")
+    {
+      let (summary, op_metrics_factory_fn) = create_metrics(
+        matches.get_flag("strace-ops"),
+        matches.get_flag("strace-ops-summary"),
+      );
+
+      let (runtime, worker_host_side) =
+        deno_core_testing::create_runtime_from_snapshot_with_options(
+          SNAPSHOT,
+          inspector_server.is_some(),
+          None,
+          vec![],
+          RuntimeOptions {
+            op_metrics_factory_fn: Some(op_metrics_factory_fn),
+            ..Default::default()
+          },
+        );
+      (Some(summary), runtime, worker_host_side)
+    } else {
+      let (runtime, worker_host_side) = create_runtime_from_snapshot(
+        SNAPSHOT,
+        inspector_server.is_some(),
+        None,
+        vec![],
+      );
+      (None, runtime, worker_host_side)
+    };
 
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()
@@ -59,13 +96,17 @@ fn main() -> Result<(), Error> {
     );
   }
 
-  let future = async move {
+  let future = async {
     let mod_id = js_runtime.load_main_es_module(&main_module).await?;
     let result = js_runtime.mod_evaluate(mod_id);
     js_runtime.run_event_loop(Default::default()).await?;
     result.await
   };
-  runtime.block_on(future)
+  let result = runtime.block_on(future);
+  if let Some(summary) = metrics_summary {
+    eprintln!("{}", summary.to_json_pretty()?)
+  }
+  result.map_err(|e| e.into())
 }
 
 fn build_cli() -> Command {
@@ -111,6 +152,30 @@ fn build_cli() -> Command {
         .value_parser(clap::value_parser!(String))
         .required(true),
     )
+    .arg(
+      Arg::new("strace-ops")
+        .help("Output a trace of op execution on stderr")
+        .long("strace-ops")
+        .num_args(0)
+        .required(false)
+        .action(clap::ArgAction::SetTrue)
+
+    ).arg(
+      Arg::new("strace-ops-summary")
+        .help("Output a summary of op execution on stderr when program exits")
+        .long("strace-ops-summary")
+        .action(clap::ArgAction::SetTrue)
+    ).arg(
+      Arg::new("v8-flags")
+        .long("v8-flags")
+        .num_args(..)
+        .use_value_delimiter(true)
+        .require_equals(true)
+        .value_name("V8_FLAGS")
+        .help("To see a list of all available flags use --v8-flags=--help
+Flags can also be set via the DCORE_V8_FLAGS environment variable.
+Any flags set with this flag are appended after the DCORE_V8_FLAGS environment variable")
+    )
 }
 
 enum InspectMode {
@@ -136,4 +201,50 @@ fn inspect_arg_parse(
   }
 
   None
+}
+
+fn get_v8_flags_from_env() -> Vec<String> {
+  std::env::var("DCORE_V8_FLAGS")
+    .ok()
+    .map(|flags| flags.split(',').map(String::from).collect::<Vec<String>>())
+    .unwrap_or_default()
+}
+
+fn construct_v8_flags(
+  v8_flags: &[String],
+  env_v8_flags: Vec<String>,
+) -> Vec<String> {
+  std::iter::once("UNUSED_BUT_NECESSARY_ARG0".to_owned())
+    .chain(env_v8_flags)
+    .chain(v8_flags.iter().cloned())
+    .collect::<Vec<_>>()
+}
+
+fn init_v8_flags(v8_flags: &[String]) {
+  let env_v8_flags = get_v8_flags_from_env();
+  if v8_flags.is_empty() && env_v8_flags.is_empty() {
+    return;
+  }
+
+  let v8_flags_includes_help = env_v8_flags
+    .iter()
+    .chain(v8_flags)
+    .any(|flag| flag == "-help" || flag == "--help");
+  // Keep in sync with `standalone.rs`.
+  let v8_flags = construct_v8_flags(v8_flags, env_v8_flags);
+  let unrecognized_v8_flags = deno_core::v8_set_flags(v8_flags)
+    .into_iter()
+    .skip(1)
+    .collect::<Vec<_>>();
+
+  if !unrecognized_v8_flags.is_empty() {
+    for f in unrecognized_v8_flags {
+      eprintln!("error: V8 did not recognize flag '{f}'");
+    }
+    eprintln!("\nFor a list of V8 flags, use '--v8-flags=--help'");
+    std::process::exit(1);
+  }
+  if v8_flags_includes_help {
+    std::process::exit(0);
+  }
 }

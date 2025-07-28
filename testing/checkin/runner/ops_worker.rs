@@ -1,31 +1,32 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use super::Output;
+use super::Snapshot;
+use super::create_runtime_from_snapshot;
+use super::run_async;
 use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Error;
-use deno_core::op2;
-use deno_core::url::Url;
-use deno_core::v8::IsolateHandle;
 use deno_core::GarbageCollected;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
+use deno_core::op2;
+use deno_core::url::Url;
+use deno_core::v8::IsolateHandle;
+use deno_error::JsErrorBox;
 use std::cell::RefCell;
 use std::future::poll_fn;
 use std::rc::Rc;
-use std::sync::mpsc::channel;
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 use std::task::Poll;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::watch;
-use tokio::sync::Mutex;
-
-use super::create_runtime;
-use super::run_async;
-use super::Output;
 
 /// Our cppgc object.
+#[derive(Debug)]
 pub struct WorkerControl {
   worker_channel: WorkerChannel,
   close_watcher: WorkerCloseWatcher,
@@ -33,18 +34,24 @@ pub struct WorkerControl {
   shutdown_flag: Option<UnboundedSender<()>>,
 }
 
-impl GarbageCollected for WorkerControl {}
+impl GarbageCollected for WorkerControl {
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"WorkerControl"
+  }
+}
 
+#[derive(Debug)]
 pub struct WorkerChannel {
   tx: UnboundedSender<String>,
   rx: Mutex<UnboundedReceiver<String>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WorkerCloseWatcher {
   watcher: Arc<Mutex<watch::Receiver<bool>>>,
 }
 
+#[derive(Debug)]
 pub struct Worker {
   _close_send: watch::Sender<bool>,
   pub(crate) close_watcher: WorkerCloseWatcher,
@@ -93,16 +100,22 @@ pub fn worker_create(
 pub fn op_worker_spawn(
   #[state] this_worker: &Worker,
   #[state] output: &Output,
+  #[state] snapshot: &Snapshot,
   #[string] base_url: String,
   #[string] main_script: String,
-) -> Result<WorkerControl, Error> {
+) -> Result<WorkerControl, std::sync::mpsc::RecvError> {
   let output = output.clone();
+  let snapshot = snapshot.0;
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();
   let (shutdown_tx, shutdown_rx) = unbounded_channel();
   std::thread::spawn(move || {
-    let (mut runtime, worker_host_side) =
-      create_runtime(Some(close_watcher), vec![]);
+    let (mut runtime, worker_host_side) = create_runtime_from_snapshot(
+      snapshot,
+      false,
+      Some(close_watcher),
+      vec![],
+    );
     runtime.op_state().borrow_mut().put(output.clone());
     init_send
       .send(WorkerControl {
@@ -126,7 +139,7 @@ async fn run_worker_task(
   base_url: String,
   main_script: String,
   mut shutdown_rx: UnboundedReceiver<()>,
-) -> Result<(), Error> {
+) -> Result<(), anyhow::Error> {
   let url = Url::try_from(base_url.as_str())?.join(&main_script)?;
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
@@ -138,7 +151,9 @@ async fn run_worker_task(
       // This matches the v8 error. We'll hit both, depending on timing.
       return Poll::Ready(Err(anyhow!("Uncaught Error: execution terminated")));
     }
-    runtime.poll_event_loop(cx, PollEventLoopOptions::default())
+    runtime
+      .poll_event_loop(cx, PollEventLoopOptions::default())
+      .map_err(|e| e.into())
   })
   .await
   {
@@ -146,11 +161,21 @@ async fn run_worker_task(
     let state = state.borrow();
     let output: &Output = state.borrow();
     for line in e.to_string().split('\n') {
+      println!("[ERR] {line}");
+      output.line(format!("[ERR] {line}"));
+    }
+    return Ok(());
+  } else if let Err(e) = f.await {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
+    for line in e.to_string().split('\n') {
+      println!("[ERR] {line}");
       output.line(format!("[ERR] {line}"));
     }
     return Ok(());
   }
-  _ = f.await;
+
   Ok(())
 }
 
@@ -158,7 +183,7 @@ async fn run_worker_task(
 pub fn op_worker_send(
   #[cppgc] worker: &WorkerControl,
   #[string] message: String,
-) -> Result<(), Error> {
+) -> Result<(), tokio::sync::mpsc::error::SendError<String>> {
   worker.worker_channel.tx.send(message)?;
   Ok(())
 }
@@ -173,14 +198,14 @@ pub async fn op_worker_recv(#[cppgc] worker: &WorkerControl) -> Option<String> {
 #[cppgc]
 pub fn op_worker_parent(
   state: Rc<RefCell<OpState>>,
-) -> Result<WorkerControl, Error> {
+) -> Result<WorkerControl, JsErrorBox> {
   let state = state.borrow_mut();
   let worker: &Worker = state.borrow();
   let (Some(worker_channel), Some(close_watcher)) = (
     worker.parent_channel.lock().unwrap().take(),
     worker.parent_close_watcher.lock().unwrap().take(),
   ) else {
-    bail!("No parent worker is available")
+    return Err(JsErrorBox::generic("No parent worker is available"));
   };
   Ok(WorkerControl {
     worker_channel,

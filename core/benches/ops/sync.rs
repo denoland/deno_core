@@ -1,7 +1,7 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![allow(deprecated)]
 use bencher::*;
-use deno_core::error::generic_error;
 use deno_core::*;
 use std::borrow::Cow;
 use std::ffi::c_void;
@@ -11,6 +11,8 @@ deno_core::extension!(
   ops = [
     op_void,
     op_void_nofast,
+    op_void_no_side_effects,
+    op_void_nofast_no_side_effects,
     op_void_metrics,
     op_void_nofast_metrics,
     op_u32,
@@ -18,6 +20,7 @@ deno_core::extension!(
     op_string,
     op_string_onebyte,
     op_string_bytestring,
+    op_string_bytestring_no_side_effects,
     op_string_option_u32,
     op_local,
     op_local_scope,
@@ -45,8 +48,14 @@ deno_core::extension!(
 #[op2(fast)]
 pub fn op_void() {}
 
+#[op2(fast, no_side_effects)]
+pub fn op_void_no_side_effects() {}
+
 #[op2(nofast)]
 pub fn op_void_nofast() {}
+
+#[op2(nofast, no_side_effects)]
+pub fn op_void_nofast_no_side_effects() {}
 
 #[op2(fast)]
 pub fn op_void_metrics() {}
@@ -79,6 +88,11 @@ pub fn op_string_bytestring(#[serde] s: ByteString) -> u32 {
   s.len() as _
 }
 
+#[op2(no_side_effects)]
+pub fn op_string_bytestring_no_side_effects(#[serde] s: ByteString) -> u32 {
+  s.len() as _
+}
+
 #[op2]
 pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
   Some(s.len() as _)
@@ -87,7 +101,7 @@ pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
 #[op2(fast)]
 pub fn op_local(_s: v8::Local<v8::String>) {}
 
-#[op2]
+#[op2(fast)]
 pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
 }
 
@@ -104,7 +118,7 @@ pub fn op_global_scope(
 ) {
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_scope(_scope: &mut v8::HandleScope) {}
 
 #[op2(nofast)]
@@ -155,7 +169,7 @@ fn bench_op(
   );
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![testing::init_ops_and_esm()],
+    extensions: vec![testing::init()],
     // We need to feature gate this here to prevent IDE errors
     #[cfg(feature = "unsafe_runtime_options")]
     unsafe_expose_natives_and_gc: true,
@@ -169,8 +183,11 @@ fn bench_op(
     })),
     ..Default::default()
   });
-  let err_mapper =
-    |err| generic_error(format!("{op} test failed ({call}): {err:?}"));
+  let err_mapper = |err| {
+    deno_error::JsErrorBox::generic(format!(
+      "{op} test failed ({call}): {err:?}"
+    ))
+  };
 
   let args = (0..arg_count)
     .map(|n| format!("arg{n}"))
@@ -230,6 +247,26 @@ fn bench_op_void_nofast(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_void_nofast", 0, "op_void_nofast();");
 }
 
+fn bench_op_void_no_side_effects(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_void_no_side_effects",
+    0,
+    "op_void_no_side_effects();",
+  );
+}
+
+fn bench_op_void_nofast_no_side_effects(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_void_nofast_no_side_effects",
+    0,
+    "op_void_nofast_no_side_effects();",
+  );
+}
+
 /// A void function with no return value.
 fn bench_op_void_metrics(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_void_metrics", 0, "op_void_metrics()");
@@ -264,7 +301,13 @@ fn bench_op_option_u32(b: &mut Bencher) {
 
 /// A string function with a numeric return value.
 fn bench_op_string(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string", 1, "accum += op_string('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string",
+    1,
+    "accum += op_string('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A string function with a numeric return value.
@@ -291,7 +334,13 @@ fn bench_op_string_large_1000000(b: &mut Bencher) {
 
 /// A string function with a numeric return value.
 fn bench_op_string_onebyte(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string_onebyte", 1, "accum += op_string_onebyte('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_onebyte",
+    1,
+    "accum += op_string_onebyte('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A string function with a numeric return value.
@@ -318,7 +367,23 @@ fn bench_op_string_onebyte_large_1000000(b: &mut Bencher) {
 
 /// A string function with a numeric return value.
 fn bench_op_string_bytestring(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string_bytestring", 1, "accum += op_string_bytestring('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_bytestring",
+    1,
+    "accum += op_string_bytestring('this is a reasonably long string that we would like to get the length of!');",
+  );
+}
+
+fn bench_op_string_bytestring_no_side_effects(b: &mut Bencher) {
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_bytestring_no_side_effects",
+    1,
+    "accum += op_string_bytestring_no_side_effects('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A string function with a numeric return value.
@@ -345,32 +410,68 @@ fn bench_op_string_large_utf8_1000000(b: &mut Bencher) {
 
 /// A string function with an option numeric return value.
 fn bench_op_string_option_u32(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_string_option_u32", 1, "accum += op_string_option_u32('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_string_option_u32",
+    1,
+    "accum += op_string_option_u32('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A fast function that takes a v8::Local<String>
 fn bench_op_v8_local(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_local", 1, "op_local('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_local",
+    1,
+    "op_local('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Local<String>
 fn bench_op_v8_local_scope(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_local_scope", 1, "op_local_scope('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_local_scope",
+    1,
+    "op_local_scope('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Local<String>
 fn bench_op_v8_local_nofast(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_local_nofast", 1, "op_local_nofast('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_local_nofast",
+    1,
+    "op_local_nofast('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Global<String>
 fn bench_op_v8_global(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_global", 1, "op_global('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_global",
+    1,
+    "op_global('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 /// A function that takes a v8::Global<String>
 fn bench_op_v8_global_scope(b: &mut Bencher) {
-  bench_op(b, BENCH_COUNT, "op_global_scope", 1, "op_global_scope('this is a reasonably long string that we would like to get the length of!');");
+  bench_op(
+    b,
+    BENCH_COUNT,
+    "op_global_scope",
+    1,
+    "op_global_scope('this is a reasonably long string that we would like to get the length of!');",
+  );
 }
 
 fn bench_op_bigint(b: &mut Bencher) {
@@ -457,11 +558,14 @@ benchmark_group!(
   bench_op_void,
   bench_op_void_2x,
   bench_op_void_nofast,
+  bench_op_void_no_side_effects,
+  bench_op_void_nofast_no_side_effects,
   bench_op_void_metrics,
   bench_op_void_nofast_metrics,
   bench_op_u32,
   bench_op_option_u32,
   bench_op_string_bytestring,
+  bench_op_string_bytestring_no_side_effects,
   bench_op_string,
   bench_op_string_large_1000,
   bench_op_string_large_1000000,

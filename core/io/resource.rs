@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 // Think of Resources as File Descriptors. They are integers that are allocated
 // by the privileged side of Deno which refer to various rust objects that need
@@ -6,17 +6,17 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use crate::error::not_supported;
+use crate::ResourceHandle;
+use crate::ResourceHandleFd;
 use crate::io::AsyncResult;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::io::WriteOutcome;
-use crate::ResourceHandle;
-use crate::ResourceHandleFd;
-use anyhow::Error;
-use std::any::type_name;
+use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
 use std::any::Any;
 use std::any::TypeId;
+use std::any::type_name;
 use std::borrow::Cow;
 use std::rc::Rc;
 
@@ -85,7 +85,7 @@ pub trait Resource: Any + 'static {
   /// implement `read_byob()`.
   fn read(self: Rc<Self>, limit: usize) -> AsyncResult<BufView> {
     _ = limit;
-    Box::pin(futures::future::err(not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Read a single chunk of data from the resource into the provided `BufMutView`.
@@ -110,8 +110,8 @@ pub trait Resource: Any + 'static {
   }
 
   /// Write an error state to this resource, if the resource supports it.
-  fn write_error(self: Rc<Self>, _error: Error) -> AsyncResult<()> {
-    Box::pin(futures::future::err(not_supported()))
+  fn write_error(self: Rc<Self>, _error: &dyn JsErrorClass) -> AsyncResult<()> {
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Write a single chunk of data to the resource. The operation may not be
@@ -123,7 +123,7 @@ pub trait Resource: Any + 'static {
   /// with a "not supported" error.
   fn write(self: Rc<Self>, buf: BufView) -> AsyncResult<WriteOutcome> {
     _ = buf;
-    Box::pin(futures::future::err(not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Write an entire chunk of data to the resource. Unlike `write()`, this will
@@ -155,15 +155,18 @@ pub trait Resource: Any + 'static {
   }
 
   /// The same as [`read_byob()`][Resource::read_byob], but synchronous.
-  fn read_byob_sync(self: Rc<Self>, data: &mut [u8]) -> Result<usize, Error> {
+  fn read_byob_sync(
+    self: Rc<Self>,
+    data: &mut [u8],
+  ) -> Result<usize, JsErrorBox> {
     _ = data;
-    Err(not_supported())
+    Err(JsErrorBox::not_supported())
   }
 
   /// The same as [`write()`][Resource::write], but synchronous.
-  fn write_sync(self: Rc<Self>, data: &[u8]) -> Result<usize, Error> {
+  fn write_sync(self: Rc<Self>, data: &[u8]) -> Result<usize, JsErrorBox> {
     _ = data;
-    Err(not_supported())
+    Err(JsErrorBox::not_supported())
   }
 
   /// The shutdown method can be used to asynchronously close the resource. It
@@ -172,7 +175,7 @@ pub trait Resource: Any + 'static {
   /// If this method is not implemented, the default implementation will error
   /// with a "not supported" error.
   fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
-    Box::pin(futures::future::err(not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Resources may implement the `close()` trait method if they need to do
@@ -228,7 +231,7 @@ macro_rules! impl_readable_byob {
     ) -> AsyncResult<$crate::BufView> {
       ::std::boxed::Box::pin(async move {
         let mut vec = ::std::vec![0; limit];
-        let nread = self.read(&mut vec).await?;
+        let nread = self.read(&mut vec).await.map_err(::deno_error::JsErrorBox::from_err)?;
         if nread != vec.len() {
           vec.truncate(nread);
         }
@@ -242,7 +245,7 @@ macro_rules! impl_readable_byob {
       mut buf: $crate::BufMutView,
     ) -> AsyncResult<(::core::primitive::usize, $crate::BufMutView)> {
       ::std::boxed::Box::pin(async move {
-        let nread = self.read(buf.as_mut()).await?;
+        let nread = self.read(buf.as_mut()).await.map_err(::deno_error::JsErrorBox::from_err)?;
         ::std::result::Result::Ok((nread, buf))
       })
     }
@@ -257,7 +260,10 @@ macro_rules! impl_writable {
       view: $crate::BufView,
     ) -> $crate::AsyncResult<$crate::WriteOutcome> {
       ::std::boxed::Box::pin(async move {
-        let nwritten = self.write(&view).await?;
+        let nwritten = self
+          .write(&view)
+          .await
+          .map_err(::deno_error::JsErrorBox::from_err)?;
         ::std::result::Result::Ok($crate::WriteOutcome::Partial {
           nwritten,
           view,
@@ -271,7 +277,10 @@ macro_rules! impl_writable {
       view: $crate::BufView,
     ) -> $crate::AsyncResult<()> {
       ::std::boxed::Box::pin(async move {
-        self.write_all(&view).await?;
+        self
+          .write_all(&view)
+          .await
+          .map_err(::deno_error::JsErrorBox::from_err)?;
         ::std::result::Result::Ok(())
       })
     }

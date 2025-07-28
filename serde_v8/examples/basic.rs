@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
@@ -16,7 +17,7 @@ fn main() {
   {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     fn exec<'s>(

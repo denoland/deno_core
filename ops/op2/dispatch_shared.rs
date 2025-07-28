@@ -1,10 +1,11 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use super::V8MappingError;
 use super::signature::Arg;
 use super::signature::BufferType;
 use super::signature::NumericArg;
 use super::signature::RefType;
 use super::signature::V8Arg;
-use super::V8MappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::format_ident;
@@ -158,18 +159,4 @@ pub fn byte_slice_to_buffer(
   };
 
   Ok(res)
-}
-
-pub fn fast_api_typed_array_to_buffer(
-  arg_ident: &Ident,
-  input: &Ident,
-  buffer: BufferType,
-) -> Result<TokenStream, V8MappingError> {
-  let convert = byte_slice_to_buffer(arg_ident, input, buffer)?;
-  Ok(quote! {
-    // SAFETY: we are certain the implied lifetime is valid here as the slices never escape the
-    // fastcall
-    let #input = unsafe { deno_core::v8::fast_api::FastApiTypedArray::get_storage_from_pointer_if_aligned(#input) }.expect("Invalid buffer");
-    #convert
-  })
 }

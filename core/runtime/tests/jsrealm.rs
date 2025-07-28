@@ -1,12 +1,17 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error;
-use crate::modules::StaticModuleLoader;
-use crate::op2;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use crate::JsRuntime;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
-use futures::future::poll_fn;
+use crate::error::CoreErrorKind;
+use crate::error::ExtensionLazyInitCountMismatchError;
+use crate::error::ExtensionLazyInitOrderMismatchError;
+use crate::modules::StaticModuleLoader;
+use crate::op2;
+use std::future::poll_fn;
 use std::rc::Rc;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 #[test]
@@ -25,6 +30,7 @@ fn test_set_format_exception_callback_realms() {
         format!(
           r#"
           Deno.core.ops.op_set_format_exception_callback((error) => {{
+            Deno.core.isNativeError(error); // test reentrancy
             return `{realm_name} / ${{error}}`;
           }});
         "#
@@ -42,8 +48,7 @@ fn test_set_format_exception_callback_realms() {
         format!("throw new Error('{realm_name}');"),
       );
       assert!(result.is_err());
-
-      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      let error = result.unwrap_err();
       assert_eq!(
         error.exception_message,
         format!("{realm_name} / Error: {realm_name}")
@@ -63,7 +68,9 @@ fn test_set_format_exception_callback_realms() {
       let result =
         futures::executor::block_on(runtime.run_event_loop(Default::default()));
       assert!(result.is_err());
-      let error = result.unwrap_err().downcast::<error::JsError>().unwrap();
+      let CoreErrorKind::Js(error) = result.unwrap_err().into_kind() else {
+        unreachable!()
+      };
       assert_eq!(
         error.exception_message,
         format!("Uncaught (in promise) {realm_name} / Error: {realm_name}")
@@ -77,12 +84,12 @@ async fn js_realm_ref_unref_ops() {
   // Never resolves.
   #[op2(async)]
   async fn op_pending() {
-    futures::future::pending().await
+    std::future::pending().await
   }
 
   deno_core::extension!(test_ext, ops = [op_pending]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -134,7 +141,7 @@ fn es_snapshot() {
     );
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![module_snapshot::init_ops_and_esm()],
+      extensions: vec![module_snapshot::init()],
       module_loader: Some(Rc::new(StaticModuleLoader::default())),
       ..Default::default()
     });
@@ -171,4 +178,65 @@ fn es_snapshot() {
     assert!(test_export.is_string());
     assert_eq!(test_export.to_rust_string_lossy(scope).as_str(), "bar");
   }
+}
+
+#[test]
+fn lazy() {
+  static CALLED: AtomicBool = AtomicBool::new(false);
+
+  deno_core::extension!(
+    lazy_ext,
+    options = {
+      a: String,
+      b: bool,
+    },
+    state = |_state, _options| {
+      CALLED.store(true, Ordering::Relaxed);
+    },
+  );
+
+  deno_core::extension!(lazy_bad, state = |_state| {},);
+
+  let extensions = vec![lazy_ext::lazy_init()];
+
+  let runtime = JsRuntime::new(RuntimeOptions {
+    extensions,
+    ..Default::default()
+  });
+
+  let err = runtime
+    .lazy_init_extensions(vec![])
+    .unwrap_err()
+    .into_kind();
+  assert!(matches!(
+    err,
+    CoreErrorKind::ExtensionLazyInitCountMismatch(
+      ExtensionLazyInitCountMismatchError {
+        lazy_init_extensions_len: 1,
+        arguments_len: 0,
+      }
+    )
+  ));
+
+  let err = runtime
+    .lazy_init_extensions(vec![lazy_bad::args()])
+    .unwrap_err()
+    .into_kind();
+  assert!(matches!(
+    err,
+    CoreErrorKind::ExtensionLazyInitOrderMismatch(
+      ExtensionLazyInitOrderMismatchError {
+        expected: "lazy_ext",
+        actual: "lazy_bad",
+      }
+    )
+  ));
+
+  assert!(!CALLED.load(Ordering::Relaxed));
+
+  runtime
+    .lazy_init_extensions(vec![lazy_ext::args("".into(), true)])
+    .unwrap();
+
+  assert!(CALLED.load(Ordering::Relaxed));
 }

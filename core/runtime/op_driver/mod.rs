@@ -1,8 +1,9 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use crate::OpId;
 use crate::PromiseId;
-use anyhow::Error;
 use bit_set::BitSet;
+use deno_error::JsErrorClass;
 use std::future::Future;
 use std::task::Context;
 use std::task::Poll;
@@ -84,7 +85,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// might return an error (`Result`).
   fn submit_op_fallible<
     R: 'static,
-    E: Into<Error> + 'static,
+    E: JsErrorClass + 'static,
     const LAZY: bool,
     const DEFERRED: bool,
   >(
@@ -98,7 +99,7 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
   /// Submits an operation that is expected to complete successfully without errors.
   #[inline(always)]
   #[allow(clippy::too_many_arguments)]
-  fn submit_op_fallible_scheduling<R: 'static, E: Into<Error> + 'static>(
+  fn submit_op_fallible_scheduling<R: 'static, E: JsErrorClass + 'static>(
     &self,
     scheduling: OpScheduling,
     op_id: OpId,
@@ -144,26 +145,24 @@ pub(crate) trait OpDriver<C: OpMappingContext = V8OpMappingContext>:
 
 #[cfg(test)]
 mod tests {
-  use crate::GetErrorClassFn;
-
   use super::op_results::*;
   use super::*;
   use bit_set::BitSet;
+  use deno_error::JsErrorBox;
   use rstest::rstest;
   use std::future::poll_fn;
 
   struct TestMappingContext {}
-  impl<'s> OpMappingContextLifetime<'s> for TestMappingContext {
+  impl OpMappingContextLifetime<'_> for TestMappingContext {
     type Context = ();
     type Result = String;
     type MappingError = anyhow::Error;
 
     fn map_error(
       _context: &mut Self::Context,
-      err: Error,
-      _get_error_class_fn: GetErrorClassFn,
-    ) -> UnmappedResult<'s, Self> {
-      Ok(format!("{err:?}"))
+      err: JsErrorBox,
+    ) -> Self::Result {
+      format!("{err:?}")
     }
 
     fn map_mapping_error(
@@ -233,11 +232,12 @@ mod tests {
     let (promise_id, op_id, result) = poll_fn(|cx| driver.poll_ready(cx)).await;
     assert!(bitset.insert(promise_id as usize));
     assert_eq!(1234, op_id);
-    assert_eq!(expected, &(result.unwrap(&mut (), &|_| "Error").unwrap()));
+    assert_eq!(expected, &(result.unwrap(&mut ()).unwrap()));
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,
@@ -267,7 +267,8 @@ mod tests {
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver_yield<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,
@@ -304,7 +305,8 @@ mod tests {
   }
 
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver_large<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,
@@ -343,7 +345,8 @@ mod tests {
 
   #[cfg(not(miri))] // needs I/O
   #[rstest]
-  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default())]
+  #[case::futures_unordered(FuturesUnorderedDriver::<TestMappingContext>::default()
+  )]
   fn test_driver_io<D: OpDriver<TestMappingContext>>(
     #[case] driver: D,
     #[values(2, 16)] count: usize,

@@ -1,8 +1,9 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 mod checkin;
 
 pub use checkin::runner::create_runtime_from_snapshot;
+pub use checkin::runner::create_runtime_from_snapshot_with_options;
 pub use checkin::runner::snapshot::create_snapshot;
 
 macro_rules! unit_test {
@@ -40,6 +41,7 @@ unit_test!(
   microtask_test,
   ops_async_test,
   ops_buffer_test,
+  ops_error_test,
   resource_test,
   serialize_deserialize_test,
   stats_test,
@@ -47,6 +49,7 @@ unit_test!(
   tc39_test,
   timer_test,
   type_test,
+  callsite_test,
 );
 
 // Test the load and run of an entire file within the `checkin` infrastructure.
@@ -64,8 +67,15 @@ integration_test!(
   error_eval_stack,
   error_ext_stack,
   error_prepare_stack_trace,
+  error_prepare_stack_trace_crash,
+  error_source_maps_with_prepare_stack_trace,
   error_with_stack,
   error_without_stack,
+  error_get_file_name,
+  error_get_file_name_to_string,
+  error_get_script_name_or_source_url,
+  import_sync,
+  import_sync_existing,
   main_module_handler,
   module_types,
   pending_unref_op_tla,
@@ -76,6 +86,7 @@ integration_test!(
   ts_types,
   user_breaks_promise_constructor,
   user_breaks_promise_species,
+  wasm_imports,
   worker_spawn,
   worker_terminate,
   worker_terminate_op,

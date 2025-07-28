@@ -32,12 +32,12 @@ jobs:
 
       # ************************************************************************************************
       #  BEGIN COMMON STEPS
-      #  These steps are run for each and every sub-job, on a clean runner. 
+      #  These steps are run for each and every sub-job, on a clean runner.
       # ************************************************************************************
 
       # TODO(mmastrac): these could be extracted to a `ci-common.yml`
       - name: Clone repository
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Install ARM runner tools
         if: ${{ inputs.os == 'ubuntu-22.04-arm64' }}
@@ -49,6 +49,12 @@ jobs:
 
       - name: Install Rust
         uses: dsherret/rust-toolchain-file@v1
+
+      - name: Install cargo-binstall
+        uses: cargo-bins/cargo-binstall@main
+
+      - name: Install nextest
+        run: cargo binstall cargo-nextest --secure
 
       - name: Install Deno
         uses: denoland/setup-deno@v1
@@ -107,7 +113,7 @@ jobs:
 
       - name: Test (valgrind)
         id: test-valgrind
-        if: inputs.job == 'test-valgrind'
+        if: inputs.is_main && inputs.job == 'test-valgrind'
         uses: ./.github/workflows/ci-test-valgrind
 
       - name: Publish (dry-run)

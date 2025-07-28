@@ -1,7 +1,7 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::StdAnyError;
 use crate::runtime::ops;
+use deno_error::JsErrorBox;
 use std::convert::Infallible;
 
 /// A conversion from a rust value to a v8 value.
@@ -87,15 +87,16 @@ pub trait ToV8<'a> {
 ///
 /// ```ignore
 /// use deno_core::FromV8;
+/// use deno_error::JsErrorBox;
 /// use deno_core::convert::Smi;
 /// use deno_core::op2;
 ///
 /// struct Foo(i32);
 ///
 /// impl<'a> FromV8<'a> for Foo {
-///   // This conversion can fail, so we use `deno_core::error::StdAnyError` as the error type.
+///   // This conversion can fail, so we use `JsErrorBox` as the error type.
 ///   // Any error type that implements `std::error::Error` can be used here.
-///   type Error = deno_core::error::StdAnyError;
+///   type Error = JsErrorBox;
 ///
 ///   fn from_v8(scope: &mut v8::HandleScope<'a>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
 ///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::convert::Smi] wrapper type to convert it.
@@ -122,7 +123,7 @@ pub trait FromV8<'a>: Sized {
 // impls
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.  
+/// Marks a numeric type as being serialized as a v8 `smi` in a `v8::Integer`.
 #[repr(transparent)]
 pub struct Smi<T: SmallInt>(pub T);
 
@@ -170,22 +171,21 @@ impl<'a, T: SmallInt> ToV8<'a> for Smi<T> {
 }
 
 impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
-  type Error = StdAnyError;
+  type Error = JsErrorBox;
 
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    let v = crate::runtime::ops::to_i32_option(&value).ok_or_else(|| {
-      crate::error::type_error(format!("Expected {}", T::NAME))
-    })?;
+    let v = ops::to_i32_option(&value)
+      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))?;
     Ok(Smi(T::from_i32(v)))
   }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.  
+/// Marks a numeric type as being serialized as a v8 `number` in a `v8::Number`.
 #[repr(transparent)]
 pub struct Number<T: Numeric>(pub T);
 
@@ -240,15 +240,15 @@ impl<'a, T: Numeric> ToV8<'a> for Number<T> {
 }
 
 impl<'a, T: Numeric> FromV8<'a> for Number<T> {
-  type Error = StdAnyError;
+  type Error = JsErrorBox;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    T::from_value(&value).map(Number).ok_or_else(|| {
-      crate::error::type_error(format!("Expected {}", T::NAME)).into()
-    })
+    T::from_value(&value)
+      .map(Number)
+      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))
   }
 }
 
@@ -264,12 +264,140 @@ impl<'a> ToV8<'a> for bool {
 }
 
 impl<'a> FromV8<'a> for bool {
-  type Error = Infallible;
+  type Error = JsErrorBox;
   #[inline]
   fn from_v8(
     _scope: &mut v8::HandleScope<'a>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    Ok(value.is_true())
+    value
+      .try_cast::<v8::Boolean>()
+      .map(|v| v.is_true())
+      .map_err(|_| JsErrorBox::type_error("Expected boolean"))
+  }
+}
+
+impl<'a> FromV8<'a> for String {
+  type Error = Infallible;
+  #[inline]
+  fn from_v8(
+    scope: &mut v8::HandleScope<'a>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<String, Self::Error> {
+    Ok(value.to_rust_string_lossy(scope))
+  }
+}
+impl<'a> ToV8<'a> for String {
+  type Error = Infallible;
+  #[inline]
+  fn to_v8(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    Ok(v8::String::new(scope, &self).unwrap().into()) // TODO
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A wrapper type for `Option<T>` that (de)serializes `None` as `null`
+#[repr(transparent)]
+pub struct OptionNull<T>(pub Option<T>);
+
+impl<T> From<Option<T>> for OptionNull<T> {
+  fn from(option: Option<T>) -> Self {
+    Self(option)
+  }
+}
+
+impl<T> From<OptionNull<T>> for Option<T> {
+  fn from(value: OptionNull<T>) -> Self {
+    value.0
+  }
+}
+
+impl<'a, T> ToV8<'a> for OptionNull<T>
+where
+  T: ToV8<'a>,
+{
+  type Error = T::Error;
+
+  fn to_v8(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    match self.0 {
+      Some(value) => value.to_v8(scope),
+      None => Ok(v8::null(scope).into()),
+    }
+  }
+}
+
+impl<'a, T> FromV8<'a> for OptionNull<T>
+where
+  T: FromV8<'a>,
+{
+  type Error = T::Error;
+
+  fn from_v8(
+    scope: &mut v8::HandleScope<'a>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_null() {
+      Ok(OptionNull(None))
+    } else {
+      T::from_v8(scope, value).map(|v| OptionNull(Some(v)))
+    }
+  }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+/// A wrapper type for `Option<T>` that (de)serializes `None` as `undefined`
+#[repr(transparent)]
+pub struct OptionUndefined<T>(pub Option<T>);
+
+impl<T> From<Option<T>> for OptionUndefined<T> {
+  fn from(option: Option<T>) -> Self {
+    Self(option)
+  }
+}
+
+impl<T> From<OptionUndefined<T>> for Option<T> {
+  fn from(value: OptionUndefined<T>) -> Self {
+    value.0
+  }
+}
+
+impl<'a, T> ToV8<'a> for OptionUndefined<T>
+where
+  T: ToV8<'a>,
+{
+  type Error = T::Error;
+
+  fn to_v8(
+    self,
+    scope: &mut v8::HandleScope<'a>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    match self.0 {
+      Some(value) => value.to_v8(scope),
+      None => Ok(v8::undefined(scope).into()),
+    }
+  }
+}
+
+impl<'a, T> FromV8<'a> for OptionUndefined<T>
+where
+  T: FromV8<'a>,
+{
+  type Error = T::Error;
+
+  fn from_v8(
+    scope: &mut v8::HandleScope<'a>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_undefined() {
+      Ok(OptionUndefined(None))
+    } else {
+      T::from_v8(scope, value).map(|v| OptionUndefined(Some(v)))
+    }
   }
 }

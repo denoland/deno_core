@@ -1,28 +1,22 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::custom_error;
-use crate::error::JsError;
-use crate::op2;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use crate::JsRuntime;
 use crate::RuntimeOptions;
-use anyhow::Error;
-use futures::future::poll_fn;
+use crate::op2;
+use deno_error::JsErrorBox;
+use std::future::poll_fn;
 use std::task::Poll;
 
 #[tokio::test]
 async fn test_error_builder() {
   #[op2(fast)]
-  fn op_err() -> Result<(), Error> {
-    Err(custom_error("DOMExceptionOperationError", "abc"))
-  }
-
-  pub fn get_error_class_name(_: &Error) -> &'static str {
-    "DOMExceptionOperationError"
+  fn op_err() -> Result<(), JsErrorBox> {
+    Err(JsErrorBox::new("DOMExceptionOperationError", "abc"))
   }
 
   deno_core::extension!(test_ext, ops = [op_err]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
-    get_error_class_fn: Some(&get_error_class_name),
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
   poll_fn(move |cx| {
@@ -45,9 +39,7 @@ async fn test_error_builder() {
 fn syntax_error() {
   let mut runtime = JsRuntime::new(Default::default());
   let src = "hocuspocus(";
-  let r = runtime.execute_script("i.js", src);
-  let e = r.unwrap_err();
-  let js_error = e.downcast::<JsError>().unwrap();
+  let js_error = runtime.execute_script("i.js", src).unwrap_err();
   let frame = js_error.frames.first().unwrap();
   assert_eq!(frame.column_number, Some(12));
 }

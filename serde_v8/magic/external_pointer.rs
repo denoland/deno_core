@@ -1,10 +1,10 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use std::ffi::c_void;
 
-use super::transl8::impl_magic;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
+use super::transl8::impl_magic;
 
 #[repr(transparent)]
 pub struct ExternalPointer(*mut c_void);

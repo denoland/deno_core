@@ -1,11 +1,11 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use super::erased_future::TypeErased;
 use super::future_arena::FutureContextMapper;
-use crate::GetErrorClassFn;
 use crate::OpId;
 use crate::PromiseId;
-use anyhow::Error;
-use serde::Serialize;
+use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
 
 const MAX_RESULT_SIZE: usize = 32;
 
@@ -23,11 +23,7 @@ pub trait OpMappingContextLifetime<'s> {
   type Result: 's;
   type MappingError: 's;
 
-  fn map_error(
-    context: &mut Self::Context,
-    err: Error,
-    get_error_class_fn: GetErrorClassFn,
-  ) -> UnmappedResult<'s, Self>;
+  fn map_error(context: &mut Self::Context, err: JsErrorBox) -> Self::Result;
   fn map_mapping_error(
     context: &mut Self::Context,
     err: Self::MappingError,
@@ -67,17 +63,16 @@ impl<'s> OpMappingContextLifetime<'s> for V8OpMappingContext {
   #[inline(always)]
   fn map_error(
     scope: &mut v8::HandleScope<'s>,
-    err: Error,
-    get_error_class_fn: GetErrorClassFn,
-  ) -> UnmappedResult<'s, Self> {
-    serde_v8::to_v8(scope, OpError::new(get_error_class_fn, err))
+    err: JsErrorBox,
+  ) -> Self::Result {
+    crate::error::to_v8_error(scope, &err)
   }
 
   fn map_mapping_error(
     scope: &mut v8::HandleScope<'s>,
     err: Self::MappingError,
   ) -> v8::Local<'s, v8::Value> {
-    serde_v8::to_v8(scope, OpError::new(&|_| "TypeError", err.into())).unwrap()
+    crate::error::to_v8_error(scope, &err)
   }
 }
 
@@ -106,14 +101,14 @@ pub struct PendingOp<C: OpMappingContext>(pub PendingOpInfo, pub OpResult<C>);
 
 impl<C: OpMappingContext> PendingOp<C> {
   #[inline(always)]
-  pub fn new<R: 'static, E: Into<Error> + 'static>(
+  pub fn new<R: 'static, E: JsErrorClass + 'static>(
     info: PendingOpInfo,
     rv_map: C::MappingFn<R>,
     result: Result<R, E>,
   ) -> Self {
     match result {
       Ok(r) => PendingOp(info, OpResult::new_value(r, rv_map)),
-      Err(err) => PendingOp(info, OpResult::Err(err.into())),
+      Err(err) => PendingOp(info, OpResult::Err(JsErrorBox::from_err(err))),
     }
   }
 
@@ -149,7 +144,7 @@ impl<C: OpMappingContext, R: 'static, const FALLIBLE: bool> Clone
   }
 }
 
-impl<C: OpMappingContext, R: 'static, E: Into<Error> + 'static>
+impl<C: OpMappingContext, R: 'static, E: JsErrorClass + 'static>
   FutureContextMapper<PendingOp<C>, PendingOpInfo, Result<R, E>>
   for PendingOpMappingInfo<C, R, true>
 {
@@ -225,7 +220,7 @@ impl<C: OpMappingContext, R> ValueLargeFn<C> for ValueLarge<C, R> {
 
 pub enum OpResult<C: OpMappingContext> {
   /// Errors.
-  Err(Error),
+  Err(JsErrorBox),
   /// For small ops, we include them in an erased type container.
   Value(OpValue<C>),
   /// For ops that return "large" results (> MAX_RESULT_SIZE bytes) we just box a function
@@ -245,10 +240,9 @@ impl<C: OpMappingContext> OpResult<C> {
   pub fn unwrap<'a>(
     self,
     context: &mut <C as OpMappingContextLifetime<'a>>::Context,
-    get_error_class_fn: GetErrorClassFn,
   ) -> MappedResult<'a, C> {
     let (success, res) = match self {
-      Self::Err(err) => (false, C::map_error(context, err, get_error_class_fn)),
+      Self::Err(err) => (false, Ok(C::map_error(context, err))),
       Self::Value(f) => (true, (f.map_fn)(&(), context, f.rv_map, f.value)),
       Self::ValueLarge(f) => (true, f.unwrap(context)),
     };
@@ -258,25 +252,6 @@ impl<C: OpMappingContext> OpResult<C> {
       (_, Err(err)) => Err(
         <C as OpMappingContextLifetime<'a>>::map_mapping_error(context, err),
       ),
-    }
-  }
-}
-
-#[derive(Debug, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OpError {
-  #[serde(rename = "$err_class_name")]
-  class_name: &'static str,
-  message: String,
-  code: Option<&'static str>,
-}
-
-impl OpError {
-  pub fn new(get_class: GetErrorClassFn, err: Error) -> Self {
-    Self {
-      class_name: (get_class)(&err),
-      message: format!("{err:#}"),
-      code: crate::error_codes::get_error_code(&err),
     }
   }
 }

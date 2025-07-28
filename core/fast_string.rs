@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use serde::Deserializer;
 use serde::Serializer;
@@ -12,6 +12,8 @@ use std::ops::Deref;
 use std::sync::Arc;
 use url::Url;
 use v8::NewStringType;
+
+use crate::ToV8;
 
 static EMPTY_STRING: v8::OneByteConst =
   v8::String::create_external_onebyte_const("".as_bytes());
@@ -47,7 +49,7 @@ impl FastStaticString {
   pub fn v8_string<'s>(
     &self,
     scope: &mut v8::HandleScope<'s>,
-  ) -> v8::Local<'s, v8::String> {
+  ) -> Result<v8::Local<'s, v8::String>, FastStringV8AllocationError> {
     FastString::from(*self).v8_string(scope)
   }
 
@@ -119,6 +121,20 @@ impl Display for FastStaticString {
   }
 }
 
+#[derive(Debug)]
+pub struct FastStringV8AllocationError;
+
+impl std::error::Error for FastStringV8AllocationError {}
+
+impl std::fmt::Display for FastStringV8AllocationError {
+  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+    write!(
+      f,
+      "failed to allocate string; buffer exceeds maximum length"
+    )
+  }
+}
+
 /// Module names and code can be sourced from strings or bytes that are either owned or borrowed. This enumeration allows us
 /// to perform a minimal amount of cloning and format-shifting of the underlying data.
 ///
@@ -157,8 +173,9 @@ enum FastStringInner {
 }
 
 impl FastString {
-  /// Create a [`FastString`] from a static string. The string may contain non-ASCII characters, and if
-  /// so, will take the slower path when used in v8.
+  /// Create a [`FastString`] from a static string. The string may contain
+  /// non-ASCII characters, and if so, will take the slower path when used
+  /// in v8.
   pub const fn from_static(s: &'static str) -> Self {
     if s.is_ascii() {
       Self {
@@ -168,6 +185,47 @@ impl FastString {
       Self {
         inner: FastStringInner::Static(s),
       }
+    }
+  }
+
+  /// Create a [`FastString`] from a static string that is known to contain
+  /// only ASCII characters.
+  ///
+  /// Note: This function is deliberately not `const fn`. Use `from_static`
+  /// in const contexts.
+  ///
+  /// # Safety
+  ///
+  /// It is unsafe to specify a non-ASCII string here because this will be
+  /// referenced in an external one byte static string in v8, which requires
+  /// the data be Latin-1 or ASCII.
+  ///
+  /// This should only be used in scenarios where you know a string is ASCII
+  /// and you want to avoid the performance overhead of checking if a string
+  /// is ASCII that `from_static` does.
+  pub unsafe fn from_ascii_static_unchecked(s: &'static str) -> Self {
+    debug_assert!(
+      s.is_ascii(),
+      "use `from_non_ascii_static_unsafe` for non-ASCII strings",
+    );
+    Self {
+      inner: FastStringInner::StaticAscii(s),
+    }
+  }
+
+  /// Create a [`FastString`] from a static string that may contain non-ASCII
+  /// characters.
+  ///
+  /// This should only be used in scenarios where you know a string is not ASCII
+  /// and you want to avoid the performance overhead of checking if the string
+  /// is ASCII that `from_static` does.
+  ///
+  /// Note: This function is deliberately not `const fn`. Use `from_static`
+  /// in const contexts. This function is not unsafe because using this with
+  /// an ascii string will just not be as optimal for performance.
+  pub fn from_non_ascii_static(s: &'static str) -> Self {
+    Self {
+      inner: FastStringInner::Static(s),
     }
   }
 
@@ -181,8 +239,9 @@ impl FastString {
     }
   }
 
-  /// Creates a cheap copy of this [`FastString`], potentially transmuting it to a faster form. Note that this
-  /// is not a clone operation as it consumes the old [`FastString`].
+  /// Creates a cheap copy of this [`FastString`], potentially transmuting it
+  /// to a faster form. Note that this is not a clone operation as it consumes
+  /// the old [`FastString`].
   pub fn into_cheap_copy(self) -> (Self, Self) {
     match self.inner {
       FastStringInner::Owned(s) => {
@@ -241,17 +300,19 @@ impl FastString {
   pub fn v8_string<'a>(
     &self,
     scope: &mut v8::HandleScope<'a>,
-  ) -> v8::Local<'a, v8::String> {
+  ) -> Result<v8::Local<'a, v8::String>, FastStringV8AllocationError> {
     match self.inner {
       FastStringInner::StaticAscii(s) => {
-        v8::String::new_external_onebyte_static(scope, s.as_bytes()).unwrap()
+        v8::String::new_external_onebyte_static(scope, s.as_bytes())
+          .ok_or(FastStringV8AllocationError)
       }
       FastStringInner::StaticConst(s) => {
-        v8::String::new_from_onebyte_const(scope, s.s).unwrap()
+        v8::String::new_from_onebyte_const(scope, s.s)
+          .ok_or(FastStringV8AllocationError)
       }
       _ => {
         v8::String::new_from_utf8(scope, self.as_bytes(), NewStringType::Normal)
-          .unwrap()
+          .ok_or(FastStringV8AllocationError)
       }
     }
   }
@@ -396,6 +457,18 @@ impl From<FastString> for Arc<str> {
   }
 }
 
+impl<'s> ToV8<'s> for FastString {
+  type Error = FastStringV8AllocationError;
+
+  #[inline]
+  fn to_v8(
+    self,
+    scope: &mut v8::HandleScope<'s>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
+    Ok(self.v8_string(scope)?.into())
+  }
+}
+
 impl serde::Serialize for FastString {
   fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
   where
@@ -423,7 +496,7 @@ impl<'de> serde::Deserialize<'de> for FastString {
 /// This macro creates a [`FastStaticString`] that may be converted to a [`FastString`] via [`Into::into`].
 #[macro_export]
 macro_rules! ascii_str_include {
-  ($file:expr) => {{
+  ($file:expr_2021) => {{
     const STR: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const(
         ::std::include_str!($file).as_bytes(),
@@ -439,7 +512,7 @@ macro_rules! ascii_str_include {
 /// This macro creates a [`FastStaticString`] that may be converted to a [`FastString`] via [`Into::into`].
 #[macro_export]
 macro_rules! ascii_str {
-  ($str:expr) => {{
+  ($str:expr_2021) => {{
     const C: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const($str.as_bytes());
     $crate::FastStaticString::new(&C)

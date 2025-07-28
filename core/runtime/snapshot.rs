@@ -1,18 +1,20 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
-use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
+use crate::cppgc::FunctionTemplateSnapshotData;
+use crate::error::CoreError;
+use crate::modules::ModuleMapSnapshotData;
 
 use super::ExtensionTranspiler;
 
@@ -29,7 +31,7 @@ pub(crate) struct V8Snapshot(pub(crate) &'static [u8]);
 
 pub(crate) fn deconstruct(
   slice: &'static [u8],
-) -> (V8Snapshot, SerializableSnapshotSidecarData) {
+) -> (V8Snapshot, SerializableSnapshotSidecarData<'static>) {
   let len =
     usize::from_le_bytes(slice[slice.len() - ULEN..].try_into().unwrap());
   let data = SerializableSnapshotSidecarData::from_slice(
@@ -110,27 +112,77 @@ impl SnapshotStoreDataStore {
   }
 }
 
+/// Options for [`create_snapshot`].
+///
+/// See: [example][1].
+///
+/// [1]: https://github.com/denoland/deno_core/tree/main/core/examples/snapshot
 pub struct CreateSnapshotOptions {
+  /// The directory which Cargo will compile everything into.
+  ///
+  /// This should always be the CARGO_MANIFEST_DIR environment variable.
   pub cargo_manifest_dir: &'static str,
+
+  /// An optional starting snapshot atop which to build this snapshot.
+  ///
+  /// Passed to: [`RuntimeOptions::startup_snapshot`]
   pub startup_snapshot: Option<&'static [u8]>,
+
+  /// Passed to [`RuntimeOptions::skip_op_registration`] while initializing the snapshot runtime.
   pub skip_op_registration: bool,
+
+  /// Extensions to include within the generated snapshot.
+  ///
+  /// Passed to [`RuntimeOptions::extensions`]
   pub extensions: Vec<Extension>,
+
+  /// An optional transpiler to modify the module source before inclusion in the snapshot.
+  ///
+  /// For example, this might transpile from TypeScript to JavaScript.
+  ///
+  /// Passed to: [`RuntimeOptions::extension_transpiler`]
   pub extension_transpiler: Option<Rc<ExtensionTranspiler>>,
+
+  /// An optional callback to perform further modification of the runtime before
+  /// taking the snapshot.
   pub with_runtime_cb: Option<Box<WithRuntimeCb>>,
 }
 
+/// See [`create_snapshot`] for usage overview.
 pub struct CreateSnapshotOutput {
   /// Any files marked as LoadedFromFsDuringSnapshot are collected here and should be
   /// printed as 'cargo:rerun-if-changed' lines from your build script.
   pub files_loaded_during_snapshot: Vec<PathBuf>,
+
+  /// The resulting snapshot file's bytes.
   pub output: Box<[u8]>,
 }
 
+/// Create a snapshot of a JavaScript runtime, which may yield better startup
+/// time.
+///
+/// At a high level, the steps are:
+///
+///  * In your project's `build.rs` file:
+///    * Call `create_snapshot()` from your `build.rs` file.
+///    * Output the resulting snapshot to a path, preferably in [OUT_DIR].
+///    * Make sure to print a `cargo:rerun-if-changed` line for each
+///      [`CreateSnapshotOutput::files_loaded_during_snapshot`].
+///  * In your project's source:
+///    * Load the bytes of the generated snapshot file
+///      ([`include_bytes`] is useful here)
+///    * Pass those bytes to [`deno_core::JsRuntime::new`] via
+///      [`RuntimeOptions::startup_snapshot`]
+///
+/// For a concrete example, see [core/examples/snapshot/][example].
+///
+/// [example]: https://github.com/denoland/deno_core/tree/main/core/examples/snapshot
+/// [OUT_DIR]: https://doc.rust-lang.org/cargo/reference/environment-variables.html#environment-variables-cargo-sets-for-build-scripts
 #[must_use = "The files listed by create_snapshot should be printed as 'cargo:rerun-if-changed' lines"]
 pub fn create_snapshot(
   create_snapshot_options: CreateSnapshotOptions,
   warmup_script: Option<&'static str>,
-) -> Result<CreateSnapshotOutput, Error> {
+) -> Result<CreateSnapshotOutput, CoreError> {
   let mut mark = Instant::now();
   #[allow(clippy::print_stdout)]
   {
@@ -248,9 +300,10 @@ pub fn get_js_files(
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SnapshottedData<'snapshot> {
   pub js_handled_promise_rejection_cb: Option<u32>,
+  pub ext_import_meta_proto: Option<u32>,
   pub module_map_data: ModuleMapSnapshotData,
-  pub externals_count: u32,
-  pub extension_count: usize,
+  pub function_templates_data: FunctionTemplateSnapshotData,
+  pub extensions: Vec<&'snapshot str>,
   pub op_count: usize,
   pub source_count: usize,
   pub addl_refs_count: usize,
@@ -324,13 +377,13 @@ pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
 
 /// Returns an isolate set up for snapshotting.
 pub(crate) fn create_snapshot_creator(
-  external_refs: &'static v8::ExternalReferences,
+  external_refs: Cow<'static, [v8::ExternalReference]>,
   maybe_startup_snapshot: Option<V8Snapshot>,
   params: v8::CreateParams,
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
     v8::Isolate::snapshot_creator_from_existing_snapshot(
-      snapshot.0,
+      v8::StartupData::from(snapshot.0),
       Some(external_refs),
       Some(params),
     )

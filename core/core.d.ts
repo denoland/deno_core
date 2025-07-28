@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 // deno-lint-ignore-file ban-types no-explicit-any
 
@@ -263,8 +263,8 @@ export namespace core {
   export const BadResourcePrototype: typeof BadResource.prototype;
   export class Interrupted extends Error {}
   export const InterruptedPrototype: typeof Interrupted.prototype;
-  export class PermissionDenied extends Error {}
-  export const PermissionDeniedPrototype: typeof PermissionDenied.prototype;
+  export class NotCapable extends Error {}
+  export const NotCapablePrototype: typeof NotCapable.prototype;
 
   function serialize(
     value: any,
@@ -273,6 +273,8 @@ export namespace core {
   ): Uint8Array;
 
   function deserialize(buffer: Uint8Array, options?: any): any;
+
+  function structuredClone<T>(value: T): T;
 
   /**
    * Adds a callback for the given Promise event. If this function is called

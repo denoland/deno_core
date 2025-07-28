@@ -1,8 +1,8 @@
-# Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+# Copyright 2018-2025 the Deno authors. MIT license.
 
 [package]
 name = "serde_v8"
-version = "0.210.0"
+version = "0.262.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -14,6 +14,7 @@ description = "Rust to V8 serialization and deserialization"
 path = "lib.rs"
 
 [dependencies]
+deno_error.workspace = true
 num-bigint.workspace = true
 serde.workspace = true
 smallvec = { workspace = true, features = ["union"] }

@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 //!  This example shows you how to evaluate JavaScript expression and deserialize
 //!  return value into a Rust object.
 
@@ -6,9 +6,9 @@
 // Here we are deserializing to `serde_json::Value` but you can
 // deserialize to any other type that implements the `Deserialize` trait.
 
-use deno_core::v8;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
+use deno_core::v8;
 
 fn main() {
   let mut runtime = JsRuntime::new(RuntimeOptions::default());

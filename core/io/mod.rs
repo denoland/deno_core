@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 // Think of Resources as File Descriptors. They are integers that are allocated
 // by the privileged side of Deno which refer to various rust objects that need
@@ -6,8 +6,7 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
-use anyhow::Error;
-use futures::Future;
+use std::future::Future;
 use std::pin::Pin;
 
 mod buffer_strategy;
@@ -18,17 +17,18 @@ mod resource_table;
 
 pub use buffer_strategy::AdaptiveBufferStrategy;
 pub use buffers::BufMutView;
-pub use buffers::BufMutViewWhole;
 pub use buffers::BufView;
 pub use resource::Resource;
 pub use resource_handle::ResourceHandle;
 pub use resource_handle::ResourceHandleFd;
 pub use resource_handle::ResourceHandleSocket;
+pub use resource_table::ResourceError;
 pub use resource_table::ResourceId;
 pub use resource_table::ResourceTable;
 
 /// Returned by resource shutdown methods
-pub type AsyncResult<T> = Pin<Box<dyn Future<Output = Result<T, Error>>>>;
+pub type AsyncResult<T> =
+  Pin<Box<dyn Future<Output = Result<T, deno_error::JsErrorBox>>>>;
 
 pub enum WriteOutcome {
   Partial { nwritten: usize, view: BufView },

@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
@@ -58,3 +59,6 @@ fn op_smi_signed_return(
 ) -> Int32 {
   a as Int32 + b as Int32 + c as Int32 + d as Int32
 }
+
+#[op2(fast, stack_trace)]
+fn op_stack_trace(#[string] _: String) {}

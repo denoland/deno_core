@@ -10,9 +10,12 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_async),
             true,
             false,
+            false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -22,9 +25,8 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
     }
     impl op_async {
         pub const fn name() -> &'static str {
-            stringify!(op_async)
+            <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -94,7 +96,7 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_async {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         pub async fn call() {}
     }
     <op_async as ::deno_core::_ops::Op>::DECL

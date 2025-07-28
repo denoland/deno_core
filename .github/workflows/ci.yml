@@ -20,7 +20,7 @@ jobs:
   # The extracted configurations are transformed into a matrix structure, which includes the label (job name),
   # operating system (OS), and specific job type.
   compute-jobs:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       # If we're not running in the denoland repo, use the 'nop' matrix that runs a single, no-op job
       matrix: |
@@ -28,7 +28,7 @@ jobs:
           steps.read-jobs-fast.outputs.matrix 
           || steps.read-jobs-pr.outputs.matrix 
           || steps.read-jobs-tag.outputs.matrix 
-          || '{ "label": "linux", "os": "ubuntu-latest", "job": "nop" }'
+          || '{ "label": "linux", "os": "ubuntu-24.04", "job": "nop" }'
         }}
       is_tag: ${{ github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/') }}
       is_main: ${{ github.repository == 'denoland/deno_core' && github.ref == 'refs/heads/main' }}
@@ -45,7 +45,7 @@ jobs:
           query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
           config: |-
             linux:
-              os: ubuntu-latest
+              os: ubuntu-24.04
               jobs: [lint, test]
       - name: Read job configuration (PR/main)
         uses: cloudposse/github-action-yaml-config-query@main
@@ -55,11 +55,8 @@ jobs:
           query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
           config: |-
             linux:
-              os: ubuntu-latest
-              jobs: [coverage, lint, lint-deps, test, test-miri, test-ops, test-publish]
-            linux-xl:
-              os: ubuntu-22.04-xl
-              jobs: [test-valgrind]
+              os: ubuntu-24.04
+              jobs: [coverage, lint, lint-deps, test, test-miri, test-ops, test-publish, test-valgrind]
             linux-arm:
               os: ubuntu-22.04-arm64
               jobs: [lint, test, test-miri]
@@ -67,7 +64,7 @@ jobs:
               os: macOS-latest
               jobs: [lint, test]
             windows:
-              os: windows-2019
+              os: windows-2022
               jobs: [lint, test]
       - name: Read job configuration (tag)
         uses: cloudposse/github-action-yaml-config-query@main
@@ -77,7 +74,7 @@ jobs:
           query: "{ matrix: [. | to_entries[] | . as $entry | .value.jobs[] | { label: $entry.key, os: $entry.value.os, job: . }] }"
           config: |-
             linux:
-              os: ubuntu-latest
+              os: ubuntu-24.04
               jobs: [publish]
 
   # This job is responsible for coordinating the execution of individual jobs defined in `ci-job.yml` based on the matrix generated
@@ -101,7 +98,7 @@ jobs:
   # completed successfully. This allows us to have a single "build success" step for the repository.
   success:
     needs: [top, compute-jobs]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     if: ${{ always() }}
     steps:
       - name: Print variables

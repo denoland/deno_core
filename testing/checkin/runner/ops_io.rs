@@ -1,6 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use anyhow::Error;
-use deno_core::op2;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use deno_core::AsyncRefCell;
 use deno_core::BufView;
 use deno_core::OpState;
@@ -9,6 +8,8 @@ use deno_core::Resource;
 use deno_core::ResourceHandle;
 use deno_core::ResourceId;
 use deno_core::WriteOutcome;
+use deno_core::op2;
+use deno_error::JsErrorBox;
 use futures::FutureExt;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -31,7 +32,7 @@ impl Resource for PipeResource {
     async {
       let mut lock = RcRef::map(self, |this| &this.rx).borrow_mut().await;
       // Note that we're holding a slice across an await point, so this code is very much not safe
-      let res = lock.read(&mut buf).await?;
+      let res = lock.read(&mut buf).await.map_err(JsErrorBox::from_err)?;
       Ok((res, buf))
     }
     .boxed_local()
@@ -43,7 +44,7 @@ impl Resource for PipeResource {
   ) -> deno_core::AsyncResult<deno_core::WriteOutcome> {
     async {
       let mut lock = RcRef::map(self, |this| &this.tx).borrow_mut().await;
-      let nwritten = lock.write(&buf).await?;
+      let nwritten = lock.write(&buf).await.map_err(JsErrorBox::from_err)?;
       Ok(WriteOutcome::Partial {
         nwritten,
         view: buf,
@@ -85,14 +86,27 @@ impl Resource for FileResource {
   fn backing_handle(self: Rc<Self>) -> Option<ResourceHandle> {
     Some(self.handle)
   }
+
+  fn read_byob(
+    self: std::rc::Rc<Self>,
+    buf: deno_core::BufMutView,
+  ) -> deno_core::AsyncResult<(usize, deno_core::BufMutView)> {
+    async {
+      // Do something to test unrefing.
+      tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+      Ok((0, buf))
+    }
+    .boxed_local()
+  }
 }
 
 #[op2(async)]
 #[serde]
 pub async fn op_file_open(
   #[string] path: String,
+  ref_: bool,
   op_state: Rc<RefCell<OpState>>,
-) -> Result<ResourceId, Error> {
+) -> Result<ResourceId, std::io::Error> {
   let tokio_file = tokio::fs::OpenOptions::new()
     .read(true)
     .write(false)
@@ -103,5 +117,18 @@ pub async fn op_file_open(
     .borrow_mut()
     .resource_table
     .add(FileResource::new(tokio_file));
+
+  if !ref_ {
+    op_state.borrow_mut().uv_unref(rid);
+  }
+
   Ok(rid)
+}
+
+#[op2]
+#[string]
+pub fn op_path_to_url(#[string] path: &str) -> Result<String, std::io::Error> {
+  let path = std::path::absolute(path)?;
+  let url = url::Url::from_file_path(path).unwrap();
+  Ok(url.to_string())
 }

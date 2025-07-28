@@ -1,136 +1,269 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
+pub use super::modules::ModuleConcreteError;
+use crate::FastStaticString;
+pub use crate::io::ResourceError;
+pub use crate::modules::ModuleLoaderError;
+use crate::runtime::JsRealm;
+use crate::runtime::JsRuntime;
+use crate::runtime::v8_static_strings;
+use crate::source_map::SourceMapApplication;
+use crate::url::Url;
+use boxed_error::Boxed;
+use deno_error::JsError;
+use deno_error::JsErrorClass;
+use deno_error::PropertyValue;
+use deno_error::builtin_classes::*;
+use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashSet;
+use std::error::Error;
 use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-
-use anyhow::Error;
-use v8::Object;
-
-use crate::runtime::v8_static_strings;
-use crate::runtime::JsRealm;
-use crate::runtime::JsRuntime;
-use crate::source_map::SourceMapApplication;
-use crate::url::Url;
-use crate::FastStaticString;
+use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
 // TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
 pub type AnyError = anyhow::Error;
 
-pub type JsErrorCreateFn = dyn Fn(JsError) -> Error;
-pub type GetErrorClassFn = &'static dyn for<'e> Fn(&'e Error) -> &'static str;
+deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
 
-/// Creates a new error with a caller-specified error class name and message.
-pub fn custom_error(
-  class: &'static str,
-  message: impl Into<Cow<'static, str>>,
-) -> Error {
-  CustomError {
-    class,
-    message: message.into(),
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error("Failed to parse {0}")]
+pub struct CoreModuleParseError(pub FastStaticString);
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error("Failed to execute {0}")]
+pub struct CoreModuleExecuteError(pub FastStaticString);
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error("Unable to get code cache from unbound module script for {0}")]
+pub struct CreateCodeCacheError(pub Url);
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error(
+  "Extensions from snapshot loaded in wrong order: expected {} but got {}", .expected, .actual
+)]
+pub struct ExtensionSnapshotMismatchError {
+  pub expected: &'static str,
+  pub actual: &'static str,
+}
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error(
+  "Number of lazy-initialized extensions ({}) does not match number of arguments ({})", .lazy_init_extensions_len, .arguments_len
+)]
+pub struct ExtensionLazyInitCountMismatchError {
+  pub lazy_init_extensions_len: usize,
+  pub arguments_len: usize,
+}
+
+#[derive(Debug, Error, JsError)]
+#[class(generic)]
+#[error(
+  "Lazy-initialized extensions loaded in wrong order: expected {} but got {}", .expected, .actual
+)]
+pub struct ExtensionLazyInitOrderMismatchError {
+  pub expected: &'static str,
+  pub actual: &'static str,
+}
+
+#[derive(Debug, Boxed, JsError)]
+pub struct CoreError(pub Box<CoreErrorKind>);
+
+#[derive(Debug, thiserror::Error, JsError)]
+pub enum CoreErrorKind {
+  #[class(generic)]
+  #[error("Top-level await is not allowed in synchronous evaluation")]
+  TLA,
+  #[class(inherit)]
+  #[error(transparent)]
+  Js(#[from] JsError),
+  #[class(inherit)]
+  #[error(transparent)]
+  Io(#[from] std::io::Error),
+  #[class(inherit)]
+  #[error(transparent)]
+  ExtensionTranspiler(deno_error::JsErrorBox),
+  #[class(inherit)]
+  #[error(transparent)]
+  Parse(#[from] CoreModuleParseError),
+  #[class(inherit)]
+  #[error(transparent)]
+  Execute(#[from] CoreModuleExecuteError),
+  #[class(generic)]
+  #[error(
+    "Following modules were passed to ExtModuleLoader but never used:\n{}",
+    .0.iter().map(|s| format!("  - {}\n", s)).collect::<Vec<_>>().join("")
+  )]
+  UnusedModules(Vec<String>),
+  #[class(generic)]
+  #[error(
+    "Following modules were not evaluated; make sure they are imported from other code:\n{}",
+    .0.iter().map(|s| format!("  - {}\n", s)).collect::<Vec<_>>().join("")
+  )]
+  NonEvaluatedModules(Vec<String>),
+  #[class(generic)]
+  #[error("{0} not present in the module map")]
+  MissingFromModuleMap(String),
+  #[class(generic)]
+  #[error("Could not execute {specifier}")]
+  CouldNotExecute {
+    #[source]
+    error: Box<Self>,
+    specifier: String,
+  },
+  #[class(inherit)]
+  #[error(transparent)]
+  JsBox(#[from] deno_error::JsErrorBox),
+  #[class(inherit)]
+  #[error(transparent)]
+  Url(#[from] url::ParseError),
+  #[class(generic)]
+  #[error(
+    "Cannot evaluate module, because JavaScript execution has been terminated"
+  )]
+  ExecutionTerminated,
+  #[class(generic)]
+  #[error(
+    "Promise resolution is still pending but the event loop has already resolved"
+  )]
+  PendingPromiseResolution,
+  #[class(generic)]
+  #[error(
+    "Cannot evaluate dynamically imported module, because JavaScript execution has been terminated"
+  )]
+  EvaluateDynamicImportedModule,
+  #[class(inherit)]
+  #[error(transparent)]
+  Module(ModuleConcreteError),
+  #[class(inherit)]
+  #[error(transparent)]
+  Data(DataError),
+  #[class(inherit)]
+  #[error(transparent)]
+  CreateCodeCache(#[from] CreateCodeCacheError),
+  #[class(inherit)]
+  #[error(transparent)]
+  ExtensionSnapshotMismatch(ExtensionSnapshotMismatchError),
+  #[class(inherit)]
+  #[error(transparent)]
+  ExtensionLazyInitCountMismatch(ExtensionLazyInitCountMismatchError),
+  #[class(inherit)]
+  #[error(transparent)]
+  ExtensionLazyInitOrderMismatch(ExtensionLazyInitOrderMismatchError),
+}
+
+impl CoreError {
+  pub fn print_with_cause(&self) -> String {
+    use std::error::Error;
+    let mut err_message = self.to_string();
+
+    if let Some(source) = self.source() {
+      err_message.push_str(&format!(
+        "\n\nCaused by:\n    {}",
+        source.to_string().replace("\n", "\n    ")
+      ));
+    }
+
+    err_message
   }
-  .into()
-}
 
-pub fn generic_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("Error", message)
-}
-
-pub fn type_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("TypeError", message)
-}
-
-pub fn range_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("RangeError", message)
-}
-
-pub fn invalid_hostname(hostname: &str) -> Error {
-  type_error(format!("Invalid hostname: '{hostname}'"))
-}
-
-pub fn uri_error(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("URIError", message)
-}
-
-pub fn bad_resource(message: impl Into<Cow<'static, str>>) -> Error {
-  custom_error("BadResource", message)
-}
-
-pub fn bad_resource_id() -> Error {
-  custom_error("BadResource", "Bad resource ID")
-}
-
-pub fn not_supported() -> Error {
-  custom_error("NotSupported", "The operation is not supported")
-}
-
-pub fn resource_unavailable() -> Error {
-  custom_error(
-    "Busy",
-    "Resource is unavailable because it is in use by a promise",
-  )
-}
-
-/// A simple error type that lets the creator specify both the error message and
-/// the error class name. This type is private; externally it only ever appears
-/// wrapped in an `anyhow::Error`. To retrieve the error class name from a wrapped
-/// `CustomError`, use the function `get_custom_error_class()`.
-#[derive(Debug)]
-struct CustomError {
-  class: &'static str,
-  message: Cow<'static, str>,
-}
-
-impl Display for CustomError {
-  fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-    f.write_str(&self.message)
+  pub fn to_v8_error(
+    &self,
+    scope: &mut v8::HandleScope,
+  ) -> v8::Global<v8::Value> {
+    self.as_kind().to_v8_error(scope)
   }
 }
 
-impl std::error::Error for CustomError {}
+impl CoreErrorKind {
+  pub fn to_v8_error(
+    &self,
+    scope: &mut v8::HandleScope,
+  ) -> v8::Global<v8::Value> {
+    let err_string = self.get_message().to_string();
+    let mut error_chain = vec![];
+    let mut intermediary_error: Option<&(dyn Error)> = Some(&self);
 
-/// If this error was crated with `custom_error()`, return the specified error
-/// class name. In all other cases this function returns `None`.
-pub fn get_custom_error_class(error: &Error) -> Option<&'static str> {
-  error.downcast_ref::<CustomError>().map(|e| e.class)
-}
+    while let Some(err) = intermediary_error {
+      if let Some(source) = err.source() {
+        let source_str = source.to_string();
+        if source_str != err_string {
+          error_chain.push(source_str);
+        }
 
-/// A wrapper around `anyhow::Error` that implements `std::error::Error`
-#[repr(transparent)]
-pub struct StdAnyError(pub Error);
-impl std::fmt::Debug for StdAnyError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{:?}", self.0)
+        intermediary_error = Some(source);
+      } else {
+        intermediary_error = None;
+      }
+    }
+
+    let message = if !error_chain.is_empty() {
+      format!(
+        "{}\n  Caused by:\n    {}",
+        err_string,
+        error_chain.join("\n    ")
+      )
+    } else {
+      err_string
+    };
+
+    let exception =
+      js_class_and_message_to_exception(scope, &self.get_class(), &message);
+    v8::Global::new(scope, exception)
   }
 }
 
-impl std::fmt::Display for StdAnyError {
-  fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-    write!(f, "{}", self.0)
+impl From<v8::DataError> for CoreError {
+  fn from(err: v8::DataError) -> Self {
+    CoreErrorKind::Data(DataError(err)).into_box()
   }
 }
 
-impl std::error::Error for StdAnyError {
-  fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
-    self.0.source()
-  }
+pub fn throw_js_error_class(
+  scope: &mut v8::HandleScope,
+  error: &dyn JsErrorClass,
+) {
+  let exception = js_class_and_message_to_exception(
+    scope,
+    &error.get_class(),
+    &error.get_message(),
+  );
+  scope.throw_exception(exception);
 }
 
-impl From<Error> for StdAnyError {
-  fn from(err: Error) -> Self {
-    Self(err)
-  }
+fn js_class_and_message_to_exception<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  _class: &str,
+  message: &str,
+) -> v8::Local<'s, v8::Value> {
+  let message = v8::String::new(scope, message).unwrap();
+  /*
+  commented out since this was previously only handling type errors, but this
+  change is breaking CLI, so visiting on a later date
+
+  match class {
+    TYPE_ERROR => v8::Exception::type_error(scope, message),
+    RANGE_ERROR => v8::Exception::range_error(scope, message),
+    REFERENCE_ERROR => v8::Exception::reference_error(scope, message),
+    SYNTAX_ERROR => v8::Exception::syntax_error(scope, message),
+    _ => v8::Exception::error(scope, message),
+  }*/
+  v8::Exception::type_error(scope, message)
 }
 
 pub fn to_v8_error<'a>(
   scope: &mut v8::HandleScope<'a>,
-  get_class: GetErrorClassFn,
-  error: &Error,
+  error: &dyn JsErrorClass,
 ) -> v8::Local<'a, v8::Value> {
   let tc_scope = &mut v8::TryCatch::new(scope);
   let cb = JsRealm::exception_state_from_scope(tc_scope)
@@ -140,12 +273,31 @@ pub fn to_v8_error<'a>(
     .expect("Custom error builder must be set");
   let cb = cb.open(tc_scope);
   let this = v8::undefined(tc_scope).into();
-  let class = v8::String::new(tc_scope, get_class(error)).unwrap();
-  let message = v8::String::new(tc_scope, &format!("{error:#}")).unwrap();
+  let class = v8::String::new(tc_scope, &error.get_class()).unwrap();
+  let message = v8::String::new(tc_scope, &error.get_message()).unwrap();
   let mut args = vec![class.into(), message.into()];
-  if let Some(code) = crate::error_codes::get_error_code(error) {
-    args.push(v8::String::new(tc_scope, code).unwrap().into());
+
+  let additional_properties = error
+    .get_additional_properties()
+    .map(|(key, value)| {
+      let key = v8::String::new(tc_scope, &key).unwrap().into();
+      let value = match value {
+        PropertyValue::String(value) => {
+          v8::String::new(tc_scope, &value).unwrap().into()
+        }
+        PropertyValue::Number(value) => v8::Number::new(tc_scope, value).into(),
+      };
+
+      v8::Array::new_with_elements(tc_scope, &[key, value]).into()
+    })
+    .collect::<Vec<_>>();
+
+  if !additional_properties.is_empty() {
+    args.push(
+      v8::Array::new_with_elements(tc_scope, &additional_properties).into(),
+    );
   }
+
   let maybe_exception = cb.call(tc_scope, this, &args);
 
   match maybe_exception {
@@ -167,7 +319,7 @@ pub fn to_v8_error<'a>(
 pub(crate) fn call_site_evals_key<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Private> {
-  let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope);
+  let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
 
@@ -188,6 +340,45 @@ pub struct JsError {
   pub source_line: Option<String>,
   pub source_line_frame_index: Option<usize>,
   pub aggregated: Option<Vec<JsError>>,
+  pub additional_properties: Vec<(String, String)>,
+}
+
+impl JsErrorClass for JsError {
+  fn get_class(&self) -> Cow<'static, str> {
+    if let Some(name) = &self.name {
+      Cow::Owned(name.clone())
+    } else {
+      Cow::Borrowed(GENERIC_ERROR)
+    }
+  }
+
+  fn get_message(&self) -> Cow<'static, str> {
+    if let Some(message) = &self.message {
+      Cow::Owned(message.clone())
+    } else {
+      Cow::Borrowed("")
+    }
+  }
+
+  fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
+    Box::new(
+      self
+        .additional_properties
+        // todo(dsherret): why does JsErrorClass not allow having references within this struct?
+        .clone()
+        .into_iter()
+        .map(|(k, v)| {
+          (
+            Cow::Owned(k.to_string()),
+            PropertyValue::String(Cow::Owned(v.to_string())),
+          )
+        }),
+    )
+  }
+
+  fn as_any(&self) -> &dyn Any {
+    self
+  }
 }
 
 #[derive(Debug, Eq, PartialEq, Clone, serde::Deserialize, serde::Serialize)]
@@ -434,7 +625,7 @@ fn get_property<'a>(
   object: v8::Local<v8::Object>,
   key: FastStaticString,
 ) -> Option<v8::Local<'a, v8::Value>> {
-  let key = key.v8_string(scope);
+  let key = key.v8_string(scope).unwrap();
   object.get(scope, key.into())
 }
 
@@ -478,7 +669,7 @@ where
   Some(result)
 }
 
-#[derive(Default, serde::Deserialize)]
+#[derive(Debug, Default, serde::Deserialize)]
 pub(crate) struct NativeJsError {
   pub name: Option<String>,
   pub message: Option<String>,
@@ -503,7 +694,7 @@ impl JsError {
       // TODO(mmastrac): we need consistency around when we insert "in promise" and when we don't. For now, we
       // are going to manually replace this part of the string.
       && (a.exception_message == b.exception_message
-        || a.exception_message.replace(" (in promise) ", " ") == b.exception_message.replace(" (in promise) ", " "))
+      || a.exception_message.replace(" (in promise) ", " ") == b.exception_message.replace(" (in promise) ", " "))
       && a.frames == b.frames
       && a.source_line == b.source_line
       && a.source_line_frame_index == b.source_line_frame_index
@@ -537,22 +728,7 @@ impl JsError {
       frames: vec![],
       stack: None,
       aggregated: None,
-    };
-
-    let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) else {
-      return js_error;
-    };
-
-    let state = JsRuntime::state_from(scope);
-    let mut source_mapper = state.source_mapper.borrow_mut();
-    if let (Some(file_name), Some(line_number)) =
-      (&stack_frame.file_name, stack_frame.line_number)
-    {
-      if !file_name.trim_start_matches('[').starts_with("ext:") {
-        js_error.source_line =
-          source_mapper.get_source_line(file_name, line_number);
-        js_error.source_line_frame_index = Some(0);
-      }
+      additional_properties: vec![],
     }
 
     js_error.frames = vec![stack_frame];
@@ -594,7 +770,7 @@ impl JsError {
       let e: NativeJsError =
         serde_v8::from_v8(scope, exception.into()).unwrap_or_default();
       // Get the message by formatting error.name and error.message.
-      let name = e.name.clone().unwrap_or_else(|| "Error".to_string());
+      let name = e.name.clone().unwrap_or_else(|| GENERIC_ERROR.to_string());
       let message_prop = e.message.clone().unwrap_or_default();
       let exception_message = exception_message.unwrap_or_else(|| {
         if !name.is_empty() && !message_prop.is_empty() {
@@ -650,9 +826,13 @@ impl JsError {
                   "JsStackFrame::from_callsite_object raised an exception",
                 )
                 .to_rust_string_lossy(tc_scope);
-              panic!(
-                "Failed to create JsStackFrame from callsite object: {message}"
-              );
+              #[allow(clippy::print_stderr)]
+              {
+                eprintln!(
+                  "warning: Failed to create JsStackFrame from callsite object: {message}. This is a bug in deno"
+                );
+              }
+              break;
             };
             buf.push(stack_frame);
           }
@@ -710,6 +890,32 @@ impl JsError {
         }
       };
 
+      let additional_properties_string =
+        v8::String::new(scope, "errorAdditionalPropertyKeys").unwrap();
+      let additional_properties_key =
+        v8::Symbol::for_key(scope, additional_properties_string);
+      let additional_properties =
+        exception.get(scope, additional_properties_key.into());
+
+      let additional_properties = if let Some(arr) =
+        additional_properties.and_then(|keys| keys.try_cast::<v8::Array>().ok())
+      {
+        let mut out = Vec::with_capacity(arr.length() as usize);
+
+        for i in 0..arr.length() {
+          let key = arr.get_index(scope, i).unwrap();
+          let key_name = key.to_rust_string_lossy(scope);
+
+          let val = exception.get(scope, key).unwrap();
+          let val_str = val.to_rust_string_lossy(scope);
+          out.push((key_name, val_str));
+        }
+
+        out
+      } else {
+        vec![]
+      };
+
       Self {
         name: e.name,
         message: e.message,
@@ -720,6 +926,7 @@ impl JsError {
         frames,
         stack,
         aggregated,
+        additional_properties,
       }
     } else {
       let exception_message = exception_message
@@ -737,6 +944,7 @@ impl JsError {
         frames: vec![],
         stack: None,
         aggregated: None,
+        additional_properties: vec![],
       }
     }
   }
@@ -781,35 +989,6 @@ impl Display for JsError {
     }
     Ok(())
   }
-}
-
-// TODO(piscisaureus): rusty_v8 should implement the Error trait on
-// values of type v8::Global<T>.
-pub(crate) fn to_v8_type_error(
-  scope: &mut v8::HandleScope,
-  err: Error,
-) -> v8::Global<v8::Value> {
-  let err_string = err.to_string();
-  let error_chain = err
-    .chain()
-    .skip(1)
-    .filter(|e| e.to_string() != err_string)
-    .map(|e| e.to_string())
-    .collect::<Vec<_>>();
-
-  let message = if !error_chain.is_empty() {
-    format!(
-      "{}\n  Caused by:\n    {}",
-      err_string,
-      error_chain.join("\n    ")
-    )
-  } else {
-    err_string
-  };
-
-  let message = v8::String::new(scope, &message).unwrap();
-  let exception = v8::Exception::type_error(scope, message);
-  v8::Global::new(scope, exception)
 }
 
 /// Implements `value instanceof primordials.Error` in JS. Similar to
@@ -941,9 +1120,18 @@ fn abbrev_file_name(file_name: &str) -> Option<String> {
 pub(crate) fn exception_to_err_result<T>(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
+  in_promise: bool,
+  clear_error: bool,
+) -> Result<T, JsError> {
+  Err(exception_to_err(scope, exception, in_promise, clear_error))
+}
+
+pub(crate) fn exception_to_err(
+  scope: &mut v8::HandleScope,
+  exception: v8::Local<v8::Value>,
   mut in_promise: bool,
   clear_error: bool,
-) -> Result<T, Error> {
+) -> JsError {
   let state = JsRealm::exception_state_from_scope(scope);
 
   let mut was_terminating_execution = scope.is_execution_terminating();
@@ -957,25 +1145,28 @@ pub(crate) fn exception_to_err_result<T>(
   // have returned false if TerminateExecution was indeed called but there was
   // no JS to execute after the call.
   scope.cancel_terminate_execution();
-  let exception = if let Some(dispatched_exception) =
-    state.get_dispatched_exception_as_local(scope)
-  {
-    // If termination is the result of a `reportUnhandledException` call, we want
-    // to use the exception that was passed to it rather than the exception that
-    // was passed to this function.
-    in_promise = state.is_dispatched_exception_promise();
-    if clear_error {
-      state.clear_error();
-      was_terminating_execution = false;
+  let exception = match state.get_dispatched_exception_as_local(scope) {
+    Some(dispatched_exception) => {
+      // If termination is the result of a `reportUnhandledException` call, we want
+      // to use the exception that was passed to it rather than the exception that
+      // was passed to this function.
+      in_promise = state.is_dispatched_exception_promise();
+      if clear_error {
+        state.clear_error();
+        was_terminating_execution = false;
+      }
+      dispatched_exception
     }
-    dispatched_exception
-  } else if was_terminating_execution && exception.is_null_or_undefined() {
-    // If we are terminating and there is no exception, throw `new Error("execution terminated")``.
-    let message = v8::String::new(scope, "execution terminated").unwrap();
-    v8::Exception::error(scope, message)
-  } else {
-    // Otherwise re-use the exception
-    exception
+    _ => {
+      if was_terminating_execution && exception.is_null_or_undefined() {
+        // If we are terminating and there is no exception, throw `new Error("execution terminated")``.
+        let message = v8::String::new(scope, "execution terminated").unwrap();
+        v8::Exception::error(scope, message)
+      } else {
+        // Otherwise re-use the exception
+        exception
+      }
+    }
   };
 
   let mut js_error = JsError::from_v8_exception(scope, exception);
@@ -992,18 +1183,13 @@ pub(crate) fn exception_to_err_result<T>(
   }
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
-  Err(js_error.into())
-}
-
-pub fn throw_type_error(scope: &mut v8::HandleScope, message: impl AsRef<str>) {
-  let message = v8::String::new(scope, message.as_ref()).unwrap();
-  let exception = v8::Exception::type_error(scope, message);
-  scope.throw_exception(exception);
+  js_error
 }
 
 v8_static_strings::v8_static_strings! {
   ERROR = "Error",
   GET_FILE_NAME = "getFileName",
+  GET_SCRIPT_NAME_OR_SOURCE_URL = "getScriptNameOrSourceURL",
   GET_THIS = "getThis",
   GET_TYPE_NAME = "getTypeName",
   GET_FUNCTION = "getFunction",
@@ -1022,6 +1208,7 @@ v8_static_strings::v8_static_strings! {
   TO_STRING = "toString",
   PREPARE_STACK_TRACE = "prepareStackTrace",
   ORIGINAL = "deno_core::original_call_site",
+  SOURCE_MAPPED_INFO = "deno_core::source_mapped_call_site_info",
   ERROR_RECEIVER_IS_NOT_VALID_CALLSITE_OBJECT = "The receiver is not a valid callsite object.",
 }
 
@@ -1029,7 +1216,14 @@ v8_static_strings::v8_static_strings! {
 pub(crate) fn original_call_site_key<'a>(
   scope: &mut v8::HandleScope<'a>,
 ) -> v8::Local<'a, v8::Private> {
-  let name = ORIGINAL.v8_string(scope);
+  let name = ORIGINAL.v8_string(scope).unwrap();
+  v8::Private::for_api(scope, Some(name))
+}
+
+pub(crate) fn source_mapped_info_key<'a>(
+  scope: &mut v8::HandleScope<'a>,
+) -> v8::Local<'a, v8::Private> {
+  let name = SOURCE_MAPPED_INFO.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
 
@@ -1038,8 +1232,12 @@ fn make_patched_callsite<'s>(
   callsite: v8::Local<'s, v8::Object>,
   prototype: v8::Local<'s, v8::Object>,
 ) -> v8::Local<'s, v8::Object> {
-  let out_obj = Object::new(scope);
-  out_obj.set_prototype(scope, prototype.into());
+  let out_obj = v8::Object::with_prototype_and_properties(
+    scope,
+    prototype.into(),
+    &[],
+    &[],
+  );
   let orig_key = original_call_site_key(scope);
   out_obj.set_private(scope, orig_key, callsite.into());
   out_obj
@@ -1054,7 +1252,9 @@ fn original_call_site<'a>(
     .get_private(scope, orig_key)
     .and_then(|v| v8::Local::<v8::Object>::try_from(v).ok())
   else {
-    let message = ERROR_RECEIVER_IS_NOT_VALID_CALLSITE_OBJECT.v8_string(scope);
+    let message = ERROR_RECEIVER_IS_NOT_VALID_CALLSITE_OBJECT
+      .v8_string(scope)
+      .unwrap();
     let exception = v8::Exception::type_error(scope, message);
     scope.throw_exception(exception);
     return None;
@@ -1072,7 +1272,7 @@ macro_rules! make_callsite_fn {
       let Some(orig) = original_call_site(scope, args.this()) else {
         return;
       };
-      let key = $field.v8_string(scope).into();
+      let key = $field.v8_string(scope).unwrap().into();
       let orig_ret = orig
         .cast::<v8::Object>()
         .get(scope, key)
@@ -1100,7 +1300,149 @@ fn maybe_to_path_str(string: &str) -> Option<String> {
 }
 
 pub mod callsite_fns {
+  use capacity_builder::StringBuilder;
+
+  use crate::FromV8;
+  use crate::ToV8;
+  use crate::convert;
+
   use super::*;
+
+  enum SourceMappedCallsiteInfo<'a> {
+    Ref(v8::Local<'a, v8::Array>),
+    Value {
+      file_name: v8::Local<'a, v8::Value>,
+      line_number: v8::Local<'a, v8::Value>,
+      column_number: v8::Local<'a, v8::Value>,
+    },
+  }
+  impl<'a> SourceMappedCallsiteInfo<'a> {
+    #[inline]
+    fn file_name(
+      &self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> v8::Local<'a, v8::Value> {
+      match self {
+        Self::Ref(array) => array.get_index(scope, 0).unwrap(),
+        Self::Value { file_name, .. } => *file_name,
+      }
+    }
+    #[inline]
+    fn line_number(
+      &self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> v8::Local<'a, v8::Value> {
+      match self {
+        Self::Ref(array) => array.get_index(scope, 1).unwrap(),
+        Self::Value { line_number, .. } => *line_number,
+      }
+    }
+    #[inline]
+    fn column_number(
+      &self,
+      scope: &mut v8::HandleScope<'a>,
+    ) -> v8::Local<'a, v8::Value> {
+      match self {
+        Self::Ref(array) => array.get_index(scope, 2).unwrap(),
+        Self::Value { column_number, .. } => *column_number,
+      }
+    }
+  }
+
+  type MaybeValue<'a> = Option<v8::Local<'a, v8::Value>>;
+
+  fn maybe_apply_source_map<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    file_name: MaybeValue<'a>,
+    line_number: MaybeValue<'a>,
+    column_number: MaybeValue<'a>,
+  ) -> Option<(String, i64, i64)> {
+    let file_name = serde_v8::to_utf8(file_name?.try_cast().ok()?, scope);
+    let convert::Number(line_number) =
+      FromV8::from_v8(scope, line_number?).ok()?;
+    let convert::Number(column_number) =
+      FromV8::from_v8(scope, column_number?).ok()?;
+
+    let state = JsRuntime::state_from(scope);
+    let mut source_mapper = state.source_mapper.borrow_mut();
+    let (mapped_file_name, mapped_line_number, mapped_column_number) =
+      apply_source_map(
+        &mut source_mapper,
+        Cow::Owned(file_name),
+        line_number,
+        column_number,
+      );
+    Some((
+      mapped_file_name.into_owned(),
+      mapped_line_number,
+      mapped_column_number,
+    ))
+  }
+  fn source_mapped_call_site_info<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    callsite: v8::Local<'a, v8::Object>,
+  ) -> Option<SourceMappedCallsiteInfo<'a>> {
+    let key = source_mapped_info_key(scope);
+    // return the cached value if it exists
+    if let Some(info) = callsite.get_private(scope, key) {
+      if let Ok(array) = info.try_cast::<v8::Array>() {
+        return Some(SourceMappedCallsiteInfo::Ref(array));
+      }
+    }
+    let orig_callsite = original_call_site(scope, callsite)?;
+
+    let file_name =
+      call_method::<v8::Value>(scope, orig_callsite, super::GET_FILE_NAME, &[]);
+    let line_number = call_method::<v8::Value>(
+      scope,
+      orig_callsite,
+      super::GET_LINE_NUMBER,
+      &[],
+    );
+    let column_number = call_method::<v8::Value>(
+      scope,
+      orig_callsite,
+      super::GET_COLUMN_NUMBER,
+      &[],
+    );
+
+    let info = v8::Array::new(scope, 3);
+
+    // if the types are right, apply the source map, otherwise just take them as is
+    if let Some((mapped_file_name, mapped_line_number, mapped_column_number)) =
+      maybe_apply_source_map(scope, file_name, line_number, column_number)
+    {
+      let mapped_file_name_trimmed =
+        maybe_to_path_str(&mapped_file_name).unwrap_or(mapped_file_name);
+      let mapped_file_name = crate::FastString::from(mapped_file_name_trimmed)
+        .v8_string(scope)
+        .unwrap();
+      let Ok(mapped_line_number) =
+        convert::Number(mapped_line_number).to_v8(scope);
+      let Ok(mapped_column_number) =
+        convert::Number(mapped_column_number).to_v8(scope);
+      info.set_index(scope, 0, mapped_file_name.into());
+      info.set_index(scope, 1, mapped_line_number);
+      info.set_index(scope, 2, mapped_column_number);
+      callsite.set_private(scope, key, info.into());
+      Some(SourceMappedCallsiteInfo::Value {
+        file_name: mapped_file_name.into(),
+        line_number: mapped_line_number,
+        column_number: mapped_column_number,
+      })
+    } else {
+      let file_name = file_name.unwrap_or_else(|| v8::undefined(scope).into());
+      let line_number =
+        line_number.unwrap_or_else(|| v8::undefined(scope).into());
+      let column_number =
+        column_number.unwrap_or_else(|| v8::undefined(scope).into());
+      info.set_index(scope, 0, file_name);
+      info.set_index(scope, 1, line_number);
+      info.set_index(scope, 2, column_number);
+      callsite.set_private(scope, key, info.into());
+      Some(SourceMappedCallsiteInfo::Ref(info))
+    }
+  }
 
   make_callsite_fn!(get_this, GET_THIS);
   make_callsite_fn!(get_type_name, GET_TYPE_NAME);
@@ -1108,31 +1450,36 @@ pub mod callsite_fns {
   make_callsite_fn!(get_function_name, GET_FUNCTION_NAME);
   make_callsite_fn!(get_method_name, GET_METHOD_NAME);
 
-  pub fn get_file_name(
-    scope: &mut v8::HandleScope<'_>,
-    args: v8::FunctionCallbackArguments<'_>,
+  pub fn get_file_name<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
     mut rv: v8::ReturnValue<'_>,
   ) {
-    let Some(orig) = original_call_site(scope, args.this()) else {
-      return;
-    };
-    // call getFileName
-    let orig_ret =
-      call_method::<v8::String>(scope, orig, super::GET_FILE_NAME, &[]);
-    if let Some(ret_val) = orig_ret {
-      // strip off `file://`
-      let string = ret_val.to_rust_string_lossy(scope);
-      if let Some(file_name) = maybe_to_path_str(&string) {
-        let v8_str = crate::FastString::from(file_name).v8_string(scope).into();
-        rv.set(v8_str);
-      } else {
-        rv.set(ret_val.into());
-      }
+    if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
+      rv.set(info.file_name(scope));
     }
   }
 
-  make_callsite_fn!(get_line_number, GET_LINE_NUMBER);
-  make_callsite_fn!(get_column_number, GET_COLUMN_NUMBER);
+  pub fn get_line_number<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
+    mut rv: v8::ReturnValue<'_>,
+  ) {
+    if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
+      rv.set(info.line_number(scope));
+    }
+  }
+
+  pub fn get_column_number<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
+    mut rv: v8::ReturnValue<'_>,
+  ) {
+    if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
+      rv.set(info.column_number(scope));
+    }
+  }
+
   make_callsite_fn!(get_eval_origin, GET_EVAL_ORIGIN);
   make_callsite_fn!(is_toplevel, IS_TOPLEVEL);
   make_callsite_fn!(is_eval, IS_EVAL);
@@ -1141,13 +1488,70 @@ pub mod callsite_fns {
   make_callsite_fn!(is_async, IS_ASYNC);
   make_callsite_fn!(is_promise_all, IS_PROMISE_ALL);
   make_callsite_fn!(get_promise_index, GET_PROMISE_INDEX);
+  make_callsite_fn!(
+    get_script_name_or_source_url,
+    GET_SCRIPT_NAME_OR_SOURCE_URL
+  );
 
-  pub fn to_string(
-    scope: &mut v8::HandleScope<'_>,
-    args: v8::FunctionCallbackArguments<'_>,
+  // the bulk of the to_string logic
+  fn to_string_inner<'e>(
+    scope: &mut v8::HandleScope<'e>,
+    this: v8::Local<'e, v8::Object>,
+    orig: v8::Local<'e, v8::Object>,
+    orig_to_string_v8: v8::Local<'e, v8::String>,
+  ) -> Option<v8::Local<'e, v8::String>> {
+    let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
+    // `this[kOriginalCallsite].getFileName()`
+    let orig_file_name =
+      call_method::<v8::Value>(scope, orig, GET_FILE_NAME, &[])
+        .and_then(|v| v.try_cast::<v8::String>().ok())?;
+    let orig_line_number =
+      call_method::<v8::Value>(scope, orig, GET_LINE_NUMBER, &[])
+        .and_then(|v| v.try_cast::<v8::Number>().ok())?;
+    let orig_column_number =
+      call_method::<v8::Value>(scope, orig, GET_COLUMN_NUMBER, &[])
+        .and_then(|v| v.try_cast::<v8::Number>().ok())?;
+    let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
+    let orig_line_number = orig_line_number.value() as i64;
+    let orig_column_number = orig_column_number.value() as i64;
+    let orig_file_name_line_col =
+      fmt_file_line_col(&orig_file_name, orig_line_number, orig_column_number);
+    let mapped = source_mapped_call_site_info(scope, this)?;
+    let mapped_file_name = mapped.file_name(scope).to_rust_string_lossy(scope);
+    let mapped_line_num = mapped
+      .line_number(scope)
+      .try_cast::<v8::Number>()
+      .ok()
+      .map(|n| n.value() as i64)?;
+    let mapped_col_num =
+      mapped.column_number(scope).cast::<v8::Number>().value() as i64;
+    let file_name_line_col =
+      fmt_file_line_col(&mapped_file_name, mapped_line_num, mapped_col_num);
+    // replace file URL with file path, and source map in original `toString`
+    let to_string = orig_to_string
+      .replace(&orig_file_name_line_col, &file_name_line_col)
+      .replace(&orig_file_name, &mapped_file_name); // maybe unnecessary?
+    Some(crate::FastString::from(to_string).v8_string(scope).unwrap())
+  }
+
+  fn fmt_file_line_col(file: &str, line: i64, col: i64) -> String {
+    StringBuilder::build(|builder| {
+      builder.append(file);
+      builder.append(':');
+      builder.append(line);
+      builder.append(':');
+      builder.append(col);
+    })
+    .unwrap()
+  }
+
+  pub fn to_string<'a>(
+    scope: &mut v8::HandleScope<'a>,
+    args: v8::FunctionCallbackArguments<'a>,
     mut rv: v8::ReturnValue<'_>,
   ) {
-    let Some(orig) = original_call_site(scope, args.this()) else {
+    let this = args.this();
+    let Some(orig) = original_call_site(scope, this) else {
       return;
     };
     // `this[kOriginalCallsite].toString()`
@@ -1156,19 +1560,10 @@ pub mod callsite_fns {
     else {
       return;
     };
-    let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
-    // `this[kOriginalCallsite].getFileName()`
-    let Some(orig_file_name) =
-      call_method::<v8::String>(scope, orig, GET_FILE_NAME, &[])
-    else {
-      return;
-    };
-    // replace file URL with file path in original `toString`
-    let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
-    if let Some(file_name) = maybe_to_path_str(&orig_file_name) {
-      let to_string = orig_to_string.replace(&orig_file_name, &file_name);
-      let v8_str = crate::FastString::from(to_string).v8_string(scope).into();
-      rv.set(v8_str);
+
+    if let Some(v8_str) = to_string_inner(scope, this, orig, orig_to_string_v8)
+    {
+      rv.set(v8_str.into());
     } else {
       rv.set(orig_to_string_v8.into());
     }
@@ -1199,7 +1594,7 @@ pub(crate) fn make_callsite_prototype<'s>(
 
   macro_rules! set_attr {
     ($scope:ident, $template:ident, $fn:ident, $field:ident) => {
-      let key = $field.v8_string($scope).into();
+      let key = $field.v8_string($scope).unwrap().into();
       $template.set_with_attr(
         key,
         v8::FunctionBuilder::<v8::FunctionTemplate>::new(callsite_fns::$fn)
@@ -1228,15 +1623,19 @@ pub(crate) fn make_callsite_prototype<'s>(
   set_attr!(scope, template, is_async, IS_ASYNC);
   set_attr!(scope, template, is_promise_all, IS_PROMISE_ALL);
   set_attr!(scope, template, get_promise_index, GET_PROMISE_INDEX);
+  set_attr!(
+    scope,
+    template,
+    get_script_name_or_source_url,
+    GET_SCRIPT_NAME_OR_SOURCE_URL
+  );
   set_attr!(scope, template, to_string, TO_STRING);
 
   template.new_instance(scope).unwrap()
 }
 
-// called by V8 whenever a stack trace is created.
-// note that this is called _instead_ of `Error.prepareStackTrace`
-// so we have to explicitly call it to keep user code wrking
-pub fn prepare_stack_trace_callback<'s>(
+#[inline(always)]
+fn prepare_stack_trace_inner<'s, const PATCH_CALLSITES: bool>(
   scope: &mut v8::HandleScope<'s>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
@@ -1250,32 +1649,41 @@ pub fn prepare_stack_trace_callback<'s>(
 
   // `globalThis.Error.prepareStackTrace`
   let global = scope.get_current_context().global(scope);
-  let global_error = get_property(scope, global, ERROR).unwrap().cast();
-  let prepare_fn = get_property(scope, global_error, PREPARE_STACK_TRACE)
-    .and_then(|f| f.try_cast::<v8::Function>().ok());
+  let global_error =
+    get_property(scope, global, ERROR).and_then(|g| g.try_cast().ok());
+  let prepare_fn = global_error.and_then(|g| {
+    get_property(scope, g, PREPARE_STACK_TRACE)
+      .and_then(|f| f.try_cast::<v8::Function>().ok())
+  });
 
+  // Note that the callback is called _instead_ of `Error.prepareStackTrace`
+  // so we have to explicitly call the global function
   if let Some(prepare_fn) = prepare_fn {
-    // User defined `Error.prepareStackTrace`.
-    // Patch the callsites to have file paths, then call
-    // the user's function
-    let len = callsites.length();
-    let mut patched = Vec::with_capacity(len as usize);
-    let template = JsRuntime::state_from(scope)
-      .callsite_prototype
-      .borrow()
-      .clone()
-      .unwrap();
-    let prototype = v8::Local::new(scope, template);
-    for i in 0..len {
-      let callsite =
-        callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
-      patched.push(make_patched_callsite(scope, callsite, prototype).into());
-    }
-    let patched_callsites = v8::Array::new_with_elements(scope, &patched);
+    let callsites = if PATCH_CALLSITES {
+      // User defined `Error.prepareStackTrace`.
+      // Patch the callsites to have file paths, then call
+      // the user's function
+      let len = callsites.length();
+      let mut patched = Vec::with_capacity(len as usize);
+      let template = JsRuntime::state_from(scope)
+        .callsite_prototype
+        .borrow()
+        .clone()
+        .unwrap();
+      let prototype = v8::Local::new(scope, template);
+      for i in 0..len {
+        let callsite =
+          callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
+        patched.push(make_patched_callsite(scope, callsite, prototype).into());
+      }
+      v8::Array::new_with_elements(scope, &patched)
+    } else {
+      callsites
+    };
 
-    // call the user's `prepareStackTrace` with our patched "callsite" objects
-    let this = global_error.into();
-    let args = &[error, patched_callsites.into()];
+    // call the user's `prepareStackTrace` with our "callsite" objects
+    let this = global_error.unwrap().into();
+    let args = &[error, callsites.into()];
     return prepare_fn
       .call(scope, this, args)
       .unwrap_or_else(|| v8::undefined(scope).into());
@@ -1285,7 +1693,35 @@ pub fn prepare_stack_trace_callback<'s>(
   format_stack_trace(scope, error, callsites)
 }
 
-fn format_stack_trace<'s>(
+/// Callback to prepare an error stack trace. This callback is invoked by V8 whenever a stack trace is created.
+/// This will patch callsite objects to translate file URLs to file paths before they're
+/// exposed to user-defined `prepareStackTrace` implementations.
+///
+/// This function is not used by default, but it can
+/// be set directly on the [v8 isolate][v8::Isolate::set_prepare_stack_trace_callback]
+pub fn prepare_stack_trace_callback_with_original_callsites<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  error: v8::Local<'s, v8::Value>,
+  callsites: v8::Local<'s, v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+  prepare_stack_trace_inner::<false>(scope, error, callsites)
+}
+
+/// Callback to prepare an error stack trace. This callback is invoked by V8 whenever a stack trace is created.
+/// This will patch callsite objects to translate file URLs to file paths before they're
+/// exposed to user-defined `prepareStackTrace` implementations.
+///
+/// This function is the default callback, set on creating a `JsRuntime`, but the callback can also
+/// be set directly on the [v8 isolate][v8::Isolate::set_prepare_stack_trace_callback]
+pub fn prepare_stack_trace_callback<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  error: v8::Local<'s, v8::Value>,
+  callsites: v8::Local<'s, v8::Array>,
+) -> v8::Local<'s, v8::Value> {
+  prepare_stack_trace_inner::<true>(scope, error, callsites)
+}
+
+pub fn format_stack_trace<'s>(
   scope: &mut v8::HandleScope<'s>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
@@ -1301,7 +1737,7 @@ fn format_stack_trace<'s>(
     let name = get_property(scope, obj, v8_static_strings::NAME)
       .filter(|v| !v.is_undefined())
       .map(|v| v.to_rust_string_lossy(scope))
-      .unwrap_or_else(|| "Error".to_string());
+      .unwrap_or_else(|| GENERIC_ERROR.to_string());
 
     match (!msg.is_empty(), !name.is_empty()) {
       (true, true) => write!(result, "{}: {}", name, msg).unwrap(),
@@ -1321,7 +1757,13 @@ fn format_stack_trace<'s>(
         .exception()
         .expect("JsStackFrame::from_callsite_object raised an exception")
         .to_rust_string_lossy(tc_scope);
-      panic!("Failed to create JsStackFrame from callsite object: {message}");
+      #[allow(clippy::print_stderr)]
+      {
+        eprintln!(
+          "warning: Failed to create JsStackFrame from callsite object: {message}; Result so far: {result}. This is a bug in deno"
+        );
+      }
+      break;
     };
     write!(result, "\n    at {}", format_frame::<NoAnsiColors>(&frame))
       .unwrap();
@@ -1480,21 +1922,36 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   result
 }
 
+pub fn throw_error_one_byte_info(
+  info: &v8::FunctionCallbackInfo,
+  message: &str,
+) {
+  let mut scope = unsafe { v8::CallbackScope::new(info) };
+  throw_error_one_byte(&mut scope, message);
+}
+
+pub fn throw_error_js_error_class(
+  scope: &mut v8::CallbackScope<'_>,
+  err: &dyn JsErrorClass,
+) {
+  let exc = to_v8_error(scope, err);
+  scope.throw_exception(exc);
+}
+
+pub fn throw_error_one_byte(scope: &mut v8::CallbackScope, message: &str) {
+  let msg = deno_core::v8::String::new_from_one_byte(
+    scope,
+    message.as_bytes(),
+    deno_core::v8::NewStringType::Normal,
+  )
+  .unwrap();
+  let exc = deno_core::v8::Exception::type_error(scope, msg);
+  scope.throw_exception(exc);
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
-
-  #[test]
-  fn test_bad_resource() {
-    let err = bad_resource("Resource has been closed");
-    assert_eq!(err.to_string(), "Resource has been closed");
-  }
-
-  #[test]
-  fn test_bad_resource_id() {
-    let err = bad_resource_id();
-    assert_eq!(err.to_string(), "Bad resource ID");
-  }
 
   #[test]
   fn test_format_file_name() {

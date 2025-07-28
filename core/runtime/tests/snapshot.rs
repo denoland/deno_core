@@ -1,15 +1,15 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use self::runtime::CreateSnapshotOptions;
+use self::runtime::create_snapshot;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
 use crate::*;
-use anyhow::Error;
+use deno_error::JsErrorBox;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::rc::Rc;
-
-use self::runtime::create_snapshot;
-use self::runtime::CreateSnapshotOptions;
 
 #[test]
 fn will_snapshot() {
@@ -231,9 +231,10 @@ fn es_snapshot() {
     }
   }
 
+  #[allow(clippy::unnecessary_wraps)]
   #[op2]
   #[string]
-  fn op_test() -> Result<String, Error> {
+  fn op_test() -> Result<String, JsErrorBox> {
     Ok(String::from("test"))
   }
   let mut runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
@@ -332,7 +333,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     );
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![module_snapshot::init_ops_and_esm()],
+      extensions: vec![module_snapshot::init()],
       ..Default::default()
     });
 
@@ -427,7 +428,7 @@ pub fn snapshot_with_additional_extensions() {
 
   let snapshot = {
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![before_snapshot::init_ops_and_esm()],
+      extensions: vec![before_snapshot::init()],
       ..Default::default()
     });
 
@@ -436,10 +437,7 @@ pub fn snapshot_with_additional_extensions() {
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
-    extensions: vec![
-      before_snapshot::init_ops(),
-      after_snapshot::init_ops_and_esm(),
-    ],
+    extensions: vec![before_snapshot::init(), after_snapshot::init()],
     ..Default::default()
   });
 

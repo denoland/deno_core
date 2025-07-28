@@ -3,11 +3,13 @@ runs:
   using: "composite"
   steps:
     - name: Install Rust (nightly)
-      uses: dtolnay/rust-toolchain@nightly
+      uses: dtolnay/rust-toolchain@master
+      with:
+        toolchain: nightly-2025-02-25
     - name: Lint deps
       shell: bash
       run: |
         cargo install cargo-machete --locked
         cargo machete
-        cargo install cargo-udeps --locked
-        cargo +nightly udeps
+        cargo install cargo-udeps@0.1.55 --locked
+        cargo +nightly-2025-02-25 udeps

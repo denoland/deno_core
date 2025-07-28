@@ -10,9 +10,12 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_make_cppgc_object),
             true,
             false,
+            false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -22,9 +25,8 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_make_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_make_cppgc_object)
+            <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -113,7 +115,7 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_make_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call() -> Wrap {
             Wrap
         }
@@ -133,9 +135,12 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_use_cppgc_object),
             true,
             false,
+            false,
             2usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -145,9 +150,8 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_use_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_use_cppgc_object)
+            <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -171,14 +175,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 let Some(mut arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 arg0.root();
@@ -238,7 +235,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_use_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call(_wrap: &Wrap) {}
     }
     <op_use_cppgc_object as ::deno_core::_ops::Op>::DECL
@@ -256,9 +253,12 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_use_optional_cppgc_object),
             true,
             false,
+            false,
             2usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -268,9 +268,8 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
     }
     impl op_use_optional_cppgc_object {
         pub const fn name() -> &'static str {
-            stringify!(op_use_optional_cppgc_object)
+            <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -299,14 +298,7 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     arg0.root();
                     Some(arg0)
                 } else {
-                    let msg = deno_core::v8::String::new_from_one_byte(
-                            &mut scope,
-                            "expected Wrap".as_bytes(),
-                            deno_core::v8::NewStringType::Normal,
-                        )
-                        .unwrap();
-                    let exc = deno_core::v8::Exception::type_error(&mut scope, msg);
-                    scope.throw_exception(exc);
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
                 async move {
@@ -365,7 +357,7 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_use_optional_cppgc_object {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call(_wrap: Option<&Wrap>) {}
     }
     <op_use_optional_cppgc_object as ::deno_core::_ops::Op>::DECL

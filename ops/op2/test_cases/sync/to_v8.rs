@@ -1,8 +1,9 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
-use deno_core::v8;
 use deno_core::ToV8;
+use deno_core::v8;
 
 struct Foo;
 

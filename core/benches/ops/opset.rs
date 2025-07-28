@@ -1,8 +1,9 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use bencher::*;
+use futures::StreamExt;
 use futures::stream::FuturesOrdered;
 use futures::stream::FuturesUnordered;
-use futures::StreamExt;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
 use std::net::SocketAddrV4;

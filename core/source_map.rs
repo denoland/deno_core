@@ -1,14 +1,17 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
-use crate::resolve_import;
-use crate::resolve_url;
-use crate::runtime::JsRealm;
 use crate::ModuleLoader;
+use crate::ModuleLoader;
+use crate::ModuleName;
 use crate::ModuleName;
 use crate::ModuleResolutionError;
 use crate::RequestedModuleType;
+use crate::resolve_import;
+use crate::resolve_url;
+use crate::resolve_url;
+use crate::runtime::JsRealm;
 use sourcemap::DecodedMap;
 pub use sourcemap::SourceMap;
 use std::borrow::Cow;
@@ -267,11 +270,9 @@ impl SourceMapper {
 
 #[cfg(test)]
 mod tests {
-  use anyhow::Error;
   use url::Url;
 
   use super::*;
-  use crate::ascii_str;
   use crate::JsRuntime;
   use crate::ModuleCodeString;
   use crate::ModuleLoadResponse;
@@ -279,6 +280,9 @@ mod tests {
   use crate::RequestedModuleType;
   use crate::ResolutionKind;
   use crate::RuntimeOptions;
+  use crate::ascii_str;
+  use crate::ascii_str;
+  use crate::error::ModuleLoaderError;
 
   struct SourceMapLoaderContent {
     source_map: Option<ModuleCodeString>,
@@ -295,7 +299,7 @@ mod tests {
       _specifier: &str,
       _referrer: &str,
       _kind: ResolutionKind,
-    ) -> Result<ModuleSpecifier, Error> {
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
       unreachable!()
     }
 
@@ -315,7 +319,16 @@ mod tests {
       content
         .source_map
         .as_ref()
-        .map(|s| s.to_string().into_bytes())
+        .map(|s| Cow::Borrowed(s.as_bytes()))
+    }
+
+    fn get_source_map(&self, file_name: &str) -> Option<Cow<[u8]>> {
+      let url = Url::parse(file_name).unwrap();
+      let content = self.map.get(&url)?;
+      content
+        .source_map
+        .as_ref()
+        .map(|s| Cow::Borrowed(s.as_bytes()))
     }
 
     fn load_source_map_file(

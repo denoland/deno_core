@@ -18,8 +18,8 @@ buffer.
 ## Fallible `op`s
 
 An `op` function may be declared to return `Result` to indicate that the `op` is
-fallible. The error type must implement `Into<anyhow::Error>`. When the function
-returns `Err`, an exception is thrown.
+fallible. The error type must implement `deno_error::JsErrorClass`. When the
+function returns `Err`, an exception is thrown.
 
 ## `async` calls
 
@@ -822,62 +822,6 @@ External
 External
 </td><td>
 
-</td></tr>
-<tr>
-<td>
-
-```text
-#[memory(caller)] &[u8]
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory. Throws an exception if called from another context.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[memory(caller)] &mut [u8]
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory. Throws an exception if called from another context.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[memory(caller)] Option<&[u8]>
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory, otherwise `None`.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[memory(caller)] Option<&mut [u8]>
-```
-
-</td><td>
-✅
-</td><td>
-WASM
-</td><td>
-When called from WASM code, contains a pointer to the WASM module's memory, otherwise `None`.
 </td></tr>
 <tr>
 <td>

@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 export const ROOT_PATH = Deno.realPathSync(new URL("..", import.meta.url));
 
 async function getFilesFromGit(baseDir, args) {
@@ -11,11 +11,19 @@ async function getFilesFromGit(baseDir, args) {
     throw new Error("gitLsFiles failed");
   }
 
-  const files = output.split("\0").filter((line) => line.length > 0).map(
-    (filePath) => {
-      return Deno.realPathSync(baseDir + "/" + filePath);
-    },
-  );
+  const files = output
+    .split("\0")
+    .filter((line) => line.length > 0)
+    .map(
+      (filePath) => {
+        try {
+          return Deno.realPathSync(baseDir + "/" + filePath);
+        } catch {
+          return null;
+        }
+      },
+    )
+    .filter((x) => !!x);
 
   return files;
 }

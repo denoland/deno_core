@@ -1,4 +1,5 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use serde::Deserialize;
 use serde::Serialize;
 
@@ -22,7 +23,7 @@ fn magic_basic() {
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     // Decode
@@ -48,7 +49,7 @@ fn magic_buffer() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
 
@@ -124,7 +125,7 @@ fn magic_byte_string() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
 
@@ -166,7 +167,8 @@ fn magic_byte_string() {
 
 #[test]
 fn magic_value() {
-  use serde_v8_utilities::{js_exec, v8_do};
+  use serde_v8_utilities::js_exec;
+  use serde_v8_utilities::v8_do;
 
   struct TestLocal<'a>(v8::Local<'a, v8::Value>);
   impl<'de> serde::Deserialize<'de> for TestLocal<'_> {
@@ -196,7 +198,7 @@ fn magic_value() {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
     let handle_scope = &mut v8::HandleScope::new(isolate);
-    let context = v8::Context::new(handle_scope);
+    let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     let v8_string = js_exec(scope, "'test'");

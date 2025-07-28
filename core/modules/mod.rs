@@ -1,11 +1,11 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::exception_to_err_result;
-use crate::error::AnyError;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use crate::FastStaticString;
+use crate::error::CoreError;
+use crate::error::CoreErrorKind;
+use crate::error::exception_to_err;
 use crate::fast_string::FastString;
 use crate::module_specifier::ModuleSpecifier;
-use crate::FastStaticString;
-use anyhow::bail;
-use anyhow::Error;
 use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Cow;
@@ -22,17 +22,18 @@ mod recursive_load;
 #[cfg(all(test, not(miri)))]
 mod tests;
 
+pub use loaders::ExtCodeCache;
 pub(crate) use loaders::ExtModuleLoader;
-pub use loaders::ExtModuleLoaderCb;
 pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;
 pub use loaders::ModuleLoadResponse;
 pub use loaders::ModuleLoader;
+pub use loaders::ModuleLoaderError;
 pub use loaders::NoopModuleLoader;
 pub use loaders::StaticModuleLoader;
+pub(crate) use map::ModuleMap;
 pub(crate) use map::script_origin;
 pub(crate) use map::synthetic_module_evaluation_steps;
-pub(crate) use map::ModuleMap;
 pub(crate) use module_map_data::ModuleMapSnapshotData;
 
 pub type ModuleId = usize;
@@ -178,23 +179,6 @@ impl From<&'static [u8]> for ModuleCodeBytes {
   }
 }
 
-/// Callback to customize value of `import.meta.resolve("./foo.ts")`.
-pub type ImportMetaResolveCallback = Box<
-  dyn Fn(&dyn ModuleLoader, String, String) -> Result<ModuleSpecifier, Error>,
->;
-
-pub(crate) fn default_import_meta_resolve_cb(
-  loader: &dyn ModuleLoader,
-  specifier: String,
-  referrer: String,
-) -> Result<ModuleSpecifier, Error> {
-  if specifier.starts_with("npm:") {
-    bail!("\"npm:\" specifiers are currently not supported in import.meta.resolve()");
-  }
-
-  loader.resolve(&specifier, &referrer, ResolutionKind::DynamicImport)
-}
-
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.
 pub type ValidateImportAttributesCb =
@@ -208,13 +192,17 @@ pub type CustomModuleEvaluationCb = Box<
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
-  ) -> Result<CustomModuleEvaluationKind, AnyError>,
+  ) -> Result<CustomModuleEvaluationKind, deno_error::JsErrorBox>,
 >;
 
 /// A callback to get the code cache for a script.
 /// (specifier, code) -> ...
-pub type EvalContextGetCodeCacheCb =
-  Box<dyn Fn(&Url, &v8::String) -> Result<SourceCodeCacheInfo, AnyError>>;
+pub type EvalContextGetCodeCacheCb = Box<
+  dyn Fn(
+    &Url,
+    &v8::String,
+  ) -> Result<SourceCodeCacheInfo, deno_error::JsErrorBox>,
+>;
 
 /// Callback when the code cache is ready.
 /// (specifier, hash, data) -> ()
@@ -287,10 +275,11 @@ pub(crate) fn get_requested_module_type_from_attributes(
     return RequestedModuleType::None;
   };
 
-  if ty == "json" {
-    RequestedModuleType::Json
-  } else {
-    RequestedModuleType::Other(Cow::Owned(ty.to_string()))
+  match ty.as_str() {
+    "json" => RequestedModuleType::Json,
+    "text" => RequestedModuleType::Text,
+    "bytes" => RequestedModuleType::Bytes,
+    other => RequestedModuleType::Other(Cow::Owned(other.to_string())),
   }
 }
 
@@ -304,6 +293,8 @@ pub enum ModuleType {
   JavaScript,
   Wasm,
   Json,
+  Text,
+  Bytes,
   Other(Cow<'static, str>),
 }
 
@@ -313,6 +304,8 @@ impl std::fmt::Display for ModuleType {
       Self::JavaScript => write!(f, "JavaScript"),
       Self::Wasm => write!(f, "Wasm"),
       Self::Json => write!(f, "JSON"),
+      Self::Text => write!(f, "Text"),
+      Self::Bytes => write!(f, "Bytes"),
       Self::Other(ty) => write!(f, "{}", ty),
     }
   }
@@ -327,6 +320,8 @@ impl ModuleType {
       ModuleType::JavaScript => v8::Integer::new(scope, 0).into(),
       ModuleType::Wasm => v8::Integer::new(scope, 1).into(),
       ModuleType::Json => v8::Integer::new(scope, 2).into(),
+      ModuleType::Text => v8::Integer::new(scope, 3).into(),
+      ModuleType::Bytes => v8::Integer::new(scope, 4).into(),
       ModuleType::Other(ty) => v8::String::new(scope, ty).unwrap().into(),
     }
   }
@@ -340,6 +335,8 @@ impl ModuleType {
         0 => ModuleType::JavaScript,
         1 => ModuleType::Wasm,
         2 => ModuleType::Json,
+        3 => ModuleType::Text,
+        4 => ModuleType::Bytes,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
@@ -472,7 +469,8 @@ impl ModuleSource {
   }
 }
 
-pub type ModuleSourceFuture = dyn Future<Output = Result<ModuleSource, Error>>;
+pub type ModuleSourceFuture =
+  dyn Future<Output = Result<ModuleSource, ModuleLoaderError>>;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ResolutionKind {
@@ -501,19 +499,29 @@ pub enum RequestedModuleType {
   /// ```
   None,
 
-  /// The `type` attribute had value `json`. This is the only known module type
-  /// in `deno_core`.
-  ///
-  /// Embedders should use `Other` variant for custom module
-  /// types like `wasm`, `bytes` or `text`.
-  ///
   /// Example:
   /// ```ignore
   /// import jsonData from "./data.json" with { type: "json" };
   ///
-  /// const jsonData2 = await import"./data2.json", { with { type: "json" } });
+  /// const jsonData2 = await import("./data2.json", { with { type: "json" } });
   /// ```
   Json,
+
+  /// Example:
+  /// ```ignore
+  /// import logText from "./log.txt" with { type: "text" };
+  ///
+  /// const logText = await import("./log.txt", { with { type: "text" } });
+  /// ```
+  Text,
+
+  /// Example:
+  /// ```ignore
+  /// import img from "./img.png" with { type: "bytes" };
+  ///
+  /// const img = await import("./img.png", { with { type: "bytes" } });
+  /// ```
+  Bytes,
 
   /// An arbitrary module type. It is up to the embedder to handle (or deny) it.
   /// If [`CustomModuleEvaluationCb`] was not passed when creating a runtime,
@@ -521,9 +529,9 @@ pub enum RequestedModuleType {
   ///
   /// Example:
   /// ```ignore
-  /// import text from "./log.txt" with { type: "text" };
+  /// import url from "./style.css" with { type: "url" };
   ///
-  /// const imgData = await import(`./images/${name}.png`, { with: { type: "bytes" }});
+  /// const imgData = await import(`./images/${name}.png`, { with: { type: "image" }});
   /// ```
   Other(Cow<'static, str>),
 }
@@ -536,6 +544,8 @@ impl RequestedModuleType {
     match self {
       RequestedModuleType::None => v8::Integer::new(scope, 0).into(),
       RequestedModuleType::Json => v8::Integer::new(scope, 1).into(),
+      RequestedModuleType::Text => v8::Integer::new(scope, 2).into(),
+      RequestedModuleType::Bytes => v8::Integer::new(scope, 3).into(),
       RequestedModuleType::Other(ty) => {
         v8::String::new(scope, ty).unwrap().into()
       }
@@ -550,6 +560,8 @@ impl RequestedModuleType {
       match int.int32_value(scope).unwrap_or_default() {
         0 => RequestedModuleType::None,
         1 => RequestedModuleType::Json,
+        2 => RequestedModuleType::Text,
+        3 => RequestedModuleType::Bytes,
         _ => return None,
       }
     } else if let Ok(str) = v8::Local::<v8::String>::try_from(value) {
@@ -557,6 +569,16 @@ impl RequestedModuleType {
     } else {
       return None;
     })
+  }
+
+  pub fn as_str(&self) -> Option<&str> {
+    match self {
+      RequestedModuleType::None => None,
+      RequestedModuleType::Json => Some("json"),
+      RequestedModuleType::Text => Some("text"),
+      RequestedModuleType::Bytes => Some("bytes"),
+      RequestedModuleType::Other(ty) => Some(ty),
+    }
   }
 }
 
@@ -573,6 +595,8 @@ impl PartialEq<ModuleType> for RequestedModuleType {
       ModuleType::JavaScript => self == &RequestedModuleType::None,
       ModuleType::Wasm => self == &RequestedModuleType::None,
       ModuleType::Json => self == &RequestedModuleType::Json,
+      ModuleType::Text => self == &RequestedModuleType::Text,
+      ModuleType::Bytes => self == &RequestedModuleType::Bytes,
       ModuleType::Other(ty) => self == &RequestedModuleType::Other(ty.clone()),
     }
   }
@@ -584,6 +608,8 @@ impl From<ModuleType> for RequestedModuleType {
       ModuleType::JavaScript => RequestedModuleType::None,
       ModuleType::Wasm => RequestedModuleType::None,
       ModuleType::Json => RequestedModuleType::Json,
+      ModuleType::Text => RequestedModuleType::Text,
+      ModuleType::Bytes => RequestedModuleType::Bytes,
       ModuleType::Other(ty) => RequestedModuleType::Other(ty.clone()),
     }
   }
@@ -594,6 +620,8 @@ impl std::fmt::Display for RequestedModuleType {
     match self {
       Self::None => write!(f, "None"),
       Self::Json => write!(f, "JSON"),
+      Self::Text => write!(f, "Text"),
+      Self::Bytes => write!(f, "Bytes"),
       Self::Other(ty) => write!(f, "Other({ty})"),
     }
   }
@@ -619,26 +647,64 @@ pub(crate) struct ModuleInfo {
   pub module_type: ModuleType,
 }
 
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(generic)]
+pub enum ModuleConcreteError {
+  #[error(
+    "Trying to create \"main\" module ({new_module:?}), when one already exists ({main_module:?})"
+  )]
+  MainModuleAlreadyExists {
+    main_module: String,
+    new_module: String,
+  },
+  #[error("Unable to get code cache from unbound module script")]
+  UnboundModuleScriptCodeCache,
+  #[class(inherit)]
+  #[error("{0}")]
+  WasmParse(wasm_dep_analyzer::ParseError),
+  #[error("Source code for Wasm module must be provided as bytes")]
+  WasmNotBytes,
+  #[error("Failed to compile Wasm module '{0}'")]
+  WasmCompile(String),
+  #[error("Importing '{0}' modules is not supported")]
+  UnsupportedKind(String),
+  #[error("Source code for Bytes module must be provided as bytes")]
+  BytesNotBytes,
+}
+
 #[derive(Debug)]
-pub(crate) enum ModuleError {
+pub enum ModuleError {
   Exception(v8::Global<v8::Value>),
-  Other(Error),
+  Concrete(ModuleConcreteError),
+  Core(CoreError),
 }
 
 impl ModuleError {
-  pub fn into_any_error(
+  pub fn into_error(
     self,
     scope: &mut v8::HandleScope,
     in_promise: bool,
     clear_error: bool,
-  ) -> AnyError {
+  ) -> CoreError {
     match self {
       ModuleError::Exception(exception) => {
         let exception = v8::Local::new(scope, exception);
-        exception_to_err_result::<()>(scope, exception, in_promise, clear_error)
-          .unwrap_err()
+        CoreErrorKind::Js(exception_to_err(
+          scope,
+          exception,
+          in_promise,
+          clear_error,
+        ))
+        .into_box()
       }
-      ModuleError::Other(error) => error,
+      ModuleError::Core(error) => error,
+      ModuleError::Concrete(error) => CoreErrorKind::Module(error).into_box(),
     }
+  }
+}
+
+impl From<ModuleConcreteError> for ModuleError {
+  fn from(value: ModuleConcreteError) -> Self {
+    ModuleError::Concrete(value)
   }
 }

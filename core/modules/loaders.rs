@@ -1,6 +1,8 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
-use crate::error::generic_error;
-use crate::extensions::ExtensionFileSource;
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use crate::ModuleSourceCode;
+use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::ModuleCodeString;
@@ -11,25 +13,26 @@ use crate::modules::ModuleType;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::resolve_import;
-use crate::ModuleSourceCode;
+use deno_error::JsErrorBox;
 
-use anyhow::anyhow;
-use anyhow::bail;
-use anyhow::Context;
-use anyhow::Error;
 use futures::future::FutureExt;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::rc::Rc;
 
+use super::SourceCodeCacheInfo;
+
+pub type ModuleLoaderError = JsErrorBox;
+
 /// Result of calling `ModuleLoader::load`.
 pub enum ModuleLoadResponse {
   /// Source file is available synchronously - eg. embedder might have
   /// collected all the necessary sources in `ModuleLoader::prepare_module_load`.
   /// Slightly cheaper than `Async` as it avoids boxing.
-  Sync(Result<ModuleSource, Error>),
+  Sync(Result<ModuleSource, ModuleLoaderError>),
 
   /// Source file needs to be loaded. Requires boxing due to recrusive
   /// nature of module loading.
@@ -52,7 +55,16 @@ pub trait ModuleLoader {
     specifier: &str,
     referrer: &str,
     kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error>;
+  ) -> Result<ModuleSpecifier, ModuleLoaderError>;
+
+  /// Override to customize the behavior of `import.meta.resolve` resolution.
+  fn import_meta_resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    self.resolve(specifier, referrer, ResolutionKind::DynamicImport)
+  }
 
   /// Given ModuleSpecifier, load its source code.
   ///
@@ -79,9 +91,21 @@ pub trait ModuleLoader {
     _module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
-  ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    _requested_module_type: RequestedModuleType,
+  ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
+
+  /// This hook can be used by implementors to do some cleanup
+  /// work after loading of modules. The hook is called for
+  /// all loads, whether they succeeded or not.
+  ///
+  /// For example implementor might drop transpilation and
+  /// static analysis caches before
+  /// yielding control back to the runtime.
+  ///
+  /// It's not required to implement this method.
+  fn finish_load(&self) {}
 
   /// Called when new v8 code cache is available for this module. Implementors
   /// can store the provided code cache for future executions of the same module.
@@ -96,15 +120,25 @@ pub trait ModuleLoader {
     async {}.boxed_local()
   }
 
+  /// Called when V8 code cache should be ignored for this module. This can happen
+  /// if eg. module causes a V8 warning, like when using deprecated import assertions.
+  /// Implementors should make sure that the code cache for this module is purged and not saved anymore.
+  ///
+  /// It's not required to implement this method.
+  fn purge_and_prevent_code_cache(&self, _module_specifier: &str) {}
+
   /// Returns a source map for given `file_name`.
   ///
+  /// This function will soon be deprecated or renamed.
+  fn get_source_map(&self, _file_name: &str) -> Option<Cow<[u8]>> {
+    None
+  }
+
   /// Some embedders might opt into stripping out inlined source map from the source
   /// code before it's loaded into V8. The source mapping logic will first ask
   /// embedder to provide a source map for given file, before falling back
   /// to looking for source map inlined in the code.
-  fn get_source_map_for_file(&self, _file_name: &str) -> Option<Vec<u8>> {
-    None
-  }
+  fn get_source_map_for_file(&self, _file_name: &str) -> Option<Vec<u8>> {}
 
   /// Returns a source map file.
   ///
@@ -156,66 +190,75 @@ impl ModuleLoader for NoopModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
-    Ok(resolve_import(specifier, referrer)?)
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
     &self,
-    module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
+    _module_specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleSpecifier>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
-    let maybe_referrer = maybe_referrer
-      .map(|s| s.as_str())
-      .unwrap_or("(no referrer)");
-    let err = generic_error(
-      format!(
-        "Module loading is not supported; attempted to load: \"{module_specifier}\" from \"{maybe_referrer}\"",
-      )
-    );
-    ModuleLoadResponse::Sync(Err(err))
+    ModuleLoadResponse::Sync(Err(JsErrorBox::generic(
+      "Module loading is not supported.",
+    )))
   }
 }
 
-/// Function that can be passed to the `ExtModuleLoader` that allows to
-/// transpile sources before passing to V8.
-pub type ExtModuleLoaderCb =
-  Box<dyn Fn(&ExtensionFileSource) -> Result<ModuleCodeString, Error>>;
+pub trait ExtCodeCache {
+  fn get_code_cache_info(
+    &self,
+    specifier: &ModuleSpecifier,
+    code: &ModuleSourceCode,
+    esm: bool,
+  ) -> SourceCodeCacheInfo;
+
+  fn code_cache_ready(
+    &self,
+    specifier: ModuleSpecifier,
+    hash: u64,
+    code_cache: &[u8],
+    esm: bool,
+  );
+}
 
 pub(crate) struct ExtModuleLoader {
   sources: RefCell<HashMap<ModuleName, ModuleCodeString>>,
+  ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
 }
 
 impl ExtModuleLoader {
   pub fn new(
     loaded_sources: Vec<(ModuleName, ModuleCodeString)>,
-  ) -> Result<Self, Error> {
+    ext_code_cache: Option<Rc<dyn ExtCodeCache>>,
+  ) -> Self {
     // Guesstimate a length
     let mut sources = HashMap::with_capacity(loaded_sources.len());
     for source in loaded_sources {
       sources.insert(source.0, source.1);
     }
-    Ok(ExtModuleLoader {
+    ExtModuleLoader {
       sources: RefCell::new(sources),
-    })
+      ext_code_cache,
+    }
   }
 
-  pub fn finalize(self) -> Result<(), Error> {
+  pub fn finalize(&self) -> Result<(), CoreError> {
     let sources = self.sources.take();
     let unused_modules: Vec<_> = sources.iter().collect();
 
     if !unused_modules.is_empty() {
-      let mut msg =
-        "Following modules were passed to ExtModuleLoader but never used:\n"
-          .to_string();
-      for m in unused_modules {
-        msg.push_str("  - ");
-        msg.push_str(m.0);
-        msg.push('\n');
-      }
-      bail!(msg);
+      return Err(
+        CoreErrorKind::UnusedModules(
+          unused_modules
+            .into_iter()
+            .map(|(name, _)| name.to_string())
+            .collect::<Vec<_>>(),
+        )
+        .into_box(),
+      );
     }
 
     Ok(())
@@ -228,23 +271,26 @@ impl ModuleLoader for ExtModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     // If specifier is relative to an extension module, we need to do some special handling
     if specifier.starts_with("../")
       || specifier.starts_with("./")
       || referrer.starts_with("ext:")
     {
       // add `/` to the referrer to make it a valid base URL, so we can join the specifier to it
-      return Ok(crate::resolve_url(
-        &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())?
+      return crate::resolve_url(
+        &crate::resolve_url(referrer.replace("ext:", "ext:/").as_str())
+          .map_err(JsErrorBox::from_err)?
           .join(specifier)
-          .map_err(crate::ModuleResolutionError::InvalidBaseUrl)?
+          .map_err(crate::ModuleResolutionError::InvalidBaseUrl)
+          .map_err(JsErrorBox::from_err)?
           .as_str()
           // remove the `/` we added
           .replace("ext:/", "ext:"),
-      )?);
+      )
+      .map_err(JsErrorBox::from_err);
     }
-    Ok(resolve_import(specifier, referrer)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -257,13 +303,23 @@ impl ModuleLoader for ExtModuleLoader {
     let mut sources = self.sources.borrow_mut();
     let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
-      None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" was not passed as an extension module and was not included in the snapshot.", specifier))),
+      None => {
+        return ModuleLoadResponse::Sync(Err(JsErrorBox::generic(format!(
+          "Specifier \"{0}\" was not passed as an extension module and was not included in the snapshot.",
+          specifier
+        ))));
+      }
     };
+    let code = ModuleSourceCode::String(source);
+    let code_cache = self
+      .ext_code_cache
+      .as_ref()
+      .map(|cache| cache.get_code_cache_info(specifier, &code, true));
     ModuleLoadResponse::Sync(Ok(ModuleSource::new(
       ModuleType::JavaScript,
-      ModuleSourceCode::String(source),
+      code,
       specifier,
-      None,
+      code_cache,
     )))
   }
 
@@ -272,8 +328,21 @@ impl ModuleLoader for ExtModuleLoader {
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
-  ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    _requested_module_type: RequestedModuleType,
+  ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
+  }
+
+  fn code_cache_ready(
+    &self,
+    module_specifier: ModuleSpecifier,
+    hash: u64,
+    code_cache: &[u8],
+  ) -> Pin<Box<dyn Future<Output = ()>>> {
+    if let Some(ext_code_cache) = &self.ext_code_cache {
+      ext_code_cache.code_cache_ready(module_specifier, hash, code_cache, true);
+    }
+    std::future::ready(()).boxed_local()
   }
 }
 
@@ -298,8 +367,8 @@ impl ModuleLoader for LazyEsmModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
-    Ok(resolve_import(specifier, referrer)?)
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -312,7 +381,12 @@ impl ModuleLoader for LazyEsmModuleLoader {
     let mut sources = self.sources.borrow_mut();
     let source = match sources.remove(specifier.as_str()) {
       Some(source) => source,
-      None => return ModuleLoadResponse::Sync(Err(anyhow!("Specifier \"{}\" cannot be lazy-loaded as it was not included in the binary.", specifier))),
+      None => {
+        return ModuleLoadResponse::Sync(Err(JsErrorBox::generic(format!(
+          "Specifier \"{0}\" cannot be lazy-loaded as it was not included in the binary.",
+          specifier
+        ))));
+      }
     };
     ModuleLoadResponse::Sync(Ok(ModuleSource::new(
       ModuleType::JavaScript,
@@ -327,9 +401,20 @@ impl ModuleLoader for LazyEsmModuleLoader {
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
     _is_dyn_import: bool,
-  ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    _requested_module_type: RequestedModuleType,
+  ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
+}
+
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(inherit)]
+#[error("Failed to load {specifier}")]
+pub struct LoadFailedError {
+  specifier: ModuleSpecifier,
+  #[source]
+  #[inherit]
+  source: std::io::Error,
 }
 
 /// Basic file system module loader.
@@ -345,8 +430,8 @@ impl ModuleLoader for FsModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
-    Ok(resolve_import(specifier, referrer)?)
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -359,7 +444,7 @@ impl ModuleLoader for FsModuleLoader {
     let module_specifier = module_specifier.clone();
     let fut = async move {
       let path = module_specifier.to_file_path().map_err(|_| {
-        generic_error(format!(
+        JsErrorBox::generic(format!(
           "Provided module specifier \"{module_specifier}\" is not a file URL."
         ))
       })?;
@@ -370,9 +455,13 @@ impl ModuleLoader for FsModuleLoader {
         // can decide what to do with it.
         if ext == "json" {
           ModuleType::Json
+        } else if ext == "wasm" {
+          ModuleType::Wasm
         } else {
           match &requested_module_type {
             RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
+            RequestedModuleType::Text => ModuleType::Text,
+            RequestedModuleType::Bytes => ModuleType::Bytes,
             _ => ModuleType::JavaScript,
           }
         }
@@ -385,11 +474,14 @@ impl ModuleLoader for FsModuleLoader {
       if module_type == ModuleType::Json
         && requested_module_type != RequestedModuleType::Json
       {
-        return Err(generic_error("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."));
+        return Err(JsErrorBox::generic("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."));
       }
 
-      let code = std::fs::read(path).with_context(|| {
-        format!("Failed to load {}", module_specifier.as_str())
+      let code = std::fs::read(path).map_err(|source| {
+        JsErrorBox::from_err(LoadFailedError {
+          specifier: module_specifier.clone(),
+          source,
+        })
       })?;
       let module = ModuleSource::new(
         module_type,
@@ -441,8 +533,8 @@ impl ModuleLoader for StaticModuleLoader {
     specifier: &str,
     referrer: &str,
     _kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
-    Ok(resolve_import(specifier, referrer)?)
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
@@ -460,7 +552,7 @@ impl ModuleLoader for StaticModuleLoader {
         None,
       ))
     } else {
-      Err(generic_error("Module not found"))
+      Err(JsErrorBox::generic("Module not found"))
     };
     ModuleLoadResponse::Sync(res)
   }
@@ -474,6 +566,7 @@ pub struct TestingModuleLoader<L: ModuleLoader> {
   log: RefCell<Vec<ModuleSpecifier>>,
   load_count: std::cell::Cell<usize>,
   prepare_count: std::cell::Cell<usize>,
+  finish_count: std::cell::Cell<usize>,
   resolve_count: std::cell::Cell<usize>,
 }
 
@@ -485,6 +578,7 @@ impl<L: ModuleLoader> TestingModuleLoader<L> {
       log: RefCell::new(vec![]),
       load_count: Default::default(),
       prepare_count: Default::default(),
+      finish_count: Default::default(),
       resolve_count: Default::default(),
     }
   }
@@ -494,6 +588,7 @@ impl<L: ModuleLoader> TestingModuleLoader<L> {
     ModuleLoadEventCounts {
       load: self.load_count.get(),
       prepare: self.prepare_count.get(),
+      finish: self.finish_count.get(),
       resolve: self.resolve_count.get(),
     }
   }
@@ -506,7 +601,7 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     specifier: &str,
     referrer: &str,
     kind: ResolutionKind,
-  ) -> Result<ModuleSpecifier, Error> {
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
     self.resolve_count.set(self.resolve_count.get() + 1);
     self.loader.resolve(specifier, referrer, kind)
   }
@@ -516,11 +611,20 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<String>,
     is_dyn_import: bool,
-  ) -> Pin<Box<dyn Future<Output = Result<(), Error>>>> {
+    requested_module_type: RequestedModuleType,
+  ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     self.prepare_count.set(self.prepare_count.get() + 1);
-    self
-      .loader
-      .prepare_load(module_specifier, maybe_referrer, is_dyn_import)
+    self.loader.prepare_load(
+      module_specifier,
+      maybe_referrer,
+      is_dyn_import,
+      requested_module_type,
+    )
+  }
+
+  fn finish_load(&self) {
+    self.finish_count.set(self.finish_count.get() + 1);
+    self.loader.finish_load();
   }
 
   fn load(
@@ -546,15 +650,22 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
 pub struct ModuleLoadEventCounts {
   pub resolve: usize,
   pub prepare: usize,
+  pub finish: usize,
   pub load: usize,
 }
 
 #[cfg(test)]
 impl ModuleLoadEventCounts {
-  pub fn new(resolve: usize, prepare: usize, load: usize) -> Self {
+  pub fn new(
+    resolve: usize,
+    prepare: usize,
+    finish: usize,
+    load: usize,
+  ) -> Self {
     Self {
       resolve,
       prepare,
+      finish,
       load,
     }
   }

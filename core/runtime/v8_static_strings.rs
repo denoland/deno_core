@@ -1,4 +1,6 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+#[macro_export]
 macro_rules! v8_static_strings {
   ($($ident:ident = $str:literal),* $(,)?) => {
     $(
@@ -7,7 +9,7 @@ macro_rules! v8_static_strings {
   };
 }
 
-pub(crate) use v8_static_strings;
+pub use v8_static_strings;
 
 v8_static_strings!(
   BUILD_CUSTOM_ERROR = "buildCustomError",
@@ -19,12 +21,13 @@ v8_static_strings!(
   CONSTRUCTOR = "constructor",
   CORE = "core",
   DENO = "Deno",
+  DEFAULT = "default",
   DIRNAME = "dirname",
   ERR_MODULE_NOT_FOUND = "ERR_MODULE_NOT_FOUND",
   ERRORS = "errors",
   EVENT_LOOP_TICK = "eventLoopTick",
   FILENAME = "filename",
-  INSTANTIATE = "instantiate",
+  INSTANCE = "Instance",
   MAIN = "main",
   MESSAGE = "message",
   NAME = "name",
@@ -33,6 +36,8 @@ v8_static_strings!(
   SET_UP_ASYNC_STUB = "setUpAsyncStub",
   STACK = "stack",
   URL = "url",
-  WASM_INSTANTIATE = "wasmInstantiate",
+  WASM_INSTANCE = "WasmInstance",
   WEBASSEMBLY = "WebAssembly",
+  ESMODULE = "__esModule",
+  HOST_OBJECT = "Deno.core.hostObject",
 );

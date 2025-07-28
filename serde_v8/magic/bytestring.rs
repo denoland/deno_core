@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 use std::mem::size_of;
 use std::ops::Deref;
@@ -8,8 +8,8 @@ use smallvec::SmallVec;
 
 use super::transl8::FromV8;
 use super::transl8::ToV8;
-use crate::magic::transl8::impl_magic;
 use crate::Error;
+use crate::magic::transl8::impl_magic;
 
 const USIZE2X: usize = size_of::<usize>() * 2;
 
@@ -79,13 +79,7 @@ impl FromV8 for ByteString {
     // before immediately writing into that buffer and sanity check with an assert
     unsafe {
       buffer.set_len(len);
-      let written = v8str.write_one_byte(
-        scope,
-        &mut buffer,
-        0,
-        v8::WriteOptions::NO_NULL_TERMINATION,
-      );
-      assert!(written == len);
+      v8str.write_one_byte_v2(scope, 0, &mut buffer, v8::WriteFlags::empty());
     }
     Ok(Self(buffer))
   }

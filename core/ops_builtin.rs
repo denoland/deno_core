@@ -1,25 +1,35 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
+use crate::CancelHandle;
+use crate::JsBuffer;
+use crate::ModuleId;
+use crate::OpDecl;
+use crate::OpState;
+use crate::Resource;
+use crate::error::CoreError;
+use crate::error::CoreErrorKind;
+use crate::error::ResourceError;
+use crate::error::exception_to_err;
+use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
-use crate::error::type_error;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::io::ResourceId;
+use crate::modules::ModuleMap;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
-use crate::CancelHandle;
-use crate::JsBuffer;
-use crate::OpDecl;
-use crate::OpState;
-use crate::Resource;
-use anyhow::Error;
+use crate::runtime::JsRealm;
+use crate::runtime::v8_static_strings;
 use bytes::BytesMut;
+use deno_error::JsErrorBox;
+use futures::StreamExt;
 use serde_v8::ByteString;
 use std::cell::RefCell;
+use std::io::Write;
 use std::io::stderr;
 use std::io::stdout;
-use std::io::Write;
 use std::rc::Rc;
 
 macro_rules! builtin_ops {
@@ -58,6 +68,7 @@ builtin_ops! {
   op_cancel_handle,
   op_encode_binary_string,
   op_is_terminal,
+  op_import_sync,
   ops_builtin_types::op_is_any_array_buffer,
   ops_builtin_types::op_is_arguments_object,
   ops_builtin_types::op_is_array_buffer,
@@ -106,11 +117,13 @@ builtin_ops! {
   ops_builtin_v8::op_decode,
   ops_builtin_v8::op_serialize,
   ops_builtin_v8::op_deserialize,
+  ops_builtin_v8::op_structured_clone,
   ops_builtin_v8::op_set_promise_hooks,
   ops_builtin_v8::op_get_promise_details,
   ops_builtin_v8::op_get_proxy_details,
   ops_builtin_v8::op_get_non_index_property_names,
   ops_builtin_v8::op_get_constructor_name,
+  ops_builtin_v8::op_get_extras_binding_object,
   ops_builtin_v8::op_memory_usage,
   ops_builtin_v8::op_set_wasm_streaming_callback,
   ops_builtin_v8::op_abort_wasm_streaming,
@@ -123,7 +136,8 @@ builtin_ops! {
   ops_builtin_v8::op_leak_tracing_enable,
   ops_builtin_v8::op_leak_tracing_submit,
   ops_builtin_v8::op_leak_tracing_get_all,
-  ops_builtin_v8::op_leak_tracing_get
+  ops_builtin_v8::op_leak_tracing_get,
+  ops_builtin_v8::op_get_ext_import_meta_proto
 }
 
 #[op2(fast)]
@@ -167,14 +181,14 @@ pub async fn op_void_async() {}
 
 #[allow(clippy::unused_async)]
 #[op2(async)]
-pub async fn op_error_async() -> Result<(), Error> {
-  Err(Error::msg("error"))
+pub async fn op_error_async() -> Result<(), JsErrorBox> {
+  Err(JsErrorBox::generic("error"))
 }
 
 #[allow(clippy::unused_async)]
 #[op2(async(deferred), fast)]
-pub async fn op_error_async_deferred() -> Result<(), Error> {
-  Err(Error::msg("error"))
+pub async fn op_error_async_deferred() -> Result<(), JsErrorBox> {
+  Err(JsErrorBox::generic("error"))
 }
 
 #[allow(clippy::unused_async)]
@@ -186,7 +200,7 @@ pub async fn op_void_async_deferred() {}
 pub fn op_close(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-) -> Result<(), Error> {
+) -> Result<(), ResourceError> {
   let resource = state.borrow_mut().resource_table.take_any(rid)?;
   resource.close();
   Ok(())
@@ -203,7 +217,10 @@ pub fn op_try_close(state: Rc<RefCell<OpState>>, #[smi] rid: ResourceId) {
 
 /// Builtin utility to print to stdout/stderr
 #[op2(fast)]
-pub fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error> {
+pub fn op_print(
+  #[string] msg: &str,
+  is_err: bool,
+) -> Result<(), std::io::Error> {
   if is_err {
     stderr().write_all(msg.as_bytes())?;
     stderr().flush().unwrap();
@@ -221,10 +238,13 @@ impl Resource for WasmStreamingResource {
     // At this point there are no clones of Rc<WasmStreamingResource> on the
     // resource table, and no one should own a reference outside of the stack.
     // Therefore, we can be sure `self` is the only reference.
-    if let Ok(wsr) = Rc::try_unwrap(self) {
-      wsr.0.into_inner().finish();
-    } else {
-      panic!("Couldn't consume WasmStreamingResource.");
+    match Rc::try_unwrap(self) {
+      Ok(wsr) => {
+        wsr.0.into_inner().finish();
+      }
+      _ => {
+        panic!("Couldn't consume WasmStreamingResource.");
+      }
     }
   }
 }
@@ -235,7 +255,7 @@ pub fn op_wasm_streaming_feed(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] bytes: &[u8],
-) -> Result<(), Error> {
+) -> Result<(), ResourceError> {
   let wasm_streaming = state
     .borrow_mut()
     .resource_table
@@ -251,7 +271,7 @@ pub fn op_wasm_streaming_set_url(
   state: &mut OpState,
   #[smi] rid: ResourceId,
   #[string] url: &str,
-) -> Result<(), Error> {
+) -> Result<(), ResourceError> {
   let wasm_streaming =
     state.resource_table.get::<WasmStreamingResource>(rid)?;
 
@@ -260,24 +280,47 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
-#[op2(async)]
+// Get a resource from the resource table and
+// handle unrefing the current task.
+fn get_resource(
+  state: Rc<RefCell<OpState>>,
+  rid: ResourceId,
+  promise_id: i32,
+) -> Result<Rc<dyn Resource>, JsErrorBox> {
+  let op_state = state.borrow();
+  let resource = op_state
+    .resource_table
+    .get_any(rid)
+    .map_err(JsErrorBox::from_err)?;
+
+  if op_state.unrefed_resources.contains(&rid) {
+    op_state.unrefed_ops.borrow_mut().insert(promise_id);
+  }
+
+  Ok(resource)
+}
+
+#[op2(async, promise_id)]
 async fn op_read(
   state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
-) -> Result<u32, Error> {
-  let resource = state.borrow().resource_table.get_any(rid)?;
+) -> Result<u32, JsErrorBox> {
+  let resource = get_resource(state, rid, promise_id)?;
+
   let view = BufMutView::from(buf);
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
-#[op2(async)]
+#[op2(async, promise_id)]
 #[buffer]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
   #[smi] rid: ResourceId,
-) -> Result<BytesMut, Error> {
-  let resource = state.borrow().resource_table.get_any(rid)?;
+) -> Result<BytesMut, JsErrorBox> {
+  let resource = get_resource(state, rid, promise_id)?;
 
   let (min, maybe_max) = resource.size_hint();
   let mut buffer_strategy =
@@ -306,13 +349,15 @@ async fn op_read_all(
   Ok(buf.maybe_unwrap_bytes().unwrap())
 }
 
-#[op2(async)]
+#[op2(async, promise_id)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
-) -> Result<u32, Error> {
-  let resource = state.borrow().resource_table.get_any(rid)?;
+) -> Result<u32, JsErrorBox> {
+  let resource = get_resource(state, rid, promise_id)?;
+
   let view = BufView::from(buf);
   let resp = resource.write(view).await?;
   Ok(resp.nwritten() as u32)
@@ -323,8 +368,12 @@ fn op_read_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] data: &mut [u8],
-) -> Result<u32, Error> {
-  let resource = state.borrow_mut().resource_table.get_any(rid)?;
+) -> Result<u32, JsErrorBox> {
+  let resource = state
+    .borrow_mut()
+    .resource_table
+    .get_any(rid)
+    .map_err(JsErrorBox::from_err)?;
   resource.read_byob_sync(data).map(|n| n as u32)
 }
 
@@ -333,8 +382,12 @@ fn op_write_sync(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] data: &[u8],
-) -> Result<u32, Error> {
-  let resource = state.borrow_mut().resource_table.get_any(rid)?;
+) -> Result<u32, JsErrorBox> {
+  let resource = state
+    .borrow_mut()
+    .resource_table
+    .get_any(rid)
+    .map_err(JsErrorBox::from_err)?;
   let nwritten = resource.write_sync(data)?;
   Ok(nwritten as u32)
 }
@@ -344,8 +397,12 @@ async fn op_write_all(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
-) -> Result<(), Error> {
-  let resource = state.borrow().resource_table.get_any(rid)?;
+) -> Result<(), JsErrorBox> {
+  let resource = state
+    .borrow()
+    .resource_table
+    .get_any(rid)
+    .map_err(JsErrorBox::from_err)?;
   let view = BufView::from(buf);
   resource.write_all(view).await?;
   Ok(())
@@ -356,9 +413,13 @@ async fn op_write_type_error(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
   #[string] error: String,
-) -> Result<(), Error> {
-  let resource = state.borrow().resource_table.get_any(rid)?;
-  resource.write_error(type_error(error)).await?;
+) -> Result<(), JsErrorBox> {
+  let resource = state
+    .borrow()
+    .resource_table
+    .get_any(rid)
+    .map_err(JsErrorBox::from_err)?;
+  resource.write_error(&JsErrorBox::type_error(error)).await?;
   Ok(())
 }
 
@@ -366,8 +427,12 @@ async fn op_write_type_error(
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-) -> Result<(), Error> {
-  let resource = state.borrow().resource_table.get_any(rid)?;
+) -> Result<(), JsErrorBox> {
+  let resource = state
+    .borrow()
+    .resource_table
+    .get_any(rid)
+    .map_err(JsErrorBox::from_err)?;
   resource.shutdown().await
 }
 
@@ -377,7 +442,7 @@ fn op_format_file_name(#[string] file_name: &str) -> String {
   format_file_name(file_name)
 }
 
-#[op2]
+#[op2(fast)]
 fn op_str_byte_length(
   scope: &mut v8::HandleScope,
   value: v8::Local<v8::Value>,
@@ -403,10 +468,198 @@ fn op_encode_binary_string(#[buffer] s: &[u8]) -> ByteString {
 }
 
 #[op2(fast)]
-fn op_is_terminal(
-  state: &mut OpState,
-  #[smi] rid: ResourceId,
-) -> Result<bool, Error> {
-  let handle = state.resource_table.get_handle(rid)?;
-  Ok(handle.is_terminal())
+fn op_is_terminal(state: &mut OpState, #[smi] rid: ResourceId) -> bool {
+  match state.resource_table.get_handle(rid) {
+    Ok(handle) => handle.is_terminal(),
+    _ => false,
+  }
+}
+
+async fn do_load_job(
+  scope: &mut v8::HandleScope<'_>,
+  module_map_rc: Rc<ModuleMap>,
+  specifier: &str,
+  code: Option<String>,
+) -> Result<ModuleId, CoreError> {
+  if let Some(code) = code {
+    module_map_rc
+      .new_es_module(scope, false, specifier.to_owned(), code, false, None)
+      .map_err(|e| e.into_error(scope, false, false))?;
+  }
+
+  let mut load = ModuleMap::load_side(module_map_rc.clone(), specifier).await?;
+
+  while let Some(load_result) = load.next().await {
+    let (request, info) = load_result?;
+    load
+      .register_and_recurse(scope, &request, info)
+      .map_err(|e| e.into_error(scope, false, false))?;
+  }
+
+  let root_id = load.root_module_id.expect("Root module should be loaded");
+
+  let module = module_map_rc
+    .get_module(scope, root_id)
+    .expect("Module must exist");
+
+  match module.get_status() {
+    v8::ModuleStatus::Uninstantiated => {
+      module_map_rc
+        .instantiate_module(scope, root_id)
+        .map_err(|e| {
+          let exception = v8::Local::new(scope, e);
+          exception_to_err(scope, exception, false, false)
+        })?;
+    }
+    v8::ModuleStatus::Instantiated
+    | v8::ModuleStatus::Instantiating
+    | v8::ModuleStatus::Evaluating => {
+      return Err(
+        JsErrorBox::generic(format!(
+          "Cannot require() ES Module {specifier} in a cycle."
+        ))
+        .into(),
+      );
+    }
+    v8::ModuleStatus::Evaluated => {
+      // OK
+    }
+    v8::ModuleStatus::Errored => {
+      return Err(
+        CoreErrorKind::Js(exception_to_err(
+          scope,
+          module.get_exception(),
+          false,
+          false,
+        ))
+        .into_box(),
+      );
+    }
+  }
+
+  Ok(root_id)
+}
+
+/// Wrap module with another module that also exports `__esModule=true` in order
+/// to maintain compat with node, which does this to maintain compat with babel.
+fn wrap_module<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  module: v8::Local<'s, v8::Module>,
+) -> Option<v8::Local<'s, v8::Module>> {
+  const SOURCE: &str = "
+  export * from 'original';
+  export {default} from 'original';
+  export const __esModule = true;";
+
+  let source = v8::String::new(scope, SOURCE)?;
+  let origin = v8::ScriptOrigin::new(
+    scope,
+    source.into(),
+    0,
+    0,
+    false,
+    0,
+    None,
+    true,
+    false,
+    true,
+    None,
+  );
+
+  let mut source = v8::script_compiler::Source::new(source, Some(&origin));
+  let wrapper_module = v8::script_compiler::compile_module(scope, &mut source)?;
+
+  let global_module = v8::Global::new(scope, module);
+  scope.set_slot(global_module);
+
+  #[allow(clippy::unnecessary_wraps)]
+  fn resolve_callback<'s>(
+    context: v8::Local<'s, v8::Context>,
+    specifier: v8::Local<'s, v8::String>,
+    _: v8::Local<'s, v8::FixedArray>,
+    _: v8::Local<'s, v8::Module>,
+  ) -> Option<v8::Local<'s, v8::Module>> {
+    // SAFETY: It is safe to open a CallbackScope from a context in this callback.
+    let mut scope = unsafe { v8::CallbackScope::new(context) };
+    debug_assert_eq!(specifier.to_rust_string_lossy(&mut scope), "original");
+    let module = scope.remove_slot::<v8::Global<v8::Module>>().unwrap();
+    Some(v8::Local::new(&mut scope, module))
+  }
+
+  wrapper_module.instantiate_module(scope, resolve_callback)?;
+
+  wrapper_module.evaluate(scope)?;
+
+  Some(wrapper_module)
+}
+
+#[op2(reentrant)]
+fn op_import_sync<'s>(
+  scope: &mut v8::HandleScope<'s>,
+  #[string] specifier: &str,
+  #[string] code: Option<String>,
+) -> Result<v8::Local<'s, v8::Value>, CoreError> {
+  let module_map_rc = JsRealm::module_map_from(scope);
+
+  // no js execution within block_on
+  let module_id = futures::executor::block_on(do_load_job(
+    scope,
+    module_map_rc.clone(),
+    specifier,
+    code,
+  ))?;
+
+  let module = module_map_rc
+    .get_module(scope, module_id)
+    .expect("Module must exist");
+
+  match module.get_status() {
+    v8::ModuleStatus::Uninstantiated
+    | v8::ModuleStatus::Instantiating
+    | v8::ModuleStatus::Evaluating => {
+      return Err(
+        JsErrorBox::generic(format!(
+          "Cannot require() ES Module {specifier} in a cycle."
+        ))
+        .into(),
+      );
+    }
+    v8::ModuleStatus::Instantiated => {
+      module_map_rc.mod_evaluate_sync(scope, module_id)?;
+    }
+    v8::ModuleStatus::Evaluated => {
+      // OK
+    }
+    v8::ModuleStatus::Errored => {
+      return Err(
+        CoreErrorKind::Js(exception_to_err(
+          scope,
+          module.get_exception(),
+          false,
+          false,
+        ))
+        .into_box(),
+      );
+    }
+  }
+
+  let namespace = module.get_module_namespace().cast::<v8::Object>();
+
+  let scope = &mut v8::TryCatch::new(scope);
+
+  let default = v8_static_strings::DEFAULT.v8_string(scope).unwrap();
+  let es_module = v8_static_strings::ESMODULE.v8_string(scope).unwrap();
+  // If the module has a default export and no __esModule export, wrap it.
+  if namespace.has_own_property(scope, default.into()) == Some(true)
+    && namespace.has_own_property(scope, es_module.into()) == Some(false)
+  {
+    let Some(module) = wrap_module(scope, module) else {
+      let exception = scope.exception().unwrap();
+      return exception_to_err_result(scope, exception, false, false)
+        .map_err(|e| CoreErrorKind::Js(e).into_box());
+    };
+    Ok(v8::Local::new(scope, module.get_module_namespace()))
+  } else {
+    Ok(v8::Local::new(scope, namespace).into())
+  }
 }

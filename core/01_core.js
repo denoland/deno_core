@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 "use strict";
 
 ((window) => {
@@ -15,6 +15,7 @@
     ObjectHasOwn,
     setQueueMicrotask,
     SafeMap,
+    SafeWeakMap,
     Set,
     StringPrototypeSlice,
     Symbol,
@@ -47,9 +48,12 @@
     op_encode,
     op_encode_binary_string,
     op_eval_context,
+    op_structured_clone,
     op_event_loop_has_more_work,
+    op_get_extras_binding_object,
     op_get_promise_details,
     op_get_proxy_details,
+    op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
     op_lazy_load_esm,
     op_memory_usage,
@@ -109,6 +113,11 @@
     op_is_weak_set,
   } = ops;
 
+  const {
+    getContinuationPreservedEmbedderData,
+    setContinuationPreservedEmbedderData,
+  } = op_get_extras_binding_object();
+
   // core/infra collaborative code
   delete window.__infra;
 
@@ -154,10 +163,12 @@
   // responses of async ops.
   function eventLoopTick() {
     // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 3; i += 2) {
+    for (let i = 0; i < arguments.length - 3; i += 3) {
       const promiseId = arguments[i];
-      const res = arguments[i + 1];
-      __resolvePromise(promiseId, res);
+      const isOk = arguments[i + 1];
+      const res = arguments[i + 2];
+
+      __resolvePromise(promiseId, res, isOk);
     }
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
@@ -253,24 +264,6 @@
     return ObjectFromEntries(op_resources());
   }
 
-  function metrics() {
-    // TODO(mmastrac): we should replace this with a newer API
-    return {
-      opsDispatched: 0,
-      opsDispatchedSync: 0,
-      opsDispatchedAsync: 0,
-      opsDispatchedAsyncUnref: 0,
-      opsCompleted: 0,
-      opsCompletedSync: 0,
-      opsCompletedAsync: 0,
-      opsCompletedAsyncUnref: 0,
-      bytesSentControl: 0,
-      bytesSentData: 0,
-      bytesReceived: 0,
-      ops: {},
-    };
-  }
-
   let reportExceptionCallback = (error) => {
     op_dispatch_exception(error, false);
   };
@@ -306,36 +299,36 @@
     });
   }
 
-  // Some "extensions" rely on "BadResource", "Interrupted", "PermissionDenied"
+  // Some "extensions" rely on "BadResource", "Interrupted", "NotCapable"
   // errors in the JS code (eg. "deno_net") so they are provided in "Deno.core"
   // but later reexported on "Deno.errors"
   class BadResource extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "BadResource";
     }
   }
   const BadResourcePrototype = BadResource.prototype;
 
   class Interrupted extends Error {
-    constructor(msg) {
-      super(msg);
+    constructor(msg, options) {
+      super(msg, options);
       this.name = "Interrupted";
     }
   }
   const InterruptedPrototype = Interrupted.prototype;
 
-  class PermissionDenied extends Error {
-    constructor(msg) {
-      super(msg);
-      this.name = "PermissionDenied";
+  class NotCapable extends Error {
+    constructor(msg, options) {
+      super(msg, options);
+      this.name = "NotCapable";
     }
   }
-  const PermissionDeniedPrototype = PermissionDenied.prototype;
+  const NotCapablePrototype = NotCapable.prototype;
 
   registerErrorClass("BadResource", BadResource);
   registerErrorClass("Interrupted", Interrupted);
-  registerErrorClass("PermissionDenied", PermissionDenied);
+  registerErrorClass("NotCapable", NotCapable);
 
   const promiseHooks = [
     [], // init
@@ -488,6 +481,11 @@
     };
   }
 
+  // Default impl of contextual logging
+  op_get_ext_import_meta_proto().log = function internalLog(level, ...args) {
+    console.error(`[${level.toUpperCase()}]`, ...args);
+  };
+
   const consoleStringify = (...args) => args.map(consoleStringifyArg).join(" ");
 
   const consoleStringifyArg = (arg) => {
@@ -608,18 +606,60 @@
     };
   }
 
+  const getAsyncContext = getContinuationPreservedEmbedderData;
+  const setAsyncContext = setContinuationPreservedEmbedderData;
+
+  function scopeAsyncContext(ctx) {
+    const old = getAsyncContext();
+    setAsyncContext(ctx);
+    return {
+      __proto__: null,
+      [Symbol.dispose]() {
+        setAsyncContext(old);
+      },
+    };
+  }
+
+  let asyncVariableCounter = 0;
+  class AsyncVariable {
+    #id = asyncVariableCounter++;
+    #data = new SafeWeakMap();
+
+    enter(value) {
+      const previousContextMapping = getAsyncContext();
+      const entry = { id: this.#id };
+      const asyncContextMapping = {
+        __proto__: null,
+        ...previousContextMapping,
+        [this.#id]: entry,
+      };
+      this.#data.set(entry, value);
+      setAsyncContext(asyncContextMapping);
+      return previousContextMapping;
+    }
+
+    get() {
+      const current = getAsyncContext();
+      const entry = current?.[this.#id];
+      if (entry) {
+        return this.#data.get(entry);
+      }
+      return undefined;
+    }
+  }
+
   // Extra Deno.core.* exports
   const core = ObjectAssign(globalThis.Deno.core, {
     internalRidSymbol: Symbol("Deno.internal.rid"),
+    internalFdSymbol: Symbol("Deno.internal.fd"),
     resources,
-    metrics,
     eventLoopTick,
     BadResource,
     BadResourcePrototype,
     Interrupted,
     InterruptedPrototype,
-    PermissionDenied,
-    PermissionDeniedPrototype,
+    NotCapable,
+    NotCapablePrototype,
     refOpPromise,
     unrefOpPromise,
     setReportExceptionCallback,
@@ -680,6 +720,7 @@
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
     decode: (buffer) => op_decode(buffer),
+    structuredClone: (value) => op_structured_clone(value),
     serialize: (
       value,
       options,
@@ -779,6 +820,10 @@
     propNonEnumerableLazyLoaded,
     createLazyLoader,
     createCancelHandle: () => op_cancel_handle(),
+    getAsyncContext,
+    setAsyncContext,
+    scopeAsyncContext,
+    AsyncVariable,
   });
 
   const internals = {};

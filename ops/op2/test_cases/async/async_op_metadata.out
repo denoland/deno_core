@@ -10,9 +10,12 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_blob_read_part),
             true,
             false,
+            false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -24,9 +27,8 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
     }
     impl op_blob_read_part {
         pub const fn name() -> &'static str {
-            stringify!(op_blob_read_part)
+            <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -96,7 +98,7 @@ const fn op_blob_read_part() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_blob_read_part {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call() {
             return;
         }
@@ -116,9 +118,12 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_broadcast_recv),
             true,
             false,
+            false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             None,
             None,
             ::deno_core::OpMetadata {
@@ -130,9 +135,8 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
     }
     impl op_broadcast_recv {
         pub const fn name() -> &'static str {
-            stringify!(op_broadcast_recv)
+            <Self as deno_core::_ops::Op>::NAME
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -202,7 +206,7 @@ const fn op_broadcast_recv() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_broadcast_recv {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         async fn call() {
             return;
         }

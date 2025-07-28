@@ -1,7 +1,8 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use bencher::*;
-use deno_core::error::generic_error;
 use deno_core::*;
+use deno_error::JsErrorBox;
 use std::ffi::c_void;
 use tokio::runtime::Runtime;
 
@@ -26,7 +27,7 @@ deno_core::extension!(
   ],
 );
 
-#[op2]
+#[op2(fast)]
 pub fn op_call_promise_resolver(scope: &mut v8::HandleScope, f: &v8::Function) {
   let recv = v8::undefined(scope).into();
   f.call(scope, recv, &[]);
@@ -111,14 +112,14 @@ fn bench_op(
     .build()
     .unwrap();
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![testing::init_ops_and_esm()],
+    extensions: vec![testing::init()],
     // We need to feature gate this here to prevent IDE errors
     #[cfg(feature = "unsafe_runtime_options")]
     unsafe_expose_natives_and_gc: true,
     ..Default::default()
   });
   let err_mapper =
-    |err| generic_error(format!("{op} test failed ({call}): {err:?}"));
+    |err| JsErrorBox::generic(format!("{op} test failed ({call}): {err:?}"));
 
   let args = (0..arg_count)
     .map(|n| format!("arg{n}"))

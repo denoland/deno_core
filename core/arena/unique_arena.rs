@@ -1,6 +1,8 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
+
 use std::alloc::Layout;
 use std::future::Future;
+use std::mem::offset_of;
 use std::pin::Pin;
 use std::ptr::NonNull;
 
@@ -38,18 +40,18 @@ struct ArenaBoxData<T> {
 
 impl<T: 'static> ArenaBox<T> {
   /// Offset of the `ptr` field within the `ArenaBox` struct.
-  const PTR_OFFSET: usize = memoffset::offset_of!(ArenaBox<T>, ptr);
+  const PTR_OFFSET: usize = offset_of!(ArenaBox<T>, ptr);
 
   /// Constructs a `NonNull` reference to `ArenaBoxData` from a raw pointer to `T`.
   #[inline(always)]
   unsafe fn data_from_ptr(ptr: NonNull<T>) -> NonNull<ArenaBoxData<T>> {
-    ptr_byte_sub(ptr, Self::PTR_OFFSET)
+    unsafe { ptr_byte_sub(ptr, Self::PTR_OFFSET) }
   }
 
   /// Obtains a raw pointer to `T` from a `NonNull` reference to `ArenaBoxData`.  
   #[inline(always)]
   unsafe fn ptr_from_data(ptr: NonNull<ArenaBoxData<T>>) -> NonNull<T> {
-    ptr_byte_add(ptr, Self::PTR_OFFSET)
+    unsafe { ptr_byte_add(ptr, Self::PTR_OFFSET) }
   }
 
   /// Transforms an `ArenaBox` into a raw pointer to `T` and forgets it.
@@ -59,8 +61,8 @@ impl<T: 'static> ArenaBox<T> {
   /// This function returns a raw pointer without managing the memory, potentially leading to
   /// memory leaks if the pointer is not properly handled or deallocated.
   #[inline(always)]
-  pub fn into_raw(mut alloc: ArenaBox<T>) -> NonNull<T> {
-    let ptr = NonNull::from(alloc.data_mut());
+  pub fn into_raw(alloc: ArenaBox<T>) -> NonNull<T> {
+    let ptr: NonNull<ArenaBoxData<T>> = alloc.ptr;
     std::mem::forget(alloc);
     unsafe { Self::ptr_from_data(ptr) }
   }
@@ -73,11 +75,13 @@ impl<T: 'static> ArenaBox<T> {
   /// valid and properly aligned. Misuse may lead to undefined behavior, memory unsafety, or data corruption.
   #[inline(always)]
   pub unsafe fn from_raw(ptr: NonNull<T>) -> ArenaBox<T> {
-    let ptr = Self::data_from_ptr(ptr);
+    unsafe {
+      let ptr = Self::data_from_ptr(ptr);
 
-    #[cfg(debug_assertions)]
-    debug_assert_eq!(ptr.as_ref().signature, SIGNATURE);
-    ArenaBox { ptr }
+      #[cfg(debug_assertions)]
+      debug_assert_eq!(ptr.as_ref().signature, SIGNATURE);
+      ArenaBox { ptr }
+    }
   }
 }
 
@@ -91,8 +95,10 @@ impl<T> ArenaBox<T> {
   }
 
   #[inline(always)]
-  fn data_mut(&mut self) -> &mut ArenaBoxData<T> {
-    unsafe { self.ptr.as_mut() }
+  pub(crate) fn deref_data(&self) -> NonNull<T> {
+    unsafe {
+      NonNull::new_unchecked(std::ptr::addr_of_mut!((*self.ptr.as_ptr()).data))
+    }
   }
 }
 
@@ -120,20 +126,6 @@ impl<T> std::convert::AsRef<T> for ArenaBox<T> {
   }
 }
 
-impl<T> std::ops::DerefMut for ArenaBox<T> {
-  #[inline(always)]
-  fn deref_mut(&mut self) -> &mut Self::Target {
-    &mut self.data_mut().data
-  }
-}
-
-impl<T> std::convert::AsMut<T> for ArenaBox<T> {
-  #[inline(always)]
-  fn as_mut(&mut self) -> &mut T {
-    &mut self.data_mut().data
-  }
-}
-
 impl<F, R> std::future::Future for ArenaBox<F>
 where
   F: Future<Output = R>,
@@ -142,10 +134,10 @@ where
 
   #[inline(always)]
   fn poll(
-    mut self: Pin<&mut Self>,
+    self: Pin<&mut Self>,
     cx: &mut std::task::Context<'_>,
   ) -> std::task::Poll<Self::Output> {
-    unsafe { F::poll(Pin::new_unchecked(&mut self.data_mut().data), cx) }
+    unsafe { F::poll(Pin::new_unchecked(self.deref_data().as_mut()), cx) }
   }
 }
 
@@ -203,19 +195,23 @@ impl<T> ArenaUnique<T> {
   #[cold]
   #[inline(never)]
   unsafe fn drop_data(data: NonNull<ArenaUniqueData<T>>) {
-    let data = data.as_ptr();
-    std::ptr::drop_in_place(data);
-    std::alloc::dealloc(data as _, Layout::new::<ArenaUniqueData<T>>());
+    unsafe {
+      let data = data.as_ptr();
+      std::ptr::drop_in_place(data);
+      std::alloc::dealloc(data as _, Layout::new::<ArenaUniqueData<T>>());
+    }
   }
 
   /// Deletes the data associated with an `ArenaBox` from the arena. If this is the last
   /// allocation for the arena and the arena has been dropped, de-allocate everything.
   #[inline(always)]
   unsafe fn delete(data: NonNull<ArenaBoxData<T>>) {
-    let arena_data = data.as_ref().arena_data;
-    let arena = arena_data.as_ref();
-    if arena.raw_arena.recycle(data) && !arena.alive {
-      Self::drop_data(arena_data)
+    unsafe {
+      let arena_data = data.as_ref().arena_data;
+      let arena = arena_data.as_ref();
+      if arena.raw_arena.recycle(data) && !arena.alive {
+        Self::drop_data(arena_data)
+      }
     }
   }
 
@@ -278,9 +274,11 @@ impl<T> ArenaUnique<T> {
   /// arena that created them.
   #[inline(always)]
   pub unsafe fn reserve_space(&self) -> Option<ArenaUniqueReservation<T>> {
-    let this = &mut *self.ptr.as_ptr();
-    let ptr = this.raw_arena.allocate_if_space()?;
-    Some(ArenaUniqueReservation(ptr))
+    unsafe {
+      let this = &mut *self.ptr.as_ptr();
+      let ptr = this.raw_arena.allocate_if_space()?;
+      Some(ArenaUniqueReservation(ptr))
+    }
   }
 
   /// Forget a reservation.
@@ -293,10 +291,12 @@ impl<T> ArenaUnique<T> {
     &self,
     reservation: ArenaUniqueReservation<T>,
   ) {
-    let ptr = reservation.0;
-    std::mem::forget(reservation);
-    let this = self.ptr.as_ptr();
-    (*this).raw_arena.recycle_without_drop(ptr);
+    unsafe {
+      let ptr = reservation.0;
+      std::mem::forget(reservation);
+      let this = self.ptr.as_ptr();
+      (*this).raw_arena.recycle_without_drop(ptr);
+    }
   }
 
   /// Complete a reservation.
@@ -311,22 +311,24 @@ impl<T> ArenaUnique<T> {
     reservation: ArenaUniqueReservation<T>,
     data: T,
   ) -> ArenaBox<T> {
-    let ptr = reservation.0;
-    std::mem::forget(reservation);
-    let ptr = {
-      std::ptr::write(
-        ptr.as_ptr(),
-        ArenaBoxData {
-          #[cfg(debug_assertions)]
-          signature: SIGNATURE,
-          arena_data: self.ptr,
-          data,
-        },
-      );
-      ptr
-    };
+    unsafe {
+      let ptr = reservation.0;
+      std::mem::forget(reservation);
+      let ptr = {
+        std::ptr::write(
+          ptr.as_ptr(),
+          ArenaBoxData {
+            #[cfg(debug_assertions)]
+            signature: SIGNATURE,
+            arena_data: self.ptr,
+            data,
+          },
+        );
+        ptr
+      };
 
-    ArenaBox { ptr }
+      ArenaBox { ptr }
+    }
   }
 }
 

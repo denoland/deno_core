@@ -1,4 +1,4 @@
-// Copyright 2018-2024 the Deno authors. All rights reserved. MIT license.
+// Copyright 2018-2025 the Deno authors. MIT license.
 
 //! This module provides traits and macros that facilitate the conversion of Rust objects into v8 objects.
 //!
@@ -29,6 +29,8 @@ use libc::c_void;
 use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::rc::Rc;
+
+use crate::cppgc::PrototypeChain;
 
 /// Convert a value to a `v8::Local`, potentially allocating.
 pub trait RustToV8<'a> {
@@ -70,10 +72,9 @@ where
 {
   #[inline(always)]
   fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
-    if let Some(value) = self {
-      value.to_v8(scope)
-    } else {
-      v8::null(scope).into()
+    match self {
+      Some(value) => value.to_v8(scope),
+      _ => v8::null(scope).into(),
     }
   }
 }
@@ -85,10 +86,9 @@ where
 {
   #[inline(always)]
   fn to_v8_rv(self, rv: &mut v8::ReturnValue<'a>) {
-    if let Some(value) = self {
-      value.to_v8_rv(rv)
-    } else {
-      rv.set_null()
+    match self {
+      Some(value) => value.to_v8_rv(rv),
+      _ => rv.set_null(),
     }
   }
 }
@@ -103,10 +103,9 @@ where
     self,
     scope: &mut v8::HandleScope<'a>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
-    if let Some(value) = self {
-      value.to_v8_fallible(scope)
-    } else {
-      Ok(v8::null(scope).into())
+    match self {
+      Some(value) => value.to_v8_fallible(scope),
+      _ => Ok(v8::null(scope).into()),
     }
   }
 }
@@ -122,11 +121,12 @@ where
     scope: &mut v8::HandleScope<'a>,
     rv: &mut v8::ReturnValue<'a>,
   ) -> serde_v8::Result<()> {
-    if let Some(value) = self {
-      value.to_v8_rv_fallible(scope, rv)
-    } else {
-      rv.set_null();
-      Ok(())
+    match self {
+      Some(value) => value.to_v8_rv_fallible(scope, rv),
+      _ => {
+        rv.set_null();
+        Ok(())
+      }
     }
   }
 }
@@ -165,8 +165,14 @@ impl Marker for ArrayBufferMarker {}
 pub struct CppGcMarker;
 impl Marker for CppGcMarker {}
 
+pub struct CppGcProtoMarker;
+impl Marker for CppGcProtoMarker {}
+
 pub struct ToV8Marker;
 impl Marker for ToV8Marker {}
+
+pub struct Undefined;
+impl Marker for Undefined {}
 
 trait Marker {}
 
@@ -179,7 +185,7 @@ trait Marker {}
 /// to_v8!(bool: |value, scope| v8::Boolean::new(scope, value as _));
 /// ```
 macro_rules! to_v8 {
-  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr_2021) => {
     $(
       impl <'a> RustToV8<'a> for $ty {
         #[inline(always)]
@@ -191,7 +197,7 @@ macro_rules! to_v8 {
       }
     )+
   };
-  ($ty:ty : |$value:ident, $scope:ident| $block:expr) => {
+  ($ty:ty : |$value:ident, $scope:ident| $block:expr_2021) => {
     to_v8!(( $ty ) : |$value, $scope| $block);
   };
 }
@@ -201,7 +207,7 @@ macro_rules! to_v8 {
 /// Implements a Rust-to-v8 conversion that cannot allocate or fail. Multiple types may be specified
 /// to apply the same implementation. Places the return value in a `v8::ReturnValue`.
 macro_rules! to_v8_retval {
-  (( $( $ty:ty ),+ ) : |$value:ident, $rv:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $rv:ident| $block:expr_2021) => {
     $(
       impl <'a> RustToV8RetVal<'a> for $ty {
         #[inline(always)]
@@ -213,7 +219,7 @@ macro_rules! to_v8_retval {
       }
     )+
   };
-  ($ty:ty : |$rv:ident, $scope:ident| $block:expr) => {
+  ($ty:ty : |$rv:ident, $scope:ident| $block:expr_2021) => {
     to_v8_retval!(( $ty ) : |$rv, $scope| $block);
   };
 }
@@ -230,7 +236,7 @@ macro_rules! to_v8_retval {
 /// });
 /// ```
 macro_rules! to_v8_fallible {
-  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr_2021) => {
     $(
       #[allow(clippy::needless_borrow)]
       impl <'a> RustToV8Fallible<'a> for $ty {
@@ -247,7 +253,7 @@ macro_rules! to_v8_fallible {
       }
     )+
   };
-  ($ty:ty : |$value:ident, $scope:ident| $block:expr) => {
+  ($ty:ty : |$value:ident, $scope:ident| $block:expr_2021) => {
     to_v8_fallible!(( $ty ) : |$value, $scope| $block);
   };
 }
@@ -258,7 +264,7 @@ macro_rules! to_v8_fallible {
 /// to apply the same implementation. Will place the output in a `v8::ReturnValue`, but
 /// will not allocate.
 macro_rules! to_v8_retval_fallible {
-  (( $( $ty:ty ),+ ) : |$value:ident, $scope: ident, $rv:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $scope: ident, $rv:ident| $block:expr_2021) => {
     $(
       impl <'a> RustToV8RetValFallible<'a> for $ty {
         #[inline(always)]
@@ -271,7 +277,7 @@ macro_rules! to_v8_retval_fallible {
       }
     )+
   };
-  ($ty:ty : |$value:ident, $scope: ident, $rv:ident| $block:expr) => {
+  ($ty:ty : |$value:ident, $scope: ident, $rv:ident| $block:expr_2021) => {
     to_v8_retval_fallible!(( $ty ) : |$value, $scope, $rv| $block);
   };
 }
@@ -347,26 +353,6 @@ to_v8!(RustToV8Marker<ArrayBufferMarker, serde_v8::JsBuffer>: |value, scope| {
 to_v8_fallible!(serde_v8::JsBuffer: |value, scope| {
   value.into_parts().to_v8_fallible(scope)
 });
-to_v8!(RustToV8Marker<ArrayBufferMarker, Box<[u8]>>: |buf, scope| {
-  let buf = buf.0;
-  if buf.is_empty() {
-    v8::ArrayBuffer::new(scope, 0)
-  } else {
-    let backing_store =
-      v8::ArrayBuffer::new_backing_store_from_boxed_slice(buf);
-    let backing_store_shared = backing_store.make_shared();
-    v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared)
-  }
-});
-to_v8_fallible!(Box<[u8]>: |buf, scope| {
-  let len = buf.len();
-  let ab = unsafe { v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope)) };
-  v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
-});
-to_v8!(RustToV8Marker<ArrayBufferMarker, Vec<u8>>: |value, scope| {
-  RustToV8Marker::<ArrayBufferMarker, _>::from(value.0.into_boxed_slice()).to_v8(scope)
-});
-to_v8_fallible!(Vec<u8>: |value, scope| value.into_boxed_slice().to_v8_fallible(scope));
 to_v8!(RustToV8Marker<ArrayBufferMarker, BytesMut>: |value, scope| {
   let value = value.0;
   let ptr = value.as_ptr();
@@ -393,6 +379,42 @@ to_v8_fallible!(BytesMut: |buf, scope| {
   v8::Uint8Array::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
 });
 
+macro_rules! typedarray {
+  ($rty:ty, $v8ty:ident) => {
+    to_v8!(RustToV8Marker<ArrayBufferMarker, Box<[$rty]>>: |buf, scope| {
+      let buf = buf.0;
+      if buf.is_empty() {
+        v8::ArrayBuffer::new(scope, 0)
+      } else {
+        let backing_store =
+          v8::ArrayBuffer::new_backing_store_from_bytes(buf);
+        let backing_store_shared = backing_store.make_shared();
+        v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared)
+      }
+    });
+    to_v8_fallible!(Box<[$rty]>: |buf, scope| {
+      let len = buf.len();
+      let ab = unsafe {
+        v8::Local::cast_unchecked(RustToV8Marker::<ArrayBufferMarker, _>::from(buf).to_v8(scope))
+      };
+      v8::$v8ty::new(scope, ab, 0, len).ok_or_else(|| serde_v8::Error::Message("failed to allocate array".into()))
+    });
+    to_v8!(RustToV8Marker<ArrayBufferMarker, Vec<$rty>>: |value, scope| {
+      RustToV8Marker::<ArrayBufferMarker, _>::from(value.0.into_boxed_slice()).to_v8(scope)
+    });
+    to_v8_fallible!(Vec<$rty>: |value, scope| value.into_boxed_slice().to_v8_fallible(scope));
+  }
+}
+
+typedarray!(u8, Uint8Array);
+typedarray!(u16, Uint16Array);
+typedarray!(u32, Uint32Array);
+typedarray!(u64, BigUint64Array);
+typedarray!(i8, Int8Array);
+typedarray!(i16, Int16Array);
+typedarray!(i32, Int32Array);
+typedarray!(i64, BigInt64Array);
+
 //
 // Serde
 //
@@ -412,7 +434,6 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
 //
 // CppGc
 //
-
 impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
   for RustToV8Marker<CppGcMarker, T>
 {
@@ -421,6 +442,27 @@ impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
     v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_object(
       scope, self.0,
     ))
+  }
+}
+
+impl<'a, T: crate::cppgc::GarbageCollected + PrototypeChain + 'static>
+  RustToV8<'a> for RustToV8Marker<CppGcProtoMarker, T>
+{
+  #[inline(always)]
+  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+    v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_proto_object(
+      scope, self.0,
+    ))
+  }
+}
+
+//
+// Undefined
+//
+impl<'a> RustToV8<'a> for RustToV8Marker<Undefined, ()> {
+  #[inline(always)]
+  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+    v8::undefined(scope).into()
   }
 }
 

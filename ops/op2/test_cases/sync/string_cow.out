@@ -10,25 +10,44 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
             ::deno_core::__op_name_fast!(op_string_cow),
             false,
             false,
+            false,
             1usize as u8,
+            false,
             Self::v8_fn_ptr as _,
             Self::v8_fn_ptr_metrics as _,
+            ::deno_core::AccessorType::None,
             Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::SeqOneByteString],
-                    CType::Uint32,
-                    Self::v8_fn_ptr_fast as *const ::std::ffi::c_void,
+                use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
+                deno_core::v8::fast_api::CFunction::new(
+                    Self::v8_fn_ptr_fast as _,
+                    &deno_core::v8::fast_api::CFunctionInfo::new(
+                        v8::fast_api::CTypeInfo::new(
+                            CType::Uint32,
+                            v8::fast_api::Flags::Clamp,
+                        ),
+                        &[CType::V8Value.as_info(), CType::SeqOneByteString.as_info()],
+                        deno_core::v8::fast_api::Int64Representation::BigInt,
+                    ),
                 )
             }),
             Some({
-                use deno_core::v8::fast_api::Type;
-                use deno_core::v8::fast_api::CType;
-                deno_core::v8::fast_api::FastFunction::new_with_bigint(
-                    &[Type::V8Value, Type::SeqOneByteString, Type::CallbackOptions],
-                    CType::Uint32,
-                    Self::v8_fn_ptr_fast_metrics as *const ::std::ffi::c_void,
+                use deno_core::v8::fast_api::Type as CType;
+                use deno_core::v8;
+                deno_core::v8::fast_api::CFunction::new(
+                    Self::v8_fn_ptr_fast_metrics as _,
+                    &deno_core::v8::fast_api::CFunctionInfo::new(
+                        v8::fast_api::CTypeInfo::new(
+                            CType::Uint32,
+                            v8::fast_api::Flags::Clamp,
+                        ),
+                        &[
+                            CType::V8Value.as_info(),
+                            CType::SeqOneByteString.as_info(),
+                            CType::CallbackOptions.as_info(),
+                        ],
+                        deno_core::v8::fast_api::Int64Representation::BigInt,
+                    ),
                 )
             }),
             ::deno_core::OpMetadata {
@@ -38,7 +57,7 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
     }
     impl op_string_cow {
         pub const fn name() -> &'static str {
-            stringify!(op_string_cow)
+            <Self as deno_core::_ops::Op>::NAME
         }
         #[allow(clippy::too_many_arguments)]
         extern "C" fn v8_fn_ptr_fast_metrics<'s>(
@@ -54,7 +73,7 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
             let opctx: &'s _ = unsafe {
                 &*(deno_core::v8::Local::<
                     deno_core::v8::External,
-                >::cast_unchecked(unsafe { fast_api_callback_options.data.data })
+                >::cast_unchecked(unsafe { fast_api_callback_options.data })
                     .value() as *const deno_core::_ops::OpCtx)
             };
             deno_core::_ops::dispatch_metrics_fast(
@@ -89,7 +108,6 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
             };
             result as _
         }
-        #[inline(always)]
         fn slow_function_impl<'s>(
             info: &'s deno_core::v8::FunctionCallbackInfo,
         ) -> usize {
@@ -113,6 +131,19 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
                 let mut arg0_temp: [::std::mem::MaybeUninit<
                     u8,
                 >; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
+                let arg0 = if !arg0.is_string() {
+                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                    let mut tc = deno_core::v8::TryCatch::new(&mut scope);
+                    match arg0.to_string(&mut tc) {
+                        Some(v) => v.into(),
+                        None => {
+                            tc.rethrow();
+                            return 1;
+                        }
+                    }
+                } else {
+                    arg0
+                };
                 let arg0 = deno_core::_ops::to_str(&mut scope, &arg0, &mut arg0_temp);
                 Self::call(arg0)
             };
@@ -155,7 +186,7 @@ const fn op_string_cow() -> ::deno_core::_ops::OpDecl {
         }
     }
     impl op_string_cow {
-        #[inline(always)]
+        #[allow(clippy::too_many_arguments)]
         fn call(s: Cow<str>) -> u32 {
             s.len() as _
         }
