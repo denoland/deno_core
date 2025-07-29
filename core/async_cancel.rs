@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use std::any::Any;
 use std::any::type_name;
 use std::borrow::Cow;
 use std::error::Error;
@@ -265,7 +264,7 @@ impl JsErrorClass for Canceled {
     io_err.get_additional_properties()
   }
 
-  fn as_any(&self) -> &dyn Any {
+  fn get_ref(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
     self
   }
 }

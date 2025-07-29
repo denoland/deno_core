@@ -14,7 +14,6 @@ use deno_error::JsError;
 use deno_error::JsErrorClass;
 use deno_error::PropertyValue;
 use deno_error::builtin_classes::*;
-use std::any::Any;
 use std::borrow::Cow;
 use std::collections::HashSet;
 use std::error::Error;
@@ -376,7 +375,7 @@ impl JsErrorClass for JsError {
     )
   }
 
-  fn as_any(&self) -> &dyn Any {
+  fn get_ref(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
     self
   }
 }
