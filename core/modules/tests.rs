@@ -34,7 +34,6 @@ use deno_error::JsErrorClass;
 use deno_ops::op2;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
-use std::any::Any;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -219,7 +218,7 @@ impl JsErrorClass for MockError {
     unimplemented!()
   }
 
-  fn as_any(&self) -> &dyn Any {
+  fn get_ref(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
     self
   }
 }
@@ -1428,7 +1427,7 @@ async fn loader_disappears_after_error() {
     unreachable!();
   };
   assert_eq!(
-    err.as_any().downcast_ref::<MockError>().unwrap(),
+    err.get_ref().downcast_ref::<MockError>().unwrap(),
     &MockError::ResolveErr
   );
 }
