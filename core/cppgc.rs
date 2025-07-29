@@ -139,14 +139,14 @@ pub(crate) fn make_cppgc_template<'s>(
   v8::FunctionTemplate::new(scope, cppgc_template_constructor)
 }
 
-pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
+#[doc(hidden)]
+pub fn make_cppgc_empty_object<'a, T: GarbageCollected + 'static>(
   scope: &mut v8::HandleScope<'a>,
-  t: T,
 ) -> v8::Local<'a, v8::Object> {
   let state = JsRuntime::state_from(scope);
   let templates = state.function_templates.borrow();
 
-  let obj = match templates.get::<T>() {
+  match templates.get::<T>() {
     Some(templ) => {
       let templ = v8::Local::new(scope, templ);
       let inst = templ.instance_template(scope);
@@ -158,8 +158,14 @@ pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
       let func = templ.get_function(scope).unwrap();
       func.new_instance(scope, &[]).unwrap()
     }
-  };
+  }
+}
 
+pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
+  scope: &mut v8::HandleScope<'a>,
+  t: T,
+) -> v8::Local<'a, v8::Object> {
+  let obj = make_cppgc_empty_object::<T>(scope);
   wrap_object(scope, obj, t)
 }
 
@@ -192,28 +198,12 @@ pub fn make_cppgc_proto_object<
   scope: &mut v8::HandleScope<'a>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
-  let state = JsRuntime::state_from(scope);
-  let templates = state.function_templates.borrow();
-
-  let obj = match templates.get::<T>() {
-    Some(templ) => {
-      let templ = v8::Local::new(scope, templ);
-      let inst = templ.instance_template(scope);
-      inst.new_instance(scope).unwrap()
-    }
-    _ => {
-      let templ =
-        v8::Local::new(scope, state.cppgc_template.borrow().as_ref().unwrap());
-      let func = templ.get_function(scope).unwrap();
-      func.new_instance(scope, &[]).unwrap()
-    }
-  };
-
+  let obj = make_cppgc_empty_object::<T>(scope);
   wrap_object1(scope, obj, t)
 }
 
 #[doc(hidden)]
-pub fn wrap_object1<'a, T: GarbageCollected + 'static>(
+pub fn wrap_object1<'a, T: GarbageCollected + PrototypeChain + 'static>(
   isolate: &mut v8::Isolate,
   obj: v8::Local<'a, v8::Object>,
   t: T,
@@ -251,8 +241,8 @@ pub fn wrap_object1<'a, T: GarbageCollected + 'static>(
 #[doc(hidden)]
 pub fn wrap_object2<
   'a,
-  T: GarbageCollected + 'static,
-  S: GarbageCollected + 'static,
+  T: GarbageCollected + PrototypeChain + 'static,
+  S: GarbageCollected + PrototypeChain + 'static,
 >(
   isolate: &mut v8::Isolate,
   obj: v8::Local<'a, v8::Object>,
@@ -300,9 +290,9 @@ pub fn wrap_object2<
 #[doc(hidden)]
 pub fn wrap_object3<
   'a,
-  T: GarbageCollected + 'static,
-  S: GarbageCollected + 'static,
-  R: GarbageCollected + 'static,
+  T: GarbageCollected + PrototypeChain + 'static,
+  S: GarbageCollected + PrototypeChain + 'static,
+  R: GarbageCollected + PrototypeChain + 'static,
 >(
   isolate: &mut v8::Isolate,
   obj: v8::Local<'a, v8::Object>,
