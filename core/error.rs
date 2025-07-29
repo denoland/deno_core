@@ -404,12 +404,14 @@ pub struct JsStackFrame {
 
 /// Applies source map to the given location
 fn apply_source_map<'a>(
+  scope: &mut v8::HandleScope,
   source_mapper: &mut crate::source_map::SourceMapper,
   file_name: Cow<'a, str>,
   line_number: i64,
   column_number: i64,
 ) -> (Cow<'a, str>, i64, i64) {
   match source_mapper.apply_source_map(
+    scope,
     &file_name,
     line_number as u32,
     column_number as u32,
@@ -547,7 +549,7 @@ impl JsStackFrame {
     ) {
       (Some(f), Some(l), Some(c)) => {
         let (file_name, line_num, col_num) =
-          apply_source_map(&mut source_mapper, f.into(), l, c);
+          apply_source_map(scope, &mut source_mapper, f.into(), l, c);
         (Some(file_name.into_owned()), Some(line_num), Some(col_num))
       }
       (f, l, c) => (f, l, c),
@@ -560,7 +562,7 @@ impl JsStackFrame {
         return Some(o);
       };
       let (file, line, col) =
-        apply_source_map(&mut source_mapper, file.into(), line, col);
+        apply_source_map(scope, &mut source_mapper, file.into(), line, col);
       Some(format!("{before}{file}:{line}:{col}{after}"))
     });
 
@@ -598,7 +600,7 @@ impl JsStackFrame {
     let state = JsRuntime::state_from(scope);
     let mut source_mapper = state.source_mapper.borrow_mut();
     let (file_name, line_num, col_num) =
-      apply_source_map(&mut source_mapper, f.into(), l, c);
+      apply_source_map(scope, &mut source_mapper, f.into(), l, c);
     Some(JsStackFrame::from_location(
       Some(file_name.into_owned()),
       Some(line_num),
@@ -705,7 +707,7 @@ impl JsError {
     Self::inner_from_v8_exception(scope, exception, Default::default())
   }
 
-  pub fn from_v8_message<'a>(
+  pub(crate) fn from_v8_message<'a>(
     scope: &'a mut v8::HandleScope,
     msg: v8::Local<'a, v8::Message>,
   ) -> Self {
@@ -715,42 +717,21 @@ impl JsError {
 
     let exception_message = msg.get(scope).to_rust_string_lossy(scope);
 
-    // Convert them into Vec<JsStackFrame>
-    let mut frames: Vec<JsStackFrame> = vec![];
-    let mut source_line = None;
-    let mut source_line_frame_index = None;
-
-    if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
-      frames = vec![stack_frame];
-    }
-    {
-      let state = JsRuntime::state_from(scope);
-      let mut source_mapper = state.source_mapper.borrow_mut();
-      for (i, frame) in frames.iter().enumerate() {
-        if let (Some(file_name), Some(line_number)) =
-          (&frame.file_name, frame.line_number)
-        {
-          if !file_name.trim_start_matches('[').starts_with("ext:") {
-            source_line = source_mapper.get_source_line(file_name, line_number);
-            source_line_frame_index = Some(i);
-            break;
-          }
-        }
-      }
-    }
-
-    Self {
+    let mut js_error = Self {
       name: None,
       message: None,
       exception_message,
       cause: None,
-      source_line,
-      source_line_frame_index,
-      frames,
+      source_line: None,
+      source_line_frame_index: None,
+      frames: vec![],
       stack: None,
       aggregated: None,
       additional_properties: vec![],
     }
+
+    js_error.frames = vec![stack_frame];
+    js_error
   }
 
   fn inner_from_v8_exception<'a>(
@@ -873,14 +854,14 @@ impl JsError {
       {
         let state = JsRuntime::state_from(scope);
         let mut source_mapper = state.source_mapper.borrow_mut();
-        for (i, frame) in frames.iter().enumerate() {
+        for (index, frame) in frames.iter().enumerate() {
           if let (Some(file_name), Some(line_number)) =
             (&frame.file_name, frame.line_number)
           {
             if !file_name.trim_start_matches('[').starts_with("ext:") {
               source_line =
                 source_mapper.get_source_line(file_name, line_number);
-              source_line_frame_index = Some(i);
+              source_line_frame_index = Some(index);
               break;
             }
           }
@@ -972,13 +953,35 @@ impl std::error::Error for JsError {}
 
 impl Display for JsError {
   fn fmt(&self, f: &mut Formatter) -> fmt::Result {
+    // eprintln!("inside js error {}", self.source_line.is_some());
     if let Some(stack) = &self.stack {
+      // eprintln!("inside js error stack");
       let stack_lines = stack.lines();
       if stack_lines.count() > 1 {
         return write!(f, "{stack}");
       }
     }
+
     write!(f, "{}", self.exception_message)?;
+    if let Some(source_line) = self.source_line.as_ref() {
+      writeln!(f)?;
+      write!(f, "  {}", source_line)?;
+      let column_number = self
+        .source_line_frame_index
+        .and_then(|i| self.frames.get(i).unwrap().column_number);
+      if let Some(column_number) = column_number {
+        let mut s = String::new();
+        for _i in 0..(column_number - 1) {
+          if source_line.chars().nth(_i as usize).unwrap() == '\t' {
+            s.push('\t');
+          } else {
+            s.push(' ');
+          }
+        }
+        s.push('^');
+        write!(f, "  {}", s)?;
+      }
+    }
     let location = self.frames.first().and_then(|f| f.maybe_format_location());
     if let Some(location) = location {
       write!(f, "\n    at {location}")?;
