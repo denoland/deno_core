@@ -193,7 +193,6 @@
     }
 
     if (timers) {
-      op_print(`${timers.join("%")}`);
       timersRunning = true;
       for (let i = 0; i < timers.length; i += 3) {
         timerDepth = timers[i];
