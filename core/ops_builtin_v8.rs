@@ -14,6 +14,7 @@ use crate::resolve_url;
 use crate::runtime::JsRealm;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::op_driver::OpDriver;
+use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::stats::RuntimeActivityType;
 use deno_error::JsErrorBox;
@@ -673,7 +674,7 @@ pub fn op_serialize(
     None => None,
   };
 
-  let key = v8::String::new(scope, "Deno.core.hostObject").unwrap();
+  let key = v8_static_strings::HOST_OBJECT.v8_string(scope).unwrap();
   let symbol = v8::Symbol::for_key(scope, key);
   let host_object_brand = Some(v8::Global::new(scope, symbol));
 
@@ -803,6 +804,62 @@ pub fn op_deserialize<'a>(
         }
       }
     }
+  }
+
+  let value = value_deserializer.read_value(scope.get_current_context());
+  match value {
+    Some(deserialized) => Ok(deserialized),
+    None => Err(JsErrorBox::range_error("could not deserialize value")),
+  }
+}
+
+// Specialized op for `structuredClone` API called with no `options` argument.
+#[op2]
+pub fn op_structured_clone<'a>(
+  scope: &mut v8::HandleScope<'a>,
+  value: v8::Local<v8::Value>,
+) -> Result<v8::Local<'a, v8::Value>, JsErrorBox> {
+  let key = v8_static_strings::HOST_OBJECT.v8_string(scope).unwrap();
+  let symbol = v8::Symbol::for_key(scope, key);
+  let host_object_brand = Some(v8::Global::new(scope, symbol));
+
+  let serialize_deserialize = Box::new(SerializeDeserialize {
+    host_objects: None,
+    error_callback: None,
+    for_storage: false,
+    host_object_brand: host_object_brand.clone(),
+  });
+  let value_serializer = v8::ValueSerializer::new(scope, serialize_deserialize);
+  value_serializer.write_header();
+
+  let scope = &mut v8::TryCatch::new(scope);
+  let ret = value_serializer.write_value(scope.get_current_context(), value);
+  if scope.has_caught() || scope.has_terminated() {
+    scope.rethrow();
+    // Dummy value, this result will be discarded because an error was thrown.
+    let v = v8::undefined(scope);
+    return Ok(v.into());
+  }
+
+  if !matches!(ret, Some(true)) {
+    return Err(JsErrorBox::type_error("Failed to serialize response"));
+  }
+
+  let vector = value_serializer.release();
+
+  let serialize_deserialize = Box::new(SerializeDeserialize {
+    host_objects: None,
+    error_callback: None,
+    for_storage: false,
+    host_object_brand: host_object_brand.clone(),
+  });
+  let value_deserializer =
+    v8::ValueDeserializer::new(scope, serialize_deserialize, &vector);
+  let parsed_header = value_deserializer
+    .read_header(scope.get_current_context())
+    .unwrap_or_default();
+  if !parsed_header {
+    return Err(JsErrorBox::range_error("could not deserialize value"));
   }
 
   let value = value_deserializer.read_value(scope.get_current_context());

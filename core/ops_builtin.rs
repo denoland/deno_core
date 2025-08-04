@@ -7,7 +7,9 @@ use crate::OpDecl;
 use crate::OpState;
 use crate::Resource;
 use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::error::ResourceError;
+use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
 use crate::error::format_file_name;
 use crate::io::AdaptiveBufferStrategy;
@@ -117,6 +119,7 @@ builtin_ops! {
   ops_builtin_v8::op_decode,
   ops_builtin_v8::op_serialize,
   ops_builtin_v8::op_deserialize,
+  ops_builtin_v8::op_structured_clone,
   ops_builtin_v8::op_set_promise_hooks,
   ops_builtin_v8::op_get_promise_details,
   ops_builtin_v8::op_get_proxy_details,
@@ -507,8 +510,7 @@ async fn do_load_job(
         .instantiate_module(scope, root_id)
         .map_err(|e| {
           let exception = v8::Local::new(scope, e);
-          exception_to_err_result::<()>(scope, exception, false, false)
-            .unwrap_err()
+          exception_to_err(scope, exception, false, false)
         })?;
     }
     v8::ModuleStatus::Instantiated
@@ -526,13 +528,13 @@ async fn do_load_job(
     }
     v8::ModuleStatus::Errored => {
       return Err(
-        exception_to_err_result::<()>(
+        CoreErrorKind::Js(exception_to_err(
           scope,
           module.get_exception(),
           false,
           false,
-        )
-        .unwrap_err(),
+        ))
+        .into_box(),
       );
     }
   }
@@ -632,13 +634,13 @@ fn op_import_sync<'s>(
     }
     v8::ModuleStatus::Errored => {
       return Err(
-        exception_to_err_result::<()>(
+        CoreErrorKind::Js(exception_to_err(
           scope,
           module.get_exception(),
           false,
           false,
-        )
-        .unwrap_err(),
+        ))
+        .into_box(),
       );
     }
   }
@@ -655,7 +657,8 @@ fn op_import_sync<'s>(
   {
     let Some(module) = wrap_module(scope, module) else {
       let exception = scope.exception().unwrap();
-      return exception_to_err_result(scope, exception, false, false);
+      return exception_to_err_result(scope, exception, false, false)
+        .map_err(|e| CoreErrorKind::Js(e).into_box());
     };
     Ok(v8::Local::new(scope, module.get_module_namespace()))
   } else {

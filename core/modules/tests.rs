@@ -10,7 +10,7 @@ use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
 use crate::ascii_str;
-use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::error::exception_to_err_result;
 use crate::modules::CustomModuleEvaluationKind;
 use crate::modules::IntoModuleName;
@@ -34,7 +34,6 @@ use deno_error::JsErrorClass;
 use deno_ops::op2;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
-use std::any::Any;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -219,7 +218,7 @@ impl JsErrorClass for MockError {
     unimplemented!()
   }
 
-  fn as_any(&self) -> &dyn Any {
+  fn get_ref(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
     self
   }
 }
@@ -267,7 +266,7 @@ impl Future for DelayedSourceCodeFuture {
           }),
         )))
       }
-      None => Poll::Ready(Err(JsErrorBox::from_err(MockError::LoadErr).into())),
+      None => Poll::Ready(Err(JsErrorBox::from_err(MockError::LoadErr))),
     }
   }
 }
@@ -288,14 +287,14 @@ impl ModuleLoader for MockLoader {
     let output_specifier = match resolve_import(specifier, referrer) {
       Ok(specifier) => specifier,
       Err(..) => {
-        return Err(JsErrorBox::from_err(MockError::ResolveErr).into());
+        return Err(JsErrorBox::from_err(MockError::ResolveErr));
       }
     };
 
     if mock_source_code(output_specifier.as_ref()).is_some() {
       Ok(output_specifier)
     } else {
-      Err(JsErrorBox::from_err(MockError::ResolveErr).into())
+      Err(JsErrorBox::from_err(MockError::ResolveErr))
     }
   }
 
@@ -1424,14 +1423,11 @@ async fn loader_disappears_after_error() {
   let spec = resolve_url("file:///bad_import.js").unwrap();
   let result = runtime.load_main_es_module(&spec).await;
 
-  let CoreError::ModuleLoader(err) = result.unwrap_err() else {
-    unreachable!();
-  };
-  let ModuleLoaderError::Core(CoreError::JsBox(err)) = *err else {
+  let CoreErrorKind::JsBox(err) = result.unwrap_err().into_kind() else {
     unreachable!();
   };
   assert_eq!(
-    err.as_any().downcast_ref::<MockError>().unwrap(),
+    err.get_ref().downcast_ref::<MockError>().unwrap(),
     &MockError::ResolveErr
   );
 }
@@ -1698,7 +1694,7 @@ async fn no_duplicate_loads() {
         referrer
       };
 
-      Ok(resolve_import(specifier, referrer)?)
+      resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
     }
 
     fn load(
@@ -1772,7 +1768,7 @@ async fn import_meta_resolve() {
       } else {
         referrer
       };
-      Ok(resolve_import(specifier, referrer)?)
+      resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
     }
 
     fn import_meta_resolve(
@@ -1788,7 +1784,7 @@ async fn import_meta_resolve() {
         return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
       }
 
-      Err(JsErrorBox::generic("unexpected").into())
+      Err(JsErrorBox::generic("unexpected"))
     }
 
     fn load(
