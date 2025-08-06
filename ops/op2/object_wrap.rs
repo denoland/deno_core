@@ -122,8 +122,6 @@ pub(crate) fn generate_impl_ops(
       }
 
       if let Some(ref rename) = config.rename {
-        // Don't change the function identifier if rename contains keywords
-        // The rename is used for the JavaScript property name, not the Rust function name
         if syn::parse_str::<syn::Ident>(rename).is_err() {
           // Keep the original function name if rename is a keyword
         } else {
