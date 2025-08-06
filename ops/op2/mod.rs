@@ -219,7 +219,8 @@ pub(crate) fn generate_op2(
   let mut slow_generator_state = base_generator_state.clone();
 
   let rust_name = func.sig.ident;
-  let name = orig_name;
+  let name = config.rename.as_deref().unwrap_or(&orig_name.to_string()).to_string();
+  let name = format_ident!("{}", name);
 
   let slow_fn = if signature.ret_val.is_async() {
     generate_dispatch_async(&config, &mut slow_generator_state, &signature)?
