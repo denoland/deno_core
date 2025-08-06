@@ -157,18 +157,6 @@ pub fn op_timer_queue_system(
     .queue_system_timer(repeat, timeout_ms as _, (task, 0)) as _
 }
 
-/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
-/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
-/// `u32`.
-#[op2]
-pub fn op_timer_queue_immediate(
-  scope: &mut v8::HandleScope,
-  #[global] task: v8::Global<v8::Function>,
-) -> f64 {
-  let context_state = JsRealm::state_from_scope(scope);
-  context_state.timers.queue_timer(0, (task, 0)) as _
-}
-
 #[op2(fast)]
 pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
@@ -237,6 +225,13 @@ pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
 pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
+    .set(v);
+}
+
+#[op2(fast)]
+pub fn op_set_has_immediate_scheduled(scope: &mut v8::HandleScope, v: bool) {
+  JsRealm::state_from_scope(scope)
+    .has_immediate_scheduled
     .set(v);
 }
 

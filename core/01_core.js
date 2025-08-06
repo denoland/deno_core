@@ -67,13 +67,13 @@
     op_add_main_module_handler,
     op_set_handled_promise_rejection_handler,
     op_set_has_tick_scheduled,
+    op_set_has_immediate_scheduled,
     op_set_promise_hooks,
     op_set_wasm_streaming_callback,
     op_str_byte_length,
     op_timer_cancel,
     op_timer_queue,
     op_timer_queue_system,
-    op_timer_queue_immediate,
     op_timer_ref,
     op_timer_unref,
     op_unref_op,
@@ -148,6 +148,7 @@
 
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
+  const immediateCallbacks = [];
 
   function setMacrotaskCallback(cb) {
     ArrayPrototypePush(macrotaskCallbacks, cb);
@@ -155,6 +156,10 @@
 
   function setNextTickCallback(cb) {
     ArrayPrototypePush(nextTickCallbacks, cb);
+  }
+
+  function setImmediateCallback(cb) {
+    ArrayPrototypePush(immediateCallbacks, cb);
   }
 
   // This function has variable number of arguments. The last argument describes
@@ -177,6 +182,12 @@
       }
     } else {
       op_run_microtasks();
+    }
+
+    // Drain immediates queue.
+    // TODO: might do it recursively
+    for (let i = 0; i < immediateCallbacks.length; i++) {
+      immediateCallbacks[i]();
     }
 
     // Finally drain macrotask queue.
@@ -690,9 +701,11 @@
       op_leak_tracing_get(0, promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
+    setImmediateCallback,
     runMicrotasks: () => op_run_microtasks(),
     hasTickScheduled: () => op_has_tick_scheduled(),
     setHasTickScheduled: (bool) => op_set_has_tick_scheduled(bool),
+    setHasImmediateScheduled: (bool) => op_set_has_immediate_scheduled(bool),
     evalContext: (
       source,
       specifier,
@@ -799,7 +812,6 @@
     // TODO(mmastrac): Hook up associatedOp to tracing
     queueSystemTimer: (_associatedOp, repeat, timeout, task) =>
       op_timer_queue_system(repeat, timeout, task),
-    queueImmediate: (task) => op_timer_queue_immediate(task),
     cancelTimer: (id) => {
       if (timersRunning) {
         cancelledTimers.add(id);
