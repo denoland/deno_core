@@ -320,6 +320,10 @@ impl DOMPoint {
   #[fast]
   #[stack_trace]
   fn with_stack_trace(&self) {}
+
+  #[fast]
+  #[rename("impl")]
+  fn impl_method(&self) {}
 }
 
 #[repr(u8)]
