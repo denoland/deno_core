@@ -229,6 +229,13 @@ pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
 }
 
 #[op2(fast)]
+pub fn op_has_immediate_scheduled(scope: &mut v8::HandleScope) -> bool {
+  JsRealm::state_from_scope(scope)
+    .has_immediate_scheduled
+    .get()
+}
+
+#[op2(fast)]
 pub fn op_set_has_immediate_scheduled(scope: &mut v8::HandleScope, v: bool) {
   JsRealm::state_from_scope(scope)
     .has_immediate_scheduled

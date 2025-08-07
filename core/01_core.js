@@ -55,6 +55,7 @@
     op_get_proxy_details,
     op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
+    op_has_immediate_scheduled,
     op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
@@ -186,8 +187,21 @@
 
     // Drain immediates queue.
     // TODO: might do it recursively
-    for (let i = 0; i < immediateCallbacks.length; i++) {
-      immediateCallbacks[i]();
+    if (op_has_immediate_scheduled()) {
+      for (let i = 0; i < immediateCallbacks.length; i++) {
+        inner: while (true) {
+          console.log("tick in immediateCallbacks");
+          try {
+            immediateCallbacks[i]();
+            break inner;
+          } catch (e) {
+            console.log("run reportExceptionCallback");
+            reportExceptionCallback(e);
+            console.log("continue immediateCallbacks");
+            continue inner;
+          }
+        }
+      }
     }
 
     // Finally drain macrotask queue.
@@ -705,6 +719,7 @@
     runMicrotasks: () => op_run_microtasks(),
     hasTickScheduled: () => op_has_tick_scheduled(),
     setHasTickScheduled: (bool) => op_set_has_tick_scheduled(bool),
+    hasImmediateScheduled: () => op_has_immediate_scheduled(),
     setHasImmediateScheduled: (bool) => op_set_has_immediate_scheduled(bool),
     evalContext: (
       source,

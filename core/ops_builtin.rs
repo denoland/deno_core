@@ -110,6 +110,7 @@ builtin_ops! {
   ops_builtin_v8::op_run_microtasks,
   ops_builtin_v8::op_has_tick_scheduled,
   ops_builtin_v8::op_set_has_tick_scheduled,
+  ops_builtin_v8::op_has_immediate_scheduled,
   ops_builtin_v8::op_set_has_immediate_scheduled,
   ops_builtin_v8::op_eval_context,
   ops_builtin_v8::op_queue_microtask,
