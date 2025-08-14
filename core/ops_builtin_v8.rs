@@ -1155,6 +1155,12 @@ pub fn op_current_user_call_site(
     }
     let line_number = frame.get_line_number() as u32;
     let column_number = frame.get_column() as u32;
+    // TODO(bartlomieju):
+    // let application = js_runtime_state
+    //   .source_mapper
+    //   .borrow_mut()
+    //   .apply_source_map(scope, &file_name, line_number, column_number);
+
     let (file_name, application) = match frame.get_script_name(scope) {
       Some(name) => {
         let file_name = name.to_rust_string_lossy(scope);
