@@ -3,6 +3,7 @@
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
+use crate::error;
 use crate::error::CoreError;
 use crate::error::JsError;
 use crate::error::is_instance_of_error;
@@ -1097,18 +1098,7 @@ pub fn op_dispatch_exception(
   exception: v8::Local<v8::Value>,
   promise: bool,
 ) {
-  let state = JsRuntime::state_from(scope);
-  if let Some(true) = state.with_inspector(|inspector| {
-    inspector.exception_thrown(scope, exception, false);
-    inspector.is_dispatching_message()
-  }) {
-    // This indicates that the op is being called from a REPL. Skip termination.
-    return;
-  }
-
-  JsRealm::exception_state_from_scope(scope)
-    .set_dispatched_exception(v8::Global::new(scope, exception), promise);
-  scope.terminate_execution();
+  error::dispatch_exception(scope, exception, promise);
 }
 
 #[op2]
