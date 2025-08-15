@@ -14,19 +14,34 @@ use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::fmt::Debug;
+use std::hash::Hash;
 use std::rc::Rc;
 
 /// A symbolic module entity.
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
-pub(crate) enum SymbolicModule {
+pub enum SymbolicModule {
   /// This module is an alias to another module.
   /// This is useful such that multiple names could point to
   /// the same underlying module (particularly due to redirects).
   Alias(ModuleName),
   /// This module associates with a V8 module by id.
   Mod(ModuleId),
+}
+
+impl Clone for SymbolicModule {
+  fn clone(&self) -> Self {
+    match self {
+      SymbolicModule::Alias(name) => match name.try_clone() {
+        Some(name) => SymbolicModule::Alias(name),
+        None => SymbolicModule::Alias(ModuleName::from(name.to_string())),
+      },
+      SymbolicModule::Mod(module_id) => SymbolicModule::Mod(*module_id),
+    }
+  }
 }
 
 /// Map of [`ModuleName`] and [`RequestedModuleType`] to a data field.
@@ -57,8 +72,8 @@ impl<T> ModuleNameTypeMap<T> {
 
   pub fn get<Q>(&self, ty: &RequestedModuleType, name: &Q) -> Option<&T>
   where
-    ModuleName: std::borrow::Borrow<Q>,
-    Q: std::cmp::Eq + std::hash::Hash + std::fmt::Debug + ?Sized,
+    FastString: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
   {
     let index = self.map_index(ty)?;
     let map = self.submaps.get(index)?;
@@ -68,9 +83,9 @@ impl<T> ModuleNameTypeMap<T> {
   pub fn insert(
     &mut self,
     module_type: &RequestedModuleType,
-    name: FastString,
+    name: ModuleName,
     module: T,
-  ) {
+  ) -> Option<T> {
     let index = match self.map_index(module_type) {
       Some(index) => index,
       None => {
@@ -81,15 +96,45 @@ impl<T> ModuleNameTypeMap<T> {
       }
     };
 
-    if self
-      .submaps
-      .get_mut(index)
-      .unwrap()
-      .insert(name, module)
-      .is_none()
-    {
-      self.len += 1;
+    match self.submaps.get_mut(index).unwrap().insert(name, module) {
+      None => {
+        self.len += 1;
+        None
+      }
+      Some(module) => Some(module),
     }
+  }
+
+  pub fn delete<Q>(
+    &mut self,
+    module_type: &RequestedModuleType,
+    name: &Q,
+  ) -> Option<T>
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
+  {
+    let index = self.map_index(module_type)?;
+
+    match self.submaps.get_mut(index).unwrap().remove(name) {
+      Some(module) => {
+        self.len -= 1;
+        Some(module)
+      }
+      None => None,
+    }
+  }
+
+  pub fn get_map(
+    &self,
+    module_type: &RequestedModuleType,
+  ) -> Option<&HashMap<ModuleName, T>> {
+    let index = match self.map_index(module_type) {
+      Some(index) => index,
+      None => todo!(),
+    };
+
+    self.submaps.get(index)
   }
 
   /// Rather than providing an iterator, we provide a drain method. This is mainly because Rust
@@ -128,7 +173,7 @@ pub(crate) type SyntheticModuleExportsStore =
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
-  pub(crate) handles_inverted: HashMap<v8::Global<v8::Module>, usize>,
+  pub(crate) handles_inverted: HashMap<v8::Global<v8::Module>, ModuleId>,
   /// The handles we have loaded so far, corresponding with the [`ModuleInfo`] in `info`.
   pub(crate) handles: Vec<v8::Global<v8::Module>>,
   pub(crate) main_module_callbacks: Vec<v8::Global<v8::Function>>,
@@ -193,11 +238,15 @@ impl ModuleMapData {
 
   /// Get module id, following all aliases in case of module specifier
   /// that had been redirected.
-  pub fn get_id(
+  pub fn get_id<Q>(
     &self,
-    name: &str,
+    name: &Q,
     requested_module_type: impl AsRef<RequestedModuleType>,
-  ) -> Option<ModuleId> {
+  ) -> Option<ModuleId>
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
+  {
     let map = &self.by_name;
     let first_symbolic_module =
       map.get(requested_module_type.as_ref(), name)?;
@@ -207,7 +256,7 @@ impl ModuleMapData {
     };
     loop {
       let symbolic_module =
-        map.get(requested_module_type.as_ref(), mod_name)?;
+        map.get(requested_module_type.as_ref(), mod_name.borrow())?;
       match symbolic_module {
         SymbolicModule::Alias(target) => {
           debug_assert!(mod_name != target);
@@ -218,42 +267,100 @@ impl ModuleMapData {
     }
   }
 
-  pub(crate) fn alias(
+  pub fn get<Q>(
+    &self,
+    name: &Q,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<&SymbolicModule>
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
+  {
+    let map = &self.by_name;
+    map.get(requested_module_type.as_ref(), name)
+  }
+
+  pub fn set(
     &mut self,
-    name: FastString,
+    name: ModuleName,
+    symbolic_module: SymbolicModule,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<SymbolicModule> {
+    let map = &mut self.by_name;
+    map.insert(requested_module_type.as_ref(), name, symbolic_module)
+  }
+
+  pub fn set_id(
+    &mut self,
+    name: ModuleName,
+    id: ModuleId,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<SymbolicModule> {
+    let map = &mut self.by_name;
+    map.insert(
+      requested_module_type.as_ref(),
+      name,
+      SymbolicModule::Mod(id),
+    )
+  }
+
+  pub fn delete<Q>(
+    &mut self,
+    name: &Q,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<SymbolicModule>
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
+  {
+    let map = &mut self.by_name;
+    map.delete(requested_module_type.as_ref(), name)
+  }
+
+  pub fn alias(
+    &mut self,
+    name: ModuleName,
     requested_module_type: &RequestedModuleType,
-    target: FastString,
-  ) {
+    target: ModuleName,
+  ) -> Option<SymbolicModule> {
     debug_assert_ne!(name, target);
     self.by_name.insert(
       requested_module_type,
       name,
       SymbolicModule::Alias(target),
-    );
+    )
+  }
+
+  pub fn get_map(
+    &self,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<&HashMap<ModuleName, SymbolicModule>> {
+    self.by_name.get_map(requested_module_type.as_ref())
   }
 
   #[cfg(test)]
-  pub(crate) fn is_alias(
+  pub(crate) fn is_alias<Q>(
     &self,
-    name: &str,
+    name: &Q,
     requested_module_type: impl AsRef<RequestedModuleType>,
-  ) -> bool {
+  ) -> bool
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + Debug + ?Sized,
+  {
     let map = &self.by_name;
     let entry = map.get(requested_module_type.as_ref(), name);
     matches!(entry, Some(SymbolicModule::Alias(_)))
   }
 
-  pub(crate) fn get_handle(
-    &self,
-    id: ModuleId,
-  ) -> Option<v8::Global<v8::Module>> {
+  pub fn get_handle(&self, id: ModuleId) -> Option<v8::Global<v8::Module>> {
     self.handles.get(id).cloned()
   }
 
-  pub(crate) fn get_name_by_module(
+  pub fn get_name_by_module(
     &self,
     global: &v8::Global<v8::Module>,
-  ) -> Option<String> {
+  ) -> Option<&ModuleName> {
     match self.handles_inverted.get(global) {
       Some(id) => self.get_name_by_id(*id),
       _ => None,
@@ -280,9 +387,8 @@ impl ModuleMapData {
       .unwrap_or_default()
   }
 
-  pub(crate) fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
-    // TODO(mmastrac): Don't clone
-    self.info.get(id).map(|info| info.name.as_str().to_owned())
+  pub fn get_name_by_id(&self, id: ModuleId) -> Option<&ModuleName> {
+    self.info.get(id).map(|info| &info.name)
   }
 
   pub fn serialize_for_snapshotting(
@@ -342,7 +448,7 @@ impl ModuleMapData {
     }
 
     for (name, module_type, module) in data.by_name {
-      self.by_name.insert(&module_type, name, module)
+      self.by_name.insert(&module_type, name, module);
     }
   }
 
