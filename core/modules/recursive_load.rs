@@ -127,9 +127,9 @@ impl RecursiveModuleLoad {
     if let Ok(root_specifier) = load.resolve_root()
       && let Some(module_id) =
         module_map_rc.get_id(root_specifier.as_str(), requested_module_type)
-      {
-        load.root_module_id = Some(module_id);
-      }
+    {
+      load.root_module_id = Some(module_id);
+    }
     load
   }
 
@@ -305,11 +305,12 @@ impl RecursiveModuleLoad {
                   ModuleLoadResponse::Async(fut) => fut.await,
                 };
                 if let Ok(source) = &load_result
-                  && let Some(found_specifier) = &source.module_url_found {
-                    visited_as_alias
-                      .borrow_mut()
-                      .insert(found_specifier.as_str().to_string());
-                  }
+                  && let Some(found_specifier) = &source.module_url_found
+                {
+                  visited_as_alias
+                    .borrow_mut()
+                    .insert(found_specifier.as_str().to_string());
+                }
                 load_result.map(|s| Some((request, s)))
               };
               self.pending.push(fut.boxed_local());

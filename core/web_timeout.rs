@@ -271,18 +271,20 @@ impl<T: Clone> WebTimers<T> {
   pub fn ref_timer(&self, id: WebTimerId) {
     if let Some(TimerData { unrefd, .. }) =
       self.data_map.borrow_mut().get_mut(&id)
-      && std::mem::replace(unrefd, false) {
-        self.unrefd_count.set(self.unrefd_count.get() - 1);
-      }
+      && std::mem::replace(unrefd, false)
+    {
+      self.unrefd_count.set(self.unrefd_count.get() - 1);
+    }
   }
 
   /// Unrefs a timer by ID. Invalid IDs are ignored.
   pub fn unref_timer(&self, id: WebTimerId) {
     if let Some(TimerData { unrefd, .. }) =
       self.data_map.borrow_mut().get_mut(&id)
-      && !std::mem::replace(unrefd, true) {
-        self.unrefd_count.set(self.unrefd_count.get() + 1);
-      }
+      && !std::mem::replace(unrefd, true)
+    {
+      self.unrefd_count.set(self.unrefd_count.get() + 1);
+    }
   }
 
   /// Queues a timer to be fired in order with the other timers in this set of timers.
