@@ -188,7 +188,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     ))
   }
 
-  fn get_source_map(&self, specifier: &str) -> Option<Cow<[u8]>> {
+  fn get_source_map(&self, specifier: &str) -> Option<Cow<'_, [u8]>> {
     self
       .source_maps
       .borrow()

@@ -141,7 +141,7 @@ impl OpMetricsSummaryTracker {
   }
 
   #[inline]
-  fn metrics_mut(&self, id: OpId) -> RefMut<OpMetricsSummary> {
+  fn metrics_mut(&self, id: OpId) -> RefMut<'_, OpMetricsSummary> {
     RefMut::map(self.ops.borrow_mut(), |ops| &mut ops[id as usize])
   }
 

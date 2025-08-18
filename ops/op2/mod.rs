@@ -69,9 +69,9 @@ pub enum Op2Error {
 #[allow(clippy::enum_variant_names)]
 pub enum V8SignatureMappingError {
   #[error("Unable to map return value {1:?} to {0}")]
-  NoRetValMapping(V8MappingError, RetVal),
+  NoRetValMapping(V8MappingError, Box<RetVal>),
   #[error("Unable to map argument {1:?} to {0}")]
-  NoArgMapping(V8MappingError, Arg),
+  NoArgMapping(V8MappingError, Box<Arg>),
 }
 
 pub type V8MappingError = &'static str;

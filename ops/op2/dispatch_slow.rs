@@ -48,7 +48,9 @@ pub(crate) fn generate_dispatch_slow_call(
 
   for (index, (arg, attrs)) in signature.args.iter().enumerate() {
     let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
+      .map_err(|s| {
+        V8SignatureMappingError::NoArgMapping(s, Box::new(arg.clone()))
+      })?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
     } else {
@@ -78,7 +80,10 @@ pub(crate) fn generate_dispatch_slow(
   if !config.setter {
     output.extend(return_value(generator_state, &signature.ret_val).map_err(
       |s| {
-        V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+        V8SignatureMappingError::NoRetValMapping(
+          s,
+          Box::new(signature.ret_val.clone()),
+        )
       },
     )?);
   }
@@ -1075,7 +1080,7 @@ pub fn call(
     ret_val,
     RetVal::Infallible(.., true) | RetVal::Result(.., true)
   ) {
-    return quote!(std::future::ready(#call));
+    quote!(std::future::ready(#call))
   } else {
     call
   }

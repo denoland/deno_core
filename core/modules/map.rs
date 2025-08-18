@@ -663,8 +663,8 @@ impl ModuleMap {
 
     // V8 does not support creating code caches while also snapshotting,
     // and it's not needed anyway, as the snapshot already contains it.
-    if try_store_code_cache && !self.will_snapshot {
-      if let Some(code_cache_info) = code_cache_info.take() {
+    if try_store_code_cache && !self.will_snapshot
+      && let Some(code_cache_info) = code_cache_info.take() {
         let unbound_module_script = module.get_unbound_module_script(tc_scope);
         let code_cache =
           unbound_module_script.create_code_cache().ok_or_else(|| {
@@ -678,7 +678,6 @@ impl ModuleMap {
         self.code_cache_ready_futs.borrow_mut().push(fut);
         self.pending_code_cache_ready.set(true);
       }
-    }
 
     // TODO(bartlomieju): maybe move to a helper function?
     let module_requests = module.get_module_requests();
@@ -1014,11 +1013,10 @@ impl ModuleMap {
     let module_type =
       get_requested_module_type_from_attributes(&import_attributes);
 
-    if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type) {
-      if let Some(handle) = self.get_handle(id) {
+    if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type)
+      && let Some(handle) = self.get_handle(id) {
         return Some(v8::Local::new(scope, handle));
       }
-    }
 
     None
   }
@@ -1064,8 +1062,8 @@ impl ModuleMap {
     let resolve_result =
       self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
 
-    if let Ok(module_specifier) = &resolve_result {
-      if let Some(id) = self
+    if let Ok(module_specifier) = &resolve_result
+      && let Some(id) = self
         .data
         .borrow()
         .get_id(module_specifier.as_str(), &requested_module_type)
@@ -1085,7 +1083,6 @@ impl ModuleMap {
           return false;
         }
       }
-    }
 
     let load = RecursiveModuleLoad::dynamic_import(
       specifier,

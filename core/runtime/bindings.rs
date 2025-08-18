@@ -276,10 +276,10 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
   let maybe_deno_obj_val = global.get(scope, deno_str.into());
 
   // If `Deno.core` is already set up, let's exit early.
-  if let Some(deno_obj_val) = maybe_deno_obj_val {
-    if !deno_obj_val.is_undefined() {
-      return;
-    }
+  if let Some(deno_obj_val) = maybe_deno_obj_val
+    && !deno_obj_val.is_undefined()
+  {
+    return;
   }
 
   let deno_obj = v8::Object::new(scope);
@@ -615,7 +615,7 @@ fn op_ctx_function<'s>(
 type AccessorStore<'a> =
   HashMap<String, (Option<&'a OpCtx>, Option<&'a OpCtx>)>;
 
-fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore {
+fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore<'_> {
   let mut store = AccessorStore::new();
 
   for method in method_ctxs.iter() {
@@ -811,11 +811,11 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
 
   maybe_add_import_meta_filename_dirname(scope, meta, &name);
 
-  if name.starts_with("ext:") {
-    if let Some(proto) = state.ext_import_meta_proto.borrow().clone() {
-      let prototype = v8::Local::new(scope, proto);
-      meta.set_prototype(scope, prototype.into());
-    }
+  if name.starts_with("ext:")
+    && let Some(proto) = state.ext_import_meta_proto.borrow().clone()
+  {
+    let prototype = v8::Local::new(scope, proto);
+    meta.set_prototype(scope, prototype.into());
   }
 }
 
@@ -932,12 +932,12 @@ fn catch_dynamic_import_promise_error(
       let message_key = MESSAGE.v8_string(scope).unwrap();
       let message = arg.get(scope, message_key.into()).unwrap();
       let mut message: v8::Local<v8::String> = message.try_into().unwrap();
-      if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
-        if let Some(location) = stack_frame.maybe_format_location() {
-          let str =
-            format!("{} at {location}", message.to_rust_string_lossy(scope));
-          message = v8::String::new(scope, &str).unwrap();
-        }
+      if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg)
+        && let Some(location) = stack_frame.maybe_format_location()
+      {
+        let str =
+          format!("{} at {location}", message.to_rust_string_lossy(scope));
+        message = v8::String::new(scope, &str).unwrap();
       }
       let exception = match name.as_str() {
         deno_error::builtin_classes::RANGE_ERROR => {

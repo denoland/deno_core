@@ -1316,7 +1316,7 @@ impl JsRuntime {
   }
 
   #[inline]
-  pub fn handle_scope(&mut self) -> v8::HandleScope {
+  pub fn handle_scope(&mut self) -> v8::HandleScope<'_> {
     let isolate = &mut self.inner.v8_isolate;
     self.inner.main_realm.handle_scope(isolate)
   }
