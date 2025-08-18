@@ -1,9 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use cooked_waker::IntoWaker;
-use cooked_waker::ViaRawPointer;
-use cooked_waker::Wake;
-use cooked_waker::WakeRef;
 use std::cell::Cell;
 use std::cell::Ref;
 use std::cell::RefCell;
@@ -12,11 +8,12 @@ use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::btree_set;
 use std::future::Future;
-use std::mem::MaybeUninit;
 use std::num::NonZeroU64;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
+use std::task::RawWaker;
+use std::task::RawWakerVTable;
 use std::task::Waker;
 use std::task::ready;
 use std::time::Duration;
@@ -141,43 +138,29 @@ struct MutableSleep {
   sleep: UnsafeCell<Option<Sleep>>,
   ready: Cell<bool>,
   external_waker: UnsafeCell<Option<Waker>>,
-  internal_waker: Waker,
 }
 
 #[allow(clippy::borrowed_box)]
 impl MutableSleep {
   fn new() -> Box<Self> {
-    let mut new = Box::new(MaybeUninit::<Self>::uninit());
-
-    new.write(MutableSleep {
+    Box::new(Self {
       sleep: Default::default(),
       ready: Cell::default(),
       external_waker: UnsafeCell::default(),
-      internal_waker: MutableSleepWaker {
-        inner: new.as_ptr(),
-      }
-      .into_waker(),
-    });
-    unsafe { std::mem::transmute(new) }
+    })
   }
 
   fn poll_ready(self: &Box<Self>, cx: &mut Context) -> Poll<()> {
     if self.ready.take() {
       Poll::Ready(())
     } else {
-      let external =
-        unsafe { self.external_waker.get().as_mut().unwrap_unchecked() };
+      let external = unsafe { &mut *self.external_waker.get() };
       if let Some(external) = external {
-        // Already have this waker
-        let waker = cx.waker();
-        if !external.will_wake(waker) {
-          external.clone_from(waker);
-        }
-        Poll::Pending
+        external.clone_from(cx.waker());
       } else {
         *external = Some(cx.waker().clone());
-        Poll::Pending
       }
+      Poll::Pending
     }
   }
 
@@ -188,72 +171,46 @@ impl MutableSleep {
   }
 
   fn change(self: &Box<Self>, instant: Instant) {
-    let pin = unsafe {
-      // First replace the current sleep
-      *self.sleep.get() = Some(tokio::time::sleep_until(instant));
-
-      // Then get ourselves a Pin to this
-      Pin::new_unchecked(
-        self
-          .sleep
-          .get()
-          .as_mut()
-          .unwrap_unchecked()
-          .as_mut()
-          .unwrap_unchecked(),
-      )
-    };
+    let sleep = unsafe { &mut *self.sleep.get() };
+    let sleep = sleep.insert(tokio::time::sleep_until(instant));
+    let sleep = unsafe { Pin::new_unchecked(sleep) };
 
     // Register our waker
-    let waker = &self.internal_waker;
-    if pin.poll(&mut Context::from_waker(waker)).is_ready() {
-      self.ready.set(true);
-      self.internal_waker.wake_by_ref();
+    let waker = unsafe { Waker::from_raw(self.raw_waker()) };
+    if sleep.poll(&mut Context::from_waker(&waker)).is_ready() {
+      self.wake_external();
     }
   }
-}
 
-#[repr(transparent)]
-#[derive(Clone)]
-struct MutableSleepWaker {
-  inner: *const MutableSleep,
-}
-
-unsafe impl Send for MutableSleepWaker {}
-unsafe impl Sync for MutableSleepWaker {}
-
-impl WakeRef for MutableSleepWaker {
-  fn wake_by_ref(&self) {
-    unsafe {
-      let this = self.inner.as_ref().unwrap_unchecked();
-      this.ready.set(true);
-      let waker = this.external_waker.get().as_mut().unwrap_unchecked();
-      if let Some(waker) = waker.as_ref() {
-        waker.wake_by_ref();
-      }
+  fn wake_external(&self) {
+    self.ready.set(true);
+    let waker = unsafe { &*self.external_waker.get() };
+    if let Some(waker) = waker {
+      waker.wake_by_ref();
     }
   }
-}
 
-impl Wake for MutableSleepWaker {
-  fn wake(self) {
-    self.wake_by_ref()
-  }
-}
+  fn raw_waker(&self) -> RawWaker {
+    unsafe fn clone_raw(data: *const ()) -> RawWaker {
+      let this = unsafe { &*data.cast::<MutableSleep>() };
+      this.raw_waker()
+    }
 
-impl Drop for MutableSleepWaker {
-  fn drop(&mut self) {}
-}
+    unsafe fn wake_raw(data: *const ()) {
+      unsafe { wake_by_ref_raw(data) }
+      unsafe { drop_raw(data) }
+    }
 
-unsafe impl ViaRawPointer for MutableSleepWaker {
-  type Target = ();
+    unsafe fn wake_by_ref_raw(data: *const ()) {
+      let this = unsafe { &*data.cast::<MutableSleep>() };
+      this.wake_external();
+    }
 
-  fn into_raw(self) -> *mut () {
-    self.inner as _
-  }
+    unsafe fn drop_raw(_data: *const ()) {}
 
-  unsafe fn from_raw(ptr: *mut ()) -> Self {
-    MutableSleepWaker { inner: ptr as _ }
+    static VTABLE: RawWakerVTable =
+      RawWakerVTable::new(clone_raw, wake_raw, wake_by_ref_raw, drop_raw);
+    RawWaker::new(self as *const Self as *const (), &VTABLE)
   }
 }
 
