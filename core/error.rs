@@ -191,7 +191,7 @@ impl CoreErrorKind {
   ) -> v8::Global<v8::Value> {
     let err_string = self.get_message().to_string();
     let mut error_chain = vec![];
-    let mut intermediary_error: Option<&(dyn Error)> = Some(&self);
+    let mut intermediary_error: Option<&dyn Error> = Some(&self);
 
     while let Some(err) = intermediary_error {
       if let Some(source) = err.source() {

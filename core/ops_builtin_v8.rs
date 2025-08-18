@@ -1122,14 +1122,6 @@ pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
     .collect()
 }
 
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Location {
-  file_name: String,
-  line_number: u32,
-  column_number: u32,
-}
-
 fn write_line_and_col_to_ret_buf(
   ret_buf: &mut [u8],
   line_number: u32,
