@@ -330,7 +330,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
-  ) -> Result<v8::Global<v8::Value>, JsError> {
+  ) -> Result<v8::Global<v8::Value>, Box<JsError>> {
     let scope = &mut self.0.handle_scope(isolate);
 
     let source = source_code.into_module_code().v8_string(scope).unwrap();

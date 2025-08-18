@@ -85,7 +85,7 @@ pub enum CoreErrorKind {
   TLA,
   #[class(inherit)]
   #[error(transparent)]
-  Js(#[from] JsError),
+  Js(#[from] Box<JsError>),
   #[class(inherit)]
   #[error(transparent)]
   Io(#[from] std::io::Error),
@@ -1115,7 +1115,7 @@ pub(crate) fn exception_to_err_result<T>(
   exception: v8::Local<v8::Value>,
   in_promise: bool,
   clear_error: bool,
-) -> Result<T, JsError> {
+) -> Result<T, Box<JsError>> {
   Err(exception_to_err(scope, exception, in_promise, clear_error))
 }
 
@@ -1124,7 +1124,7 @@ pub(crate) fn exception_to_err(
   exception: v8::Local<v8::Value>,
   mut in_promise: bool,
   clear_error: bool,
-) -> JsError {
+) -> Box<JsError> {
   let state = JsRealm::exception_state_from_scope(scope);
 
   let mut was_terminating_execution = scope.is_execution_terminating();
@@ -1176,7 +1176,7 @@ pub(crate) fn exception_to_err(
   }
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
-  js_error
+  Box::new(js_error)
 }
 
 v8_static_strings::v8_static_strings! {
