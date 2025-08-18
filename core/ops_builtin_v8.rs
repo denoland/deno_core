@@ -17,7 +17,6 @@ use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::stats::RuntimeActivityType;
 use deno_error::JsErrorBox;
-use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::rc::Rc;
