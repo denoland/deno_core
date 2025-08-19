@@ -205,7 +205,7 @@ mod tests {
       unreachable!()
     }
 
-    fn get_source_map(&self, file_name: &str) -> Option<Cow<[u8]>> {
+    fn get_source_map(&self, file_name: &str) -> Option<Cow<'_, [u8]>> {
       let url = Url::parse(file_name).unwrap();
       let content = self.map.get(&url)?;
       content

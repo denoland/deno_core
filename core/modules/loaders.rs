@@ -130,7 +130,7 @@ pub trait ModuleLoader {
   /// Returns a source map for given `file_name`.
   ///
   /// This function will soon be deprecated or renamed.
-  fn get_source_map(&self, _file_name: &str) -> Option<Cow<[u8]>> {
+  fn get_source_map(&self, _file_name: &str) -> Option<Cow<'_, [u8]>> {
     None
   }
 

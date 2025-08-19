@@ -75,7 +75,10 @@ pub(crate) fn generate_dispatch_async(
   let (return_value, mapper, return_value_immediate) =
     map_async_return_type(generator_state, &signature.ret_val).map_err(
       |s| {
-        V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+        V8SignatureMappingError::NoRetValMapping(
+          s,
+          Box::new(signature.ret_val.clone()),
+        )
       },
     )?;
 

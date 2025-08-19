@@ -17,7 +17,6 @@ use crate::runtime::v8_static_strings;
 use crate::source_map::SourceMapApplication;
 use crate::stats::RuntimeActivityType;
 use deno_error::JsErrorBox;
-use serde::Deserialize;
 use serde::Serialize;
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -346,16 +345,16 @@ pub fn op_eval_context<'a>(
     }
   };
 
-  if let Some(code_cache_hash) = maybe_code_cache_hash {
-    if let Some(cb) = state.eval_context_code_cache_ready_cb.borrow().as_ref() {
-      let unbound_script = script.get_unbound_script(tc_scope);
-      let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
-        JsErrorBox::type_error(
-          "Unable to get code cache from unbound module script",
-        )
-      })?;
-      cb(specifier, code_cache_hash, &code_cache);
-    }
+  if let Some(code_cache_hash) = maybe_code_cache_hash
+    && let Some(cb) = state.eval_context_code_cache_ready_cb.borrow().as_ref()
+  {
+    let unbound_script = script.get_unbound_script(tc_scope);
+    let code_cache = unbound_script.create_code_cache().ok_or_else(|| {
+      JsErrorBox::type_error(
+        "Unable to get code cache from unbound module script",
+      )
+    })?;
+    cb(specifier, code_cache_hash, &code_cache);
   }
 
   match script.run(tc_scope) {
@@ -1122,14 +1121,6 @@ pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
     .iter()
     .map(|o| o.decl.name.to_string())
     .collect()
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct Location {
-  file_name: String,
-  line_number: u32,
-  column_number: u32,
 }
 
 fn write_line_and_col_to_ret_buf(

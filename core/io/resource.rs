@@ -70,7 +70,7 @@ pub trait Resource: Any + 'static {
   /// to JavaScript code through `op_resources`. The default implementation
   /// returns the Rust type name, but specific resource types may override this
   /// trait method.
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     type_name::<Self>().into()
   }
 

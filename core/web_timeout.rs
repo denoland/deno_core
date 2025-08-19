@@ -260,7 +260,7 @@ unsafe impl ViaRawPointer for MutableSleepWaker {
 impl<T: Clone> WebTimers<T> {
   /// Returns an internal iterator that locks the internal data structures for the period
   /// of iteration. Calling other methods on this collection will cause a panic.
-  pub(crate) fn iter(&self) -> WebTimersIterator<T> {
+  pub(crate) fn iter(&self) -> WebTimersIterator<'_, T> {
     WebTimersIterator {
       data: self.data_map.borrow(),
       timers: self.timers.borrow(),
@@ -271,10 +271,9 @@ impl<T: Clone> WebTimers<T> {
   pub fn ref_timer(&self, id: WebTimerId) {
     if let Some(TimerData { unrefd, .. }) =
       self.data_map.borrow_mut().get_mut(&id)
+      && std::mem::replace(unrefd, false)
     {
-      if std::mem::replace(unrefd, false) {
-        self.unrefd_count.set(self.unrefd_count.get() - 1);
-      }
+      self.unrefd_count.set(self.unrefd_count.get() - 1);
     }
   }
 
@@ -282,10 +281,9 @@ impl<T: Clone> WebTimers<T> {
   pub fn unref_timer(&self, id: WebTimerId) {
     if let Some(TimerData { unrefd, .. }) =
       self.data_map.borrow_mut().get_mut(&id)
+      && !std::mem::replace(unrefd, true)
     {
-      if !std::mem::replace(unrefd, true) {
-        self.unrefd_count.set(self.unrefd_count.get() + 1);
-      }
+      self.unrefd_count.set(self.unrefd_count.get() + 1);
     }
   }
 
