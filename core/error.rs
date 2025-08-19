@@ -85,7 +85,7 @@ pub enum CoreErrorKind {
   TLA,
   #[class(inherit)]
   #[error(transparent)]
-  Js(#[from] JsError),
+  Js(#[from] Box<JsError>),
   #[class(inherit)]
   #[error(transparent)]
   Io(#[from] std::io::Error),
@@ -191,7 +191,7 @@ impl CoreErrorKind {
   ) -> v8::Global<v8::Value> {
     let err_string = self.get_message().to_string();
     let mut error_chain = vec![];
-    let mut intermediary_error: Option<&(dyn Error)> = Some(&self);
+    let mut intermediary_error: Option<&dyn Error> = Some(&self);
 
     while let Some(err) = intermediary_error {
       if let Some(source) = err.source() {
@@ -729,12 +729,11 @@ impl JsError {
       for (i, frame) in frames.iter().enumerate() {
         if let (Some(file_name), Some(line_number)) =
           (&frame.file_name, frame.line_number)
+          && !file_name.trim_start_matches('[').starts_with("ext:")
         {
-          if !file_name.trim_start_matches('[').starts_with("ext:") {
-            source_line = source_mapper.get_source_line(file_name, line_number);
-            source_line_frame_index = Some(i);
-            break;
-          }
+          source_line = source_mapper.get_source_line(file_name, line_number);
+          source_line_frame_index = Some(i);
+          break;
         }
       }
     }
@@ -773,10 +772,10 @@ impl JsError {
       let format_exception_cb = format_exception_cb.open(scope);
       let this = v8::undefined(scope).into();
       let formatted = format_exception_cb.call(scope, this, &[exception]);
-      if let Some(formatted) = formatted {
-        if formatted.is_string() {
-          exception_message = Some(formatted.to_rust_string_lossy(scope));
-        }
+      if let Some(formatted) = formatted
+        && formatted.is_string()
+      {
+        exception_message = Some(formatted.to_rust_string_lossy(scope));
       }
     }
 
@@ -865,10 +864,10 @@ impl JsError {
       // (script_resource_name, line_number, start_column + 1) exists, this is
       // likely a syntax error. For the sake of formatting we treat it like it
       // was given as a single stack frame.
-      if frames.is_empty() {
-        if let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg) {
-          frames = vec![stack_frame];
-        }
+      if frames.is_empty()
+        && let Some(stack_frame) = JsStackFrame::from_v8_message(scope, msg)
+      {
+        frames = vec![stack_frame];
       }
       {
         let state = JsRuntime::state_from(scope);
@@ -876,13 +875,11 @@ impl JsError {
         for (i, frame) in frames.iter().enumerate() {
           if let (Some(file_name), Some(line_number)) =
             (&frame.file_name, frame.line_number)
+            && !file_name.trim_start_matches('[').starts_with("ext:")
           {
-            if !file_name.trim_start_matches('[').starts_with("ext:") {
-              source_line =
-                source_mapper.get_source_line(file_name, line_number);
-              source_line_frame_index = Some(i);
-              break;
-            }
+            source_line = source_mapper.get_source_line(file_name, line_number);
+            source_line_frame_index = Some(i);
+            break;
           }
         }
       }
@@ -895,16 +892,16 @@ impl JsError {
         let aggregated_errors: Option<v8::Local<v8::Array>> =
           aggregated_errors.and_then(|a| a.try_into().ok());
 
-        if let Some(errors) = aggregated_errors {
-          if errors.length() > 0 {
-            let mut agg = vec![];
-            for i in 0..errors.length() {
-              let error = errors.get_index(scope, i).unwrap();
-              let js_error = Self::from_v8_exception(scope, error);
-              agg.push(js_error);
-            }
-            aggregated = Some(agg);
+        if let Some(errors) = aggregated_errors
+          && errors.length() > 0
+        {
+          let mut agg = vec![];
+          for i in 0..errors.length() {
+            let error = errors.get_index(scope, i).unwrap();
+            let js_error = Self::from_v8_exception(scope, error);
+            agg.push(js_error);
           }
+          aggregated = Some(agg);
         }
       };
 
@@ -1077,10 +1074,10 @@ pub(crate) fn has_call_site(
   };
   let frames_v8: Option<v8::Local<v8::Array>> =
     frames_v8.and_then(|a| a.try_into().ok());
-  if let Some(frames_v8) = frames_v8 {
-    if frames_v8.length() > 0 {
-      return true;
-    }
+  if let Some(frames_v8) = frames_v8
+    && frames_v8.length() > 0
+  {
+    return true;
   }
   false
 }
@@ -1118,7 +1115,7 @@ pub(crate) fn exception_to_err_result<T>(
   exception: v8::Local<v8::Value>,
   in_promise: bool,
   clear_error: bool,
-) -> Result<T, JsError> {
+) -> Result<T, Box<JsError>> {
   Err(exception_to_err(scope, exception, in_promise, clear_error))
 }
 
@@ -1127,7 +1124,7 @@ pub(crate) fn exception_to_err(
   exception: v8::Local<v8::Value>,
   mut in_promise: bool,
   clear_error: bool,
-) -> JsError {
+) -> Box<JsError> {
   let state = JsRealm::exception_state_from_scope(scope);
 
   let mut was_terminating_execution = scope.is_execution_terminating();
@@ -1179,7 +1176,7 @@ pub(crate) fn exception_to_err(
   }
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
-  js_error
+  Box::new(js_error)
 }
 
 v8_static_strings::v8_static_strings! {
@@ -1380,10 +1377,10 @@ pub mod callsite_fns {
   ) -> Option<SourceMappedCallsiteInfo<'a>> {
     let key = source_mapped_info_key(scope);
     // return the cached value if it exists
-    if let Some(info) = callsite.get_private(scope, key) {
-      if let Ok(array) = info.try_cast::<v8::Array>() {
-        return Some(SourceMappedCallsiteInfo::Ref(array));
-      }
+    if let Some(info) = callsite.get_private(scope, key)
+      && let Ok(array) = info.try_cast::<v8::Array>()
+    {
+      return Some(SourceMappedCallsiteInfo::Ref(array));
     }
     let orig_callsite = original_call_site(scope, callsite)?;
 
@@ -1878,16 +1875,16 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   if is_method_call {
     let mut formatted_method = String::new();
     if let Some(function_name) = &frame.function_name {
-      if let Some(type_name) = &frame.type_name {
-        if !function_name.starts_with(type_name) {
-          write!(formatted_method, "{type_name}.").unwrap();
-        }
+      if let Some(type_name) = &frame.type_name
+        && !function_name.starts_with(type_name)
+      {
+        write!(formatted_method, "{type_name}.").unwrap();
       }
       formatted_method += function_name;
-      if let Some(method_name) = &frame.method_name {
-        if !function_name.ends_with(method_name) {
-          write!(formatted_method, " [as {method_name}]").unwrap();
-        }
+      if let Some(method_name) = &frame.method_name
+        && !function_name.ends_with(method_name)
+      {
+        write!(formatted_method, " [as {method_name}]").unwrap();
       }
     } else {
       if let Some(type_name) = &frame.type_name {

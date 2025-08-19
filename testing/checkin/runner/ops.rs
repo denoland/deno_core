@@ -351,14 +351,3 @@ impl TestEnumWrap {
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }
-
-pub struct Foo;
-
-impl deno_core::GarbageCollected for Foo {
-  fn get_name(&self) -> &'static std::ffi::CStr {
-    c"Foo"
-  }
-}
-
-#[op2(fast)]
-pub fn op_scope_cppgc(_scope: &mut v8::HandleScope, #[cppgc] _foo: &Foo) {}

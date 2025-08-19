@@ -69,7 +69,7 @@ impl ExceptionState {
   pub(crate) fn check_exception_condition(
     &self,
     scope: &mut v8::HandleScope,
-  ) -> Result<(), JsError> {
+  ) -> Result<(), Box<JsError>> {
     if self.has_dispatched_exception() {
       let undefined = v8::undefined(scope);
       exception_to_err_result(

@@ -75,6 +75,7 @@ pub(crate) fn generate_impl_ops(
   attrs: TokenStream,
   item: ItemImpl,
 ) -> Result<TokenStream, Op2Error> {
+  #[allow(clippy::large_enum_variant)]
   enum ClassTy {
     Base,
     Inherit(syn::Type),

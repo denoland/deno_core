@@ -1,12 +1,12 @@
-error[E0597]: `arg0` does not live long enough
+error[E0716]: temporary value dropped while borrowed
  --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
   |
   | #[op2(fast)]
   | ^^^^^^^^^^^-
   | |          |
-  | |          `arg0` dropped here while still borrowed
-  | borrowed value does not live long enough
-  | argument requires that `arg0` is borrowed for `'static`
+  | |          temporary value is freed at the end of this statement
+  | creates a temporary value which is freed while still in use
+  | argument requires that borrow lasts for `'static`
   |
   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
 
@@ -23,14 +23,14 @@ error[E0521]: borrowed data escapes outside of associated function
   |
   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0597]: `arg0_temp` does not live long enough
+error[E0716]: temporary value dropped while borrowed
  --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
   |
   | #[op2(fast)]
   | ^^^^^^^^^^^-
   | |          |
-  | |          `arg0_temp` dropped here while still borrowed
-  | borrowed value does not live long enough
-  | argument requires that `arg0_temp` is borrowed for `'static`
+  | |          temporary value is freed at the end of this statement
+  | creates a temporary value which is freed while still in use
+  | argument requires that borrow lasts for `'static`
   |
   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
