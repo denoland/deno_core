@@ -1084,7 +1084,7 @@ pub fn op_destructure_error(
   scope: &mut v8::HandleScope,
   error: v8::Local<v8::Value>,
 ) -> JsError {
-  JsError::from_v8_exception(scope, error)
+  *JsError::from_v8_exception(scope, error)
 }
 
 /// Effectively throw an uncatchable error. This will terminate runtime

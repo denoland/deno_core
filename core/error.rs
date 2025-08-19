@@ -701,14 +701,18 @@ impl JsError {
   pub fn from_v8_exception(
     scope: &mut v8::HandleScope,
     exception: v8::Local<v8::Value>,
-  ) -> Self {
-    Self::inner_from_v8_exception(scope, exception, Default::default())
+  ) -> Box<Self> {
+    Box::new(Self::inner_from_v8_exception(
+      scope,
+      exception,
+      Default::default(),
+    ))
   }
 
   pub fn from_v8_message<'a>(
     scope: &'a mut v8::HandleScope,
     msg: v8::Local<'a, v8::Message>,
-  ) -> Self {
+  ) -> Box<Self> {
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
     let scope = &mut v8::HandleScope::new(scope);
@@ -738,7 +742,7 @@ impl JsError {
       }
     }
 
-    Self {
+    Box::new(Self {
       name: None,
       message: None,
       exception_message,
@@ -749,7 +753,7 @@ impl JsError {
       stack: None,
       aggregated: None,
       additional_properties: vec![],
-    }
+    })
   }
 
   fn inner_from_v8_exception<'a>(
@@ -1176,7 +1180,7 @@ pub(crate) fn exception_to_err(
   }
   scope.set_microtasks_policy(v8::MicrotasksPolicy::Auto);
 
-  Box::new(js_error)
+  js_error
 }
 
 v8_static_strings::v8_static_strings! {

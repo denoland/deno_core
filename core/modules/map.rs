@@ -181,10 +181,10 @@ impl ModuleMap {
       match module.get_status() {
         v8::ModuleStatus::Errored => {
           return Err(
-            CoreErrorKind::Js(Box::new(JsError::from_v8_exception(
+            CoreErrorKind::Js(JsError::from_v8_exception(
               scope,
               module.get_exception(),
-            )))
+            ))
             .into_box(),
           );
         }
@@ -1333,19 +1333,15 @@ impl ModuleMap {
     let Some(value) = module.evaluate(tc_scope) else {
       let exception = tc_scope.exception().unwrap();
       return Err(
-        CoreErrorKind::Js(Box::new(JsError::from_v8_exception(
-          tc_scope, exception,
-        )))
-        .into_box(),
+        CoreErrorKind::Js(JsError::from_v8_exception(tc_scope, exception))
+          .into_box(),
       );
     };
 
     if let Some(exception) = tc_scope.exception() {
       return Err(
-        CoreErrorKind::Js(Box::new(JsError::from_v8_exception(
-          tc_scope, exception,
-        )))
-        .into_box(),
+        CoreErrorKind::Js(JsError::from_v8_exception(tc_scope, exception))
+          .into_box(),
       );
     }
 
@@ -1362,10 +1358,8 @@ impl ModuleMap {
       PromiseState::Rejected => {
         let err = promise.result(tc_scope);
         Err(
-          CoreErrorKind::Js(Box::new(JsError::from_v8_exception(
-            tc_scope, err,
-          )))
-          .into_box(),
+          CoreErrorKind::Js(JsError::from_v8_exception(tc_scope, err))
+            .into_box(),
         )
       }
       PromiseState::Pending => {
