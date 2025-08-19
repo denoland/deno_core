@@ -2157,7 +2157,7 @@ fn find_and_report_stalled_level_await_in_any_realm(
     // situation is gonna be very rare, if ever happening).
     let msg = v8::Local::new(scope, &messages[0]);
     let js_error = JsError::from_v8_message(scope, msg);
-    return Box::new(js_error);
+    return js_error;
   }
 
   unreachable!("Expected at least one stalled top-level await");
