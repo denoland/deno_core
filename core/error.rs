@@ -903,7 +903,7 @@ impl JsError {
           for i in 0..errors.length() {
             let error = errors.get_index(scope, i).unwrap();
             let js_error = Self::from_v8_exception(scope, error);
-            agg.push(js_error);
+            agg.push(*js_error);
           }
           aggregated = Some(agg);
         }

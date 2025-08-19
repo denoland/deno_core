@@ -1277,7 +1277,7 @@ impl ModuleMap {
             // Module was rejected
             let err = promise.result(tc_scope);
             let err = JsError::from_v8_exception(tc_scope, err);
-            _ = sender.sender.take().unwrap().send(Err(Box::new(err)));
+            _ = sender.sender.take().unwrap().send(Err(err));
           }
           PromiseState::Pending => {
             // User code shouldn't be able to both cause the runtime to fail and leave the promise as
