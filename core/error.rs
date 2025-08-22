@@ -314,6 +314,28 @@ pub fn to_v8_error<'a>(
   }
 }
 
+/// Effectively throw an uncatchable error. This will terminate runtime
+/// execution before any more JS code can run, except in the REPL where it
+/// should just output the error to the console.
+pub fn dispatch_exception(
+  scope: &mut v8::HandleScope,
+  exception: v8::Local<v8::Value>,
+  promise: bool,
+) {
+  let state = JsRuntime::state_from(scope);
+  if let Some(true) = state.with_inspector(|inspector| {
+    inspector.exception_thrown(scope, exception, false);
+    inspector.is_dispatching_message()
+  }) {
+    // This indicates that the fn is being called from a REPL. Skip termination.
+    return;
+  }
+
+  JsRealm::exception_state_from_scope(scope)
+    .set_dispatched_exception(v8::Global::new(scope, exception), promise);
+  scope.terminate_execution();
+}
+
 #[inline(always)]
 pub(crate) fn call_site_evals_key<'a>(
   scope: &mut v8::HandleScope<'a>,
