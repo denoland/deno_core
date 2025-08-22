@@ -236,9 +236,9 @@ pub(crate) fn externalize_sources(
   }
 }
 
-pub(crate) fn get<'s, T>(
-  scope: &mut v8::HandleScope<'s>,
-  from: v8::Local<v8::Object>,
+pub(crate) fn get<'s, 'i, T>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  from: v8::Local<'s, v8::Object>,
   key: FastStaticString,
   path: &'static str,
 ) -> T
@@ -265,8 +265,8 @@ where
 ///   callConsole,
 /// };
 /// ```
-pub(crate) fn initialize_deno_core_namespace<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub(crate) fn initialize_deno_core_namespace<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   context: v8::Local<'s, v8::Context>,
   init_mode: InitMode,
 ) {
@@ -319,7 +319,7 @@ pub(crate) fn initialize_deno_core_namespace<'s>(
 /// Execute `00_primordials.js` and `00_infra.js` that are required for ops
 /// to function properly
 pub(crate) fn initialize_primordials_and_infra(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
 ) -> Result<(), CoreError> {
   for source_file in &CONTEXT_SETUP_SOURCES {
     let name = source_file.specifier.v8_string(scope).unwrap();
@@ -337,8 +337,8 @@ pub(crate) fn initialize_primordials_and_infra(
   Ok(())
 }
 
-fn name_key<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn name_key<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   decl: &OpDecl,
 ) -> v8::Local<'s, v8::Name> {
   let key_str = decl.name_fast.v8_string(scope).unwrap();
@@ -350,8 +350,8 @@ fn name_key<'s>(
 }
 
 /// Set up JavaScript bindings for ops.
-pub(crate) fn initialize_deno_core_ops_bindings<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub(crate) fn initialize_deno_core_ops_bindings<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   context: v8::Local<'s, v8::Context>,
   op_ctxs: &[OpCtx],
   op_method_decls: &[OpMethodDecl],
@@ -481,10 +481,10 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s>(
   }
 }
 
-fn op_ctx_template_or_accessor<'s>(
+fn op_ctx_template_or_accessor<'s, 'i>(
   accessor_store: &AccessorStore,
-  set_up_async_stub_fn: v8::Local<v8::Function>,
-  scope: &mut v8::HandleScope<'s>,
+  set_up_async_stub_fn: v8::Local<'s, v8::Function>,
+  scope: &mut v8::PinScope<'s, 'i>,
   tmpl: v8::Local<'s, v8::ObjectTemplate>,
   constructor: v8::Local<'s, v8::FunctionTemplate>,
   op_ctx: &OpCtx,
@@ -562,8 +562,8 @@ fn op_ctx_template_or_accessor<'s>(
   }
 }
 
-pub(crate) fn op_ctx_template<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub(crate) fn op_ctx_template<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   op_ctx: &OpCtx,
   constructor_behaviour: v8::ConstructorBehavior,
 ) -> v8::Local<'s, v8::FunctionTemplate> {
@@ -600,8 +600,8 @@ pub(crate) fn op_ctx_template<'s>(
   template
 }
 
-fn op_ctx_function<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn op_ctx_function<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   op_ctx: &OpCtx,
   constructor_behaviour: v8::ConstructorBehavior,
 ) -> v8::Local<'s, v8::Function> {
@@ -646,14 +646,14 @@ fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore<'_> {
 }
 
 pub extern "C" fn wasm_async_resolve_promise_callback(
-  _isolate: *mut v8::Isolate,
+  _isolate: *mut v8::RealIsolate,
   context: v8::Local<v8::Context>,
   resolver: v8::Local<v8::PromiseResolver>,
   compilation_result: v8::Local<v8::Value>,
   success: v8::WasmAsyncSuccess,
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  let scope = &mut unsafe { v8::CallbackScope::new(context) };
+  v8::make_callback_scope!(unsafe scope, context);
   if success == v8::WasmAsyncSuccess::Success {
     resolver.resolve(scope, compilation_result).unwrap();
   } else {
@@ -662,8 +662,8 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
 }
 
 #[allow(clippy::unnecessary_wraps)]
-pub fn host_import_module_dynamically_callback<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn host_import_module_dynamically_callback<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   _host_defined_options: v8::Local<'s, v8::Data>,
   resource_name: v8::Local<'s, v8::Value>,
   specifier: v8::Local<'s, v8::String>,
@@ -690,7 +690,9 @@ pub fn host_import_module_dynamically_callback<'s>(
     ImportAttributesKind::DynamicImport,
   );
 
-  let tc_scope = &mut v8::TryCatch::new(scope);
+  let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
+  let tc_scope = &mut tc_scope.init();
+
   {
     {
       let state = JsRuntime::state_from(tc_scope);
@@ -757,7 +759,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   meta: v8::Local<v8::Object>,
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  let scope = &mut unsafe { v8::CallbackScope::new(context) };
+  v8::make_callback_scope!(unsafe scope, context);
   let module_map = JsRealm::module_map_from(scope);
   let state = JsRealm::state_from_scope(scope);
 
@@ -819,9 +821,9 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   }
 }
 
-fn maybe_add_import_meta_filename_dirname(
-  scope: &mut v8::HandleScope,
-  meta: v8::Local<v8::Object>,
+fn maybe_add_import_meta_filename_dirname<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  meta: v8::Local<'s, v8::Object>,
   name: &str,
 ) {
   // For `file:` URL we provide additional `filename` and `dirname` values
@@ -861,7 +863,7 @@ fn maybe_add_import_meta_filename_dirname(
 }
 
 fn import_meta_resolve(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   args: v8::FunctionCallbackArguments,
   mut rv: v8::ReturnValue,
 ) {
@@ -906,7 +908,7 @@ fn import_meta_resolve(
 }
 
 pub(crate) fn op_disabled_fn(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   _args: v8::FunctionCallbackArguments,
   _rv: v8::ReturnValue,
 ) {
@@ -915,9 +917,9 @@ pub(crate) fn op_disabled_fn(
   scope.throw_exception(exception);
 }
 
-fn catch_dynamic_import_promise_error(
-  scope: &mut v8::HandleScope,
-  args: v8::FunctionCallbackArguments,
+fn catch_dynamic_import_promise_error<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  args: v8::FunctionCallbackArguments<'s>,
   _rv: v8::ReturnValue,
 ) {
   let arg = args.get(0);
@@ -967,7 +969,7 @@ fn catch_dynamic_import_promise_error(
 
 pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
   // SAFETY: `CallbackScope` can be safely constructed from `&PromiseRejectMessage`
-  let scope = &mut unsafe { v8::CallbackScope::new(&message) };
+  v8::make_callback_scope!(unsafe scope, &message);
 
   let exception_state = JsRealm::exception_state_from_scope(scope);
   exception_state.track_promise_rejection(
@@ -1002,7 +1004,7 @@ pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
 /// Inspired by:
 /// https://github.com/nodejs/node/blob/1317252dfe8824fd9cfee125d2aaa94004db2f3b/src/inspector_js_api.cc#L194-L222
 fn call_console(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   args: v8::FunctionCallbackArguments,
   _rv: v8::ReturnValue,
 ) {
@@ -1031,19 +1033,30 @@ fn call_console(
   deno_console_method.call(scope, receiver.into(), &call_args);
 }
 
+fn cast_closure<F>(f: F) -> F
+where
+  F: for<'a, 'b> Fn(
+      &mut v8::PinScope<'a, 'b>,
+      v8::FunctionCallbackArguments<'a>,
+      v8::ReturnValue<'a>,
+    ) + 'static,
+{
+  f
+}
+
 /// Wrap a promise with `then` handlers allowing us to watch the resolution progress from a Rust closure.
 /// This has a side-effect of preventing unhandled rejection handlers from triggering. If that is
 /// desired, the final handler may choose to rethrow the exception.
-pub(crate) fn watch_promise<'s, F>(
-  scope: &mut v8::HandleScope<'s>,
+pub(crate) fn watch_promise<'s, 'i, F>(
+  scope: &mut v8::PinScope<'s, 'i>,
   promise: v8::Local<'s, v8::Promise>,
   f: F,
 ) -> Option<v8::Local<'s, v8::Promise>>
 where
-  F: FnOnce(
-      &mut v8::HandleScope,
-      v8::ReturnValue,
-      Result<v8::Local<v8::Value>, v8::Local<v8::Value>>,
+  F: for<'a, 'b> FnOnce(
+      &mut v8::PinScope<'a, 'b>,
+      v8::ReturnValue<'a>,
+      Result<v8::Local<'a, v8::Value>, v8::Local<'a, v8::Value>>,
     ) + 'static,
 {
   let external =
@@ -1055,27 +1068,27 @@ where
       .unwrap()
   }
 
-  let on_fulfilled = v8::Function::builder(
-    |scope: &mut v8::HandleScope,
+  let on_fulfilled = v8::Function::builder(cast_closure(
+    |scope: &mut v8::PinScope,
      args: v8::FunctionCallbackArguments,
      rv: v8::ReturnValue| {
       let data = v8::Local::<v8::External>::try_from(args.data()).unwrap();
       let f = get_handler::<F>(data);
       f(scope, rv, Ok(args.get(0)));
     },
-  )
+  ))
   .data(external.into())
   .build(scope);
 
-  let on_rejected = v8::Function::builder(
-    |scope: &mut v8::HandleScope,
+  let on_rejected = v8::Function::builder(cast_closure(
+    |scope: &mut v8::PinScope,
      args: v8::FunctionCallbackArguments,
      rv: v8::ReturnValue| {
       let data = v8::Local::<v8::External>::try_from(args.data()).unwrap();
       let f = get_handler::<F>(data);
       f(scope, rv, Err(args.get(0)));
     },
-  )
+  ))
   .data(external.into())
   .build(scope);
 
@@ -1097,12 +1110,12 @@ where
 
 /// This function generates a list of tuples, that are a mapping of `<op_name>`
 /// to a JavaScript function that executes and op.
-pub fn create_exports_for_ops_virtual_module<'s>(
+pub fn create_exports_for_ops_virtual_module<'s, 'i>(
   op_ctxs: &[OpCtx],
   op_method_decls: &[OpMethodDecl],
   methods_ctx_offset: usize,
-  scope: &mut v8::HandleScope<'s>,
-  global: v8::Local<v8::Object>,
+  scope: &mut v8::PinScope<'s, 'i>,
+  global: v8::Local<'s, v8::Object>,
 ) -> Vec<(FastStaticString, v8::Local<'s, v8::Value>)> {
   let mut exports = Vec::with_capacity(op_ctxs.len());
 

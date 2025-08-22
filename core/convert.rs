@@ -67,9 +67,9 @@ pub trait ToV8<'a> {
   type Error: std::error::Error + Send + Sync + 'static;
 
   /// Converts the value to a V8 value.
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error>;
 }
 
@@ -114,8 +114,8 @@ pub trait FromV8<'a>: Sized {
   type Error: std::error::Error + Send + Sync + 'static;
 
   /// Converts a V8 value to a Rust value.
-  fn from_v8(
-    scope: &mut v8::HandleScope<'a>,
+  fn from_v8<'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error>;
 }
@@ -158,25 +158,25 @@ macro_rules! impl_smallint {
 
 impl_smallint!(for u8, u16, u32, u64, usize, i8, i16, i32, i64, isize);
 
-impl<'a, T: SmallInt> ToV8<'a> for Smi<T> {
+impl<'s, T: SmallInt> ToV8<'s> for Smi<T> {
   type Error = Infallible;
 
   #[inline]
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     Ok(v8::Integer::new(scope, self.0.as_i32()).into())
   }
 }
 
-impl<'a, T: SmallInt> FromV8<'a> for Smi<T> {
+impl<'s, T: SmallInt> FromV8<'s> for Smi<T> {
   type Error = JsErrorBox;
 
   #[inline]
-  fn from_v8(
-    _scope: &mut v8::HandleScope<'a>,
-    value: v8::Local<'a, v8::Value>,
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
     let v = ops::to_i32_option(&value)
       .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))?;
@@ -228,23 +228,23 @@ impl_numeric!(
   isize : ops::to_i64_option
 );
 
-impl<'a, T: Numeric> ToV8<'a> for Number<T> {
+impl<'s, T: Numeric> ToV8<'s> for Number<T> {
   type Error = Infallible;
   #[inline]
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     Ok(v8::Number::new(scope, self.0.as_f64()).into())
   }
 }
 
-impl<'a, T: Numeric> FromV8<'a> for Number<T> {
+impl<'s, T: Numeric> FromV8<'s> for Number<T> {
   type Error = JsErrorBox;
   #[inline]
-  fn from_v8(
-    _scope: &mut v8::HandleScope<'a>,
-    value: v8::Local<'a, v8::Value>,
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
     T::from_value(&value)
       .map(Number)
@@ -252,23 +252,23 @@ impl<'a, T: Numeric> FromV8<'a> for Number<T> {
   }
 }
 
-impl<'a> ToV8<'a> for bool {
+impl<'s> ToV8<'s> for bool {
   type Error = Infallible;
   #[inline]
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     Ok(v8::Boolean::new(scope, self).into())
   }
 }
 
-impl<'a> FromV8<'a> for bool {
+impl<'s> FromV8<'s> for bool {
   type Error = JsErrorBox;
   #[inline]
-  fn from_v8(
-    _scope: &mut v8::HandleScope<'a>,
-    value: v8::Local<'a, v8::Value>,
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
     value
       .try_cast::<v8::Boolean>()
@@ -277,23 +277,23 @@ impl<'a> FromV8<'a> for bool {
   }
 }
 
-impl<'a> FromV8<'a> for String {
+impl<'s> FromV8<'s> for String {
   type Error = Infallible;
   #[inline]
-  fn from_v8(
-    scope: &mut v8::HandleScope<'a>,
-    value: v8::Local<'a, v8::Value>,
+  fn from_v8<'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Result<String, Self::Error> {
     Ok(value.to_rust_string_lossy(scope))
   }
 }
-impl<'a> ToV8<'a> for String {
+impl<'s> ToV8<'s> for String {
   type Error = Infallible;
   #[inline]
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     Ok(v8::String::new(scope, &self).unwrap().into()) // TODO
   }
 }
@@ -315,16 +315,16 @@ impl<T> From<OptionNull<T>> for Option<T> {
   }
 }
 
-impl<'a, T> ToV8<'a> for OptionNull<T>
+impl<'s, T> ToV8<'s> for OptionNull<T>
 where
-  T: ToV8<'a>,
+  T: ToV8<'s>,
 {
   type Error = T::Error;
 
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     match self.0 {
       Some(value) => value.to_v8(scope),
       None => Ok(v8::null(scope).into()),
@@ -332,15 +332,15 @@ where
   }
 }
 
-impl<'a, T> FromV8<'a> for OptionNull<T>
+impl<'s, T> FromV8<'s> for OptionNull<T>
 where
-  T: FromV8<'a>,
+  T: FromV8<'s>,
 {
   type Error = T::Error;
 
-  fn from_v8(
-    scope: &mut v8::HandleScope<'a>,
-    value: v8::Local<'a, v8::Value>,
+  fn from_v8<'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_null() {
       Ok(OptionNull(None))
@@ -367,16 +367,16 @@ impl<T> From<OptionUndefined<T>> for Option<T> {
   }
 }
 
-impl<'a, T> ToV8<'a> for OptionUndefined<T>
+impl<'s, T> ToV8<'s> for OptionUndefined<T>
 where
-  T: ToV8<'a>,
+  T: ToV8<'s>,
 {
   type Error = T::Error;
 
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     match self.0 {
       Some(value) => value.to_v8(scope),
       None => Ok(v8::undefined(scope).into()),
@@ -384,15 +384,15 @@ where
   }
 }
 
-impl<'a, T> FromV8<'a> for OptionUndefined<T>
+impl<'s, T> FromV8<'s> for OptionUndefined<T>
 where
-  T: FromV8<'a>,
+  T: FromV8<'s>,
 {
   type Error = T::Error;
 
-  fn from_v8(
-    scope: &mut v8::HandleScope<'a>,
-    value: v8::Local<'a, v8::Value>,
+  fn from_v8<'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_undefined() {
       Ok(OptionUndefined(None))

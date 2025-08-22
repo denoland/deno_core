@@ -10,8 +10,8 @@ use std::sync::atomic::Ordering;
 use std::task::Context;
 use std::task::Poll;
 
-type UnsendTask = Box<dyn FnOnce(&mut v8::HandleScope) + 'static>;
-type SendTask = Box<dyn FnOnce(&mut v8::HandleScope) + Send + 'static>;
+type UnsendTask = Box<dyn FnOnce(&mut v8::PinScope) + 'static>;
+type SendTask = Box<dyn FnOnce(&mut v8::PinScope) + Send + 'static>;
 
 static_assertions::assert_not_impl_any!(V8TaskSpawnerFactory: Send);
 static_assertions::assert_not_impl_any!(V8TaskSpawner: Send);
@@ -125,12 +125,12 @@ impl V8TaskSpawner {
   /// event loop's [`v8::HandleScope`].
   pub fn spawn<F>(&self, f: F)
   where
-    F: FnOnce(&mut v8::HandleScope) + 'static,
+    F: FnOnce(&mut v8::PinScope<'_, '_>) + 'static,
   {
-    let task: Box<dyn FnOnce(&mut v8::HandleScope<'_>)> = Box::new(f);
+    let task: Box<dyn FnOnce(&mut v8::PinScope<'_, '_>)> = Box::new(f);
     // SAFETY: we are transmuting Send into a !Send handle but we guarantee this object will never
     // leave the current thread because `V8TaskSpawner` is !Send.
-    let task: Box<dyn FnOnce(&mut v8::HandleScope<'_>) + Send> =
+    let task: Box<dyn FnOnce(&mut v8::PinScope<'_, '_>) + Send> =
       unsafe { std::mem::transmute(task) };
     self.tasks.spawn(task)
   }
@@ -163,7 +163,7 @@ impl V8CrossThreadTaskSpawner {
   /// event loop's [`v8::HandleScope`].
   pub fn spawn<F>(&self, f: F)
   where
-    F: FnOnce(&mut v8::HandleScope) + Send + 'static,
+    F: FnOnce(&mut v8::PinScope<'_, '_>) + Send + 'static,
   {
     self.tasks.spawn(Box::new(f))
   }

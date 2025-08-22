@@ -37,7 +37,6 @@ use std::task::Context;
 use std::task::Poll;
 use std::thread;
 use thiserror::Error;
-use v8::HandleScope;
 
 pub enum InspectorMsgKind {
   Notification,
@@ -156,7 +155,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
   ) -> Option<v8::Local<'_, v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     let isolate: &mut v8::Isolate = unsafe { &mut *self.isolate_ptr };
-    let scope = &mut unsafe { v8::CallbackScope::new(isolate) };
+    v8::make_callback_scope!(unsafe scope, isolate);
     Some(v8::Local::new(scope, self.context.clone()))
   }
 
@@ -176,10 +175,10 @@ impl JsRuntimeInspector {
   /// and thus it's id is provided as an associated constant.
   const CONTEXT_GROUP_ID: i32 = 1;
 
-  pub fn new(
+  pub fn new<'s, 'i>(
     isolate_ptr: *mut v8::Isolate,
-    scope: &mut v8::HandleScope,
-    context: v8::Local<v8::Context>,
+    scope: &mut v8::PinScope<'s, 'i>,
+    context: v8::Local<'s, v8::Context>,
     is_main_runtime: bool,
   ) -> Rc<RefCell<Self>> {
     let (new_session_tx, new_session_rx) =
@@ -249,7 +248,7 @@ impl JsRuntimeInspector {
 
   pub fn context_destroyed(
     &mut self,
-    scope: &mut HandleScope,
+    scope: &mut v8::PinScope,
     context: v8::Global<v8::Context>,
   ) {
     let context = v8::Local::new(scope, context);
@@ -261,10 +260,10 @@ impl JsRuntimeInspector {
       .context_destroyed(context);
   }
 
-  pub fn exception_thrown(
+  pub fn exception_thrown<'s, 'i>(
     &self,
-    scope: &mut HandleScope,
-    exception: v8::Local<'_, v8::Value>,
+    scope: &mut v8::PinScope<'s, 'i>,
+    exception: v8::Local<'s, v8::Value>,
     in_promise: bool,
   ) {
     let context = scope.get_current_context();

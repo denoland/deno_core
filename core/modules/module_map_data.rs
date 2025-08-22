@@ -319,7 +319,7 @@ impl ModuleMapData {
 
   pub fn update_with_snapshotted_data(
     &mut self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     data_store: &mut SnapshotLoadDataStore,
     data: ModuleMapSnapshotData,
   ) {

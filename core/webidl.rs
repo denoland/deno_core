@@ -3,7 +3,6 @@
 use deno_error::JsError;
 use indexmap::IndexMap;
 use std::borrow::Cow;
-use v8::HandleScope;
 use v8::Local;
 use v8::Value;
 
@@ -160,9 +159,9 @@ pub enum Type {
   Object,
 }
 
-pub fn type_of<'a>(
-  scope: &mut HandleScope<'a>,
-  value: Local<'a, Value>,
+pub fn type_of<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  value: Local<'s, Value>,
 ) -> Type {
   if value.is_null() {
     return Type::Null;
@@ -183,8 +182,8 @@ pub fn type_of<'a>(
 pub trait WebIdlConverter<'a>: Sized {
   type Options: Default;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -199,8 +198,8 @@ pub trait WebIdlConverter<'a>: Sized {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
   type Options = T::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -220,8 +219,8 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
 impl<'a> WebIdlConverter<'a> for Local<'a, Value> {
   type Options = ();
 
-  fn convert<'b>(
-    _scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
     _context: ContextFn<'b>,
@@ -248,8 +247,8 @@ impl<T> Nullable<T> {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Nullable<T> {
   type Options = T::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -281,8 +280,8 @@ thread_local! {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
   type Options = T::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -402,8 +401,8 @@ impl<'a, K: WebIdlConverter<'a> + Eq + std::hash::Hash, V: WebIdlConverter<'a>>
 {
   type Options = V::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -481,8 +480,8 @@ macro_rules! impl_ints {
         type Options = IntOptions;
 
         #[allow(clippy::manual_range_contains)]
-        fn convert<'b>(
-          scope: &mut HandleScope<'a>,
+        fn convert<'b, 'i>(
+          scope: &mut v8::PinScope<'a, 'i>,
           value: Local<'a, Value>,
           prefix: Cow<'static, str>,
           context: ContextFn<'b>,
@@ -587,8 +586,8 @@ impl_ints!(
 impl<'a> WebIdlConverter<'a> for f32 {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -636,8 +635,8 @@ impl std::ops::Deref for UnrestrictedFloat {
 impl<'a> WebIdlConverter<'a> for UnrestrictedFloat {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -659,8 +658,8 @@ impl<'a> WebIdlConverter<'a> for UnrestrictedFloat {
 impl<'a> WebIdlConverter<'a> for f64 {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -698,8 +697,8 @@ impl std::ops::Deref for UnrestrictedDouble {
 impl<'a> WebIdlConverter<'a> for UnrestrictedDouble {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -726,8 +725,8 @@ pub struct BigInt {
 impl<'a> WebIdlConverter<'a> for BigInt {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -750,8 +749,8 @@ impl<'a> WebIdlConverter<'a> for BigInt {
 impl<'a> WebIdlConverter<'a> for bool {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
     _context: ContextFn<'b>,
@@ -770,8 +769,8 @@ pub struct StringOptions {
 impl<'a> WebIdlConverter<'a> for String {
   type Options = StringOptions;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -812,8 +811,8 @@ impl std::ops::Deref for ByteString {
 impl<'a> WebIdlConverter<'a> for ByteString {
   type Options = StringOptions;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -862,8 +861,8 @@ impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
 {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,

@@ -26,7 +26,7 @@ use v8::ValueSerializerHelper;
 
 #[op2]
 pub fn op_add_main_module_handler(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   #[global] f: v8::Global<v8::Function>,
 ) {
   JsRealm::module_map_from(scope)
@@ -38,7 +38,7 @@ pub fn op_add_main_module_handler(
 
 #[op2]
 pub fn op_set_handled_promise_rejection_handler(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   #[global] f: Option<v8::Global<v8::Function>>,
 ) {
   let exception_state = JsRealm::exception_state_from_scope(scope);
@@ -46,26 +46,26 @@ pub fn op_set_handled_promise_rejection_handler(
 }
 
 #[op2(fast)]
-pub fn op_ref_op(scope: &mut v8::HandleScope, promise_id: i32) {
+pub fn op_ref_op(scope: &mut v8::PinScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().remove(&promise_id);
 }
 
 #[op2(fast)]
-pub fn op_unref_op(scope: &mut v8::HandleScope, promise_id: i32) {
+pub fn op_unref_op(scope: &mut v8::PinScope, promise_id: i32) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.unrefed_ops.borrow_mut().insert(promise_id);
 }
 
 #[op2(fast)]
-pub fn op_leak_tracing_enable(scope: &mut v8::HandleScope, enabled: bool) {
+pub fn op_leak_tracing_enable(scope: &mut v8::PinScope, enabled: bool) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.activity_traces.set_enabled(enabled);
 }
 
 #[op2(fast)]
 pub fn op_leak_tracing_submit(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   #[smi] kind: u8,
   #[smi] id: i32,
   #[string] trace: &str,
@@ -79,8 +79,8 @@ pub fn op_leak_tracing_submit(
 }
 
 #[op2]
-pub fn op_leak_tracing_get_all<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn op_leak_tracing_get_all<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
 ) -> v8::Local<'s, v8::Value> {
   let context_state = JsRealm::state_from_scope(scope);
   // This is relatively inefficient, but so is leak tracing
@@ -98,8 +98,8 @@ pub fn op_leak_tracing_get_all<'s>(
 }
 
 #[op2]
-pub fn op_leak_tracing_get<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn op_leak_tracing_get<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   #[smi] kind: u8,
   #[smi] id: i32,
 ) -> v8::Local<'s, v8::Value> {
@@ -123,7 +123,7 @@ pub fn op_leak_tracing_get<'s>(
 /// `u32`.
 #[op2]
 pub fn op_timer_queue(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   depth: u32,
   repeat: bool,
   timeout_ms: f64,
@@ -146,7 +146,7 @@ pub fn op_timer_queue(
 /// `u32`.
 #[op2]
 pub fn op_timer_queue_system(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   repeat: bool,
   timeout_ms: f64,
   #[global] task: v8::Global<v8::Function>,
@@ -162,7 +162,7 @@ pub fn op_timer_queue_system(
 /// `u32`.
 #[op2]
 pub fn op_timer_queue_immediate(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   #[global] task: v8::Global<v8::Function>,
 ) -> f64 {
   let context_state = JsRealm::state_from_scope(scope);
@@ -170,7 +170,7 @@ pub fn op_timer_queue_immediate(
 }
 
 #[op2(fast)]
-pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
+pub fn op_timer_cancel(scope: &mut v8::PinScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.cancel_timer(id as _);
   context_state
@@ -179,13 +179,13 @@ pub fn op_timer_cancel(scope: &mut v8::HandleScope, id: f64) {
 }
 
 #[op2(fast)]
-pub fn op_timer_ref(scope: &mut v8::HandleScope, id: f64) {
+pub fn op_timer_ref(scope: &mut v8::PinScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.ref_timer(id as _);
 }
 
 #[op2(fast)]
-pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
+pub fn op_timer_unref(scope: &mut v8::PinScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.unref_timer(id as _);
 }
@@ -193,7 +193,7 @@ pub fn op_timer_unref(scope: &mut v8::HandleScope, id: f64) {
 #[op2(reentrant)]
 #[global]
 pub fn op_lazy_load_esm(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   #[string] module_specifier: String,
 ) -> Result<v8::Global<v8::Value>, CoreError> {
   let module_map_rc = JsRealm::module_map_from(scope);
@@ -227,14 +227,14 @@ pub fn op_run_microtasks(isolate: *mut v8::Isolate) {
 }
 
 #[op2(fast)]
-pub fn op_has_tick_scheduled(scope: &mut v8::HandleScope) -> bool {
+pub fn op_has_tick_scheduled(scope: &mut v8::PinScope) -> bool {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
     .get()
 }
 
 #[op2(fast)]
-pub fn op_set_has_tick_scheduled(scope: &mut v8::HandleScope, v: bool) {
+pub fn op_set_has_tick_scheduled(scope: &mut v8::PinScope, v: bool) {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
     .set(v);
@@ -247,7 +247,10 @@ pub struct EvalContextError<'s> {
 }
 
 impl<'s> EvalContextError<'s> {
-  fn to_v8(&self, scope: &mut v8::HandleScope<'s>) -> v8::Local<'s, v8::Value> {
+  fn to_v8<'i>(
+    &self,
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> v8::Local<'s, v8::Value> {
     let arr = v8::Array::new(scope, 3);
     arr.set_index(scope, 0, self.thrown);
     let v = v8::Boolean::new(scope, self.is_native_error);
@@ -259,15 +262,17 @@ impl<'s> EvalContextError<'s> {
 }
 
 #[op2(reentrant)]
-pub fn op_eval_context<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  source: v8::Local<'a, v8::Value>,
+pub fn op_eval_context<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  source: v8::Local<'s, v8::Value>,
   #[string] specifier: String,
-  host_defined_options: Option<v8::Local<'a, v8::Array>>,
-) -> Result<v8::Local<'a, v8::Value>, JsErrorBox> {
+  host_defined_options: Option<v8::Local<'s, v8::Array>>,
+) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
   let out = v8::Array::new(scope, 2);
   let state = JsRuntime::state_from(scope);
-  let tc_scope = &mut v8::TryCatch::new(scope);
+  let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
+  let tc_scope = &mut tc_scope.init();
+
   let source = v8::Local::<v8::String>::try_from(source)
     .map_err(|_| JsErrorBox::type_error("Invalid source"))?;
   let specifier = resolve_url(&specifier).map_err(JsErrorBox::from_err)?;
@@ -379,10 +384,10 @@ pub fn op_eval_context<'a>(
 }
 
 #[op2]
-pub fn op_encode<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  text: v8::Local<'a, v8::Value>,
-) -> Result<v8::Local<'a, v8::Uint8Array>, JsErrorBox> {
+pub fn op_encode<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  text: v8::Local<'s, v8::Value>,
+) -> Result<v8::Local<'s, v8::Uint8Array>, JsErrorBox> {
   let text = v8::Local::<v8::String>::try_from(text)
     .map_err(|_| JsErrorBox::type_error("Invalid argument"))?;
   let text_str = serde_v8::to_utf8(text, scope);
@@ -396,10 +401,10 @@ pub fn op_encode<'a>(
 }
 
 #[op2]
-pub fn op_decode<'a>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn op_decode<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   #[buffer] zero_copy: &[u8],
-) -> Result<v8::Local<'a, v8::String>, JsErrorBox> {
+) -> Result<v8::Local<'s, v8::String>, JsErrorBox> {
   let buf = &zero_copy;
 
   // Strip BOM
@@ -433,13 +438,15 @@ struct SerializeDeserialize<'a> {
 
 impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
   #[allow(unused_variables)]
-  fn throw_data_clone_error<'s>(
+  fn throw_data_clone_error<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     message: v8::Local<'s, v8::String>,
   ) {
     if let Some(cb) = self.error_callback {
-      let scope = &mut v8::TryCatch::new(scope);
+      let scope = std::pin::pin!(v8::TryCatch::new(scope));
+      let scope = &mut scope.init();
+
       let undefined = v8::undefined(scope).into();
       cb.call(scope, undefined, &[message.into()]);
       if scope.has_caught() || scope.has_terminated() {
@@ -451,9 +458,9 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
     scope.throw_exception(error);
   }
 
-  fn get_shared_array_buffer_id<'s>(
+  fn get_shared_array_buffer_id<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     shared_array_buffer: v8::Local<'s, v8::SharedArrayBuffer>,
   ) -> Option<u32> {
     if self.for_storage {
@@ -470,9 +477,9 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
     }
   }
 
-  fn get_wasm_module_transfer_id(
+  fn get_wasm_module_transfer_id<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'_>,
+    scope: &mut v8::PinScope<'s, 'i>,
     module: v8::Local<v8::WasmModuleObject>,
   ) -> Option<u32> {
     if self.for_storage {
@@ -491,13 +498,13 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
     }
   }
 
-  fn has_custom_host_object(&self, _isolate: &mut v8::Isolate) -> bool {
+  fn has_custom_host_object(&self, _isolate: &v8::Isolate) -> bool {
     true
   }
 
-  fn is_host_object<'s>(
+  fn is_host_object<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     object: v8::Local<'s, v8::Object>,
   ) -> Option<bool> {
     match &self.host_object_brand {
@@ -509,9 +516,9 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
     }
   }
 
-  fn write_host_object<'s>(
+  fn write_host_object<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     object: v8::Local<'s, v8::Object>,
     value_serializer: &dyn v8::ValueSerializerHelper,
   ) -> Option<bool> {
@@ -531,9 +538,9 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
 }
 
 impl v8::ValueDeserializerImpl for SerializeDeserialize<'_> {
-  fn get_shared_array_buffer_from_id<'s>(
+  fn get_shared_array_buffer_from_id<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     transfer_id: u32,
   ) -> Option<v8::Local<'s, v8::SharedArrayBuffer>> {
     if self.for_storage {
@@ -551,9 +558,9 @@ impl v8::ValueDeserializerImpl for SerializeDeserialize<'_> {
     }
   }
 
-  fn get_wasm_module_from_id<'s>(
+  fn get_wasm_module_from_id<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     clone_id: u32,
   ) -> Option<v8::Local<'s, v8::WasmModuleObject>> {
     if self.for_storage {
@@ -569,9 +576,9 @@ impl v8::ValueDeserializerImpl for SerializeDeserialize<'_> {
     }
   }
 
-  fn read_host_object<'s>(
+  fn read_host_object<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     value_deserializer: &dyn v8::ValueDeserializerHelper,
   ) -> Option<v8::Local<'s, v8::Object>> {
     if let Some(host_objects) = self.host_objects {
@@ -596,13 +603,13 @@ impl v8::ValueDeserializerImpl for SerializeDeserialize<'_> {
 // May be reentrant in the case of errors.
 #[op2(reentrant)]
 #[buffer]
-pub fn op_serialize(
-  scope: &mut v8::HandleScope,
-  value: v8::Local<v8::Value>,
-  host_objects: Option<v8::Local<v8::Value>>,
-  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+pub fn op_serialize<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  value: v8::Local<'s, v8::Value>,
+  host_objects: Option<v8::Local<'s, v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<'s, v8::Value>>,
   for_storage: bool,
-  error_callback: Option<v8::Local<v8::Value>>,
+  error_callback: Option<v8::Local<'s, v8::Value>>,
 ) -> Result<Vec<u8>, JsErrorBox> {
   let error_callback = match error_callback {
     Some(cb) => Some(
@@ -675,7 +682,9 @@ pub fn op_serialize(
     }
   }
 
-  let scope = &mut v8::TryCatch::new(scope);
+  let scope = std::pin::pin!(v8::TryCatch::new(scope));
+  let scope = &mut scope.init();
+
   let ret = value_serializer.write_value(scope.get_current_context(), value);
   if scope.has_caught() || scope.has_terminated() {
     scope.rethrow();
@@ -690,13 +699,13 @@ pub fn op_serialize(
 }
 
 #[op2]
-pub fn op_deserialize<'a>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn op_deserialize<'a, 's, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   #[buffer] zero_copy: JsBuffer,
-  host_objects: Option<v8::Local<v8::Value>>,
-  transferred_array_buffers: Option<v8::Local<v8::Value>>,
+  host_objects: Option<v8::Local<'s, v8::Value>>,
+  transferred_array_buffers: Option<v8::Local<'s, v8::Value>>,
   for_storage: bool,
-) -> Result<v8::Local<'a, v8::Value>, JsErrorBox> {
+) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
   let host_objects = match host_objects {
     Some(value) => Some(
       v8::Local::<v8::Array>::try_from(value)
@@ -768,10 +777,10 @@ pub fn op_deserialize<'a>(
 
 // Specialized op for `structuredClone` API called with no `options` argument.
 #[op2]
-pub fn op_structured_clone<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  value: v8::Local<v8::Value>,
-) -> Result<v8::Local<'a, v8::Value>, JsErrorBox> {
+pub fn op_structured_clone<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  value: v8::Local<'s, v8::Value>,
+) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
   let key = v8_static_strings::HOST_OBJECT.v8_string(scope).unwrap();
   let symbol = v8::Symbol::for_key(scope, key);
   let host_object_brand = Some(v8::Global::new(scope, symbol));
@@ -785,7 +794,9 @@ pub fn op_structured_clone<'a>(
   let value_serializer = v8::ValueSerializer::new(scope, serialize_deserialize);
   value_serializer.write_header();
 
-  let scope = &mut v8::TryCatch::new(scope);
+  let scope = std::pin::pin!(v8::TryCatch::new(scope));
+  let scope = &mut scope.init();
+
   let ret = value_serializer.write_value(scope.get_current_context(), value);
   if scope.has_caught() || scope.has_terminated() {
     scope.rethrow();
@@ -823,10 +834,10 @@ pub fn op_structured_clone<'a>(
 }
 
 #[op2]
-pub fn op_get_promise_details<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  promise: v8::Local<'a, v8::Promise>,
-) -> v8::Local<'a, v8::Value> {
+pub fn op_get_promise_details<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  promise: v8::Local<'s, v8::Promise>,
+) -> v8::Local<'s, v8::Value> {
   let out = v8::Array::new(scope, 2);
 
   let (i, val) = match promise.state() {
@@ -848,12 +859,12 @@ pub fn op_get_promise_details<'a>(
 }
 
 #[op2(fast)]
-pub fn op_set_promise_hooks(
-  scope: &mut v8::HandleScope,
-  init_hook: v8::Local<v8::Value>,
-  before_hook: v8::Local<v8::Value>,
-  after_hook: v8::Local<v8::Value>,
-  resolve_hook: v8::Local<v8::Value>,
+pub fn op_set_promise_hooks<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  init_hook: v8::Local<'s, v8::Value>,
+  before_hook: v8::Local<'s, v8::Value>,
+  after_hook: v8::Local<'s, v8::Value>,
+  resolve_hook: v8::Local<'s, v8::Value>,
 ) -> Result<(), crate::error::DataError> {
   let v8_fns = [init_hook, before_hook, after_hook, resolve_hook]
     .into_iter()
@@ -898,10 +909,10 @@ pub fn op_set_promise_hooks(
 // USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 #[op2]
-pub fn op_get_proxy_details<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  proxy: v8::Local<'a, v8::Value>,
-) -> v8::Local<'a, v8::Value> {
+pub fn op_get_proxy_details<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  proxy: v8::Local<'s, v8::Value>,
+) -> v8::Local<'s, v8::Value> {
   let Ok(proxy) = v8::Local::<v8::Proxy>::try_from(proxy) else {
     return v8::null(scope).into();
   };
@@ -914,11 +925,11 @@ pub fn op_get_proxy_details<'a>(
 }
 
 #[op2]
-pub fn op_get_non_index_property_names<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  obj: v8::Local<'a, v8::Value>,
+pub fn op_get_non_index_property_names<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  obj: v8::Local<'s, v8::Value>,
   filter: u32,
-) -> Option<v8::Local<'a, v8::Value>> {
+) -> Option<v8::Local<'s, v8::Value>> {
   let obj = match v8::Local::<v8::Object>::try_from(obj) {
     Ok(proxy) => proxy,
     Err(_) => return None,
@@ -956,9 +967,9 @@ pub fn op_get_non_index_property_names<'a>(
 
 #[op2]
 #[string]
-pub fn op_get_constructor_name(
-  scope: &mut v8::HandleScope,
-  obj: v8::Local<v8::Value>,
+pub fn op_get_constructor_name<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  obj: v8::Local<'s, v8::Value>,
 ) -> Option<String> {
   let obj = match v8::Local::<v8::Object>::try_from(obj) {
     Ok(proxy) => proxy,
@@ -984,7 +995,7 @@ pub struct MemoryUsage {
 
 #[op2]
 #[serde]
-pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
+pub fn op_memory_usage(scope: &mut v8::PinScope<'_, '_>) -> MemoryUsage {
   let s = scope.get_heap_statistics();
   MemoryUsage {
     physical_total: s.total_physical_size(),
@@ -995,8 +1006,8 @@ pub fn op_memory_usage(scope: &mut v8::HandleScope) -> MemoryUsage {
 }
 
 #[op2]
-pub fn op_get_ext_import_meta_proto<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn op_get_ext_import_meta_proto<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
 ) -> v8::Local<'s, v8::Value> {
   let context_state_rc = JsRealm::state_from_scope(scope);
   if let Some(proto) = context_state_rc.ext_import_meta_proto.borrow().clone() {
@@ -1008,7 +1019,7 @@ pub fn op_get_ext_import_meta_proto<'s>(
 
 #[op2]
 pub fn op_set_wasm_streaming_callback(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   #[global] cb: v8::Global<v8::Function>,
 ) -> Result<(), JsErrorBox> {
   let context_state_rc = JsRealm::state_from_scope(scope);
@@ -1081,9 +1092,9 @@ pub fn op_abort_wasm_streaming(
 // This op calls `op_apply_source_map` re-entrantly.
 #[op2(reentrant)]
 #[serde]
-pub fn op_destructure_error(
-  scope: &mut v8::HandleScope,
-  error: v8::Local<v8::Value>,
+pub fn op_destructure_error<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  error: v8::Local<'s, v8::Value>,
 ) -> JsError {
   *JsError::from_v8_exception(scope, error)
 }
@@ -1092,9 +1103,9 @@ pub fn op_destructure_error(
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
 #[op2(fast, reentrant)]
-pub fn op_dispatch_exception(
-  scope: &mut v8::HandleScope,
-  exception: v8::Local<v8::Value>,
+pub fn op_dispatch_exception<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  exception: v8::Local<'s, v8::Value>,
   promise: bool,
 ) {
   error::dispatch_exception(scope, exception, promise);
@@ -1102,7 +1113,7 @@ pub fn op_dispatch_exception(
 
 #[op2]
 #[serde]
-pub fn op_op_names(scope: &mut v8::HandleScope) -> Vec<String> {
+pub fn op_op_names(scope: &mut v8::PinScope<'_, '_>) -> Vec<String> {
   let state = JsRealm::state_from_scope(scope);
   state
     .op_ctxs
@@ -1123,7 +1134,7 @@ fn write_line_and_col_to_ret_buf(
 #[op2]
 #[string]
 pub fn op_current_user_call_site(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   js_runtime_state: &JsRuntimeState,
   #[buffer] ret_buf: &mut [u8],
 ) -> String {
@@ -1192,10 +1203,10 @@ pub fn op_current_user_call_site(
 /// should return a string or `null`. If no callback is set or the callback
 /// returns `null`, the built-in default formatting will be used.
 #[op2]
-pub fn op_set_format_exception_callback<'a>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn op_set_format_exception_callback<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   #[global] cb: v8::Global<v8::Function>,
-) -> Option<v8::Local<'a, v8::Value>> {
+) -> Option<v8::Local<'s, v8::Value>> {
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .exception_state
@@ -1207,14 +1218,14 @@ pub fn op_set_format_exception_callback<'a>(
 }
 
 #[op2(fast)]
-pub fn op_event_loop_has_more_work(scope: &mut v8::HandleScope) -> bool {
+pub fn op_event_loop_has_more_work(scope: &mut v8::PinScope<'_, '_>) -> bool {
   JsRuntime::has_more_work(scope)
 }
 
 #[op2]
-pub fn op_get_extras_binding_object<'a>(
-  scope: &mut v8::HandleScope<'a>,
-) -> v8::Local<'a, v8::Value> {
+pub fn op_get_extras_binding_object<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+) -> v8::Local<'s, v8::Value> {
   let context = scope.get_current_context();
   context.get_extras_binding_object(scope).into()
 }

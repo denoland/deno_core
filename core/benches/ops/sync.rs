@@ -99,27 +99,27 @@ pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
 }
 
 #[op2(fast)]
-pub fn op_local(_s: v8::Local<v8::String>) {}
+pub fn op_local(_s: v8::Local<'s, v8::String>) {}
 
 #[op2(fast)]
-pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
+pub fn op_local_scope(_scope: &mut v8::PinScope, _s: v8::Local<'s, v8::String>) {
 }
 
 #[op2(nofast)]
-pub fn op_local_nofast(_s: v8::Local<v8::String>) {}
+pub fn op_local_nofast(_s: v8::Local<'s, v8::String>) {}
 
 #[op2]
 pub fn op_global(#[global] _s: v8::Global<v8::String>) {}
 
 #[op2]
 pub fn op_global_scope(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   #[global] _s: v8::Global<v8::String>,
 ) {
 }
 
 #[op2(fast)]
-pub fn op_scope(_scope: &mut v8::HandleScope) {}
+pub fn op_scope(_scope: &mut v8::PinScope) {}
 
 #[op2(nofast)]
 pub fn op_isolate_nofast(_isolate: *mut v8::Isolate) {}

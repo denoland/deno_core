@@ -341,7 +341,8 @@ fn throw_type_error(
   let create_scope = create_scope(generator_state);
   let message = format!("{message}");
   quote!({
-    let mut scope = #create_scope;
+    let scope = ::std::pin::pin!(#create_scope);
+    let mut scope = scope.init();
     deno_core::_ops::throw_error_one_byte(&mut scope, #message);
     // SAFETY: All fast return types have zero as a valid value
     return unsafe { std::mem::zeroed() };
@@ -353,13 +354,14 @@ fn throw_type_error(
 pub(crate) fn generate_fast_result_early_exit(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-  generator_state.needs_opctx = true;
+generator_state.needs_opctx = true;
   let create_scope = create_scope(generator_state);
   gs_quote!(generator_state(result) => {
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
-        let mut scope = #create_scope;
+        let scope = ::std::pin::pin!(#create_scope);
+        let mut scope = scope.init();
         let exception = deno_core::error::to_v8_error(
           &mut scope,
           &err,
@@ -522,7 +524,8 @@ pub(crate) fn generate_dispatch_fast(
   let with_scope = if generator_state.needs_scope {
     let create_scope = create_scope(generator_state);
     gs_quote!(generator_state(scope) => {
-      let mut #scope = #create_scope;
+      let #scope = ::std::pin::pin!(#create_scope);
+      let mut #scope = scope.init();
     })
   } else {
     quote!()

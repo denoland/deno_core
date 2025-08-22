@@ -132,22 +132,22 @@ unsafe impl<T: GarbageCollected> v8::cppgc::GarbageCollected
 }
 
 pub(crate) fn cppgc_template_constructor(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   _args: v8::FunctionCallbackArguments,
   _rv: v8::ReturnValue,
 ) {
 }
 
-pub(crate) fn make_cppgc_template<'s>(
-  scope: &mut v8::HandleScope<'s, ()>,
+pub(crate) fn make_cppgc_template<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i, ()>,
 ) -> v8::Local<'s, v8::FunctionTemplate> {
   v8::FunctionTemplate::new(scope, cppgc_template_constructor)
 }
 
 #[doc(hidden)]
-pub fn make_cppgc_empty_object<'a, T: GarbageCollected + 'static>(
-  scope: &mut v8::HandleScope<'a>,
-) -> v8::Local<'a, v8::Object> {
+pub fn make_cppgc_empty_object<'s, 'i, T: GarbageCollected + 'static>(
+  scope: &mut v8::PinScope<'s, 'i>,
+) -> v8::Local<'s, v8::Object> {
   let state = JsRuntime::state_from(scope);
   let templates = state.function_templates.borrow();
 
@@ -166,20 +166,20 @@ pub fn make_cppgc_empty_object<'a, T: GarbageCollected + 'static>(
   }
 }
 
-pub fn make_cppgc_object<'a, T: GarbageCollected + 'static>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn make_cppgc_object<'s, 'i, T: GarbageCollected + 'static>(
+  scope: &mut v8::PinScope<'s, 'i>,
   t: T,
-) -> v8::Local<'a, v8::Object> {
+) -> v8::Local<'s, v8::Object> {
   let obj = make_cppgc_empty_object::<T>(scope);
   wrap_object(scope, obj, t)
 }
 
 // Wrap an API object (eg: `args.This()`)
-pub fn wrap_object<'a, T: GarbageCollected + 'static>(
+pub fn wrap_object<'s, T: GarbageCollected + 'static>(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'a, v8::Object>,
+  obj: v8::Local<'s, v8::Object>,
   t: T,
-) -> v8::Local<'a, v8::Object> {
+) -> v8::Local<'s, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
   unsafe {
     let member = v8::cppgc::make_garbage_collected(
@@ -197,22 +197,23 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
 }
 
 pub fn make_cppgc_proto_object<
-  'a,
+  's,
+  'i,
   T: GarbageCollected + PrototypeChain + 'static,
 >(
-  scope: &mut v8::HandleScope<'a>,
+  scope: &mut v8::PinScope<'s, 'i>,
   t: T,
-) -> v8::Local<'a, v8::Object> {
+) -> v8::Local<'s, v8::Object> {
   let obj = make_cppgc_empty_object::<T>(scope);
   wrap_object1(scope, obj, t)
 }
 
 #[doc(hidden)]
-pub fn wrap_object1<'a, T: GarbageCollected + PrototypeChain + 'static>(
+pub fn wrap_object1<'s, T: GarbageCollected + PrototypeChain + 'static>(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'a, v8::Object>,
+  obj: v8::Local<'s, v8::Object>,
   t: T,
-) -> v8::Local<'a, v8::Object> {
+) -> v8::Local<'s, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {
@@ -245,14 +246,14 @@ pub fn wrap_object1<'a, T: GarbageCollected + PrototypeChain + 'static>(
 
 #[doc(hidden)]
 pub fn wrap_object2<
-  'a,
+  's,
   T: GarbageCollected + PrototypeChain + 'static,
   S: GarbageCollected + PrototypeChain + 'static,
 >(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'a, v8::Object>,
+  obj: v8::Local<'s, v8::Object>,
   t: (T, S),
-) -> v8::Local<'a, v8::Object> {
+) -> v8::Local<'s, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {
@@ -294,15 +295,15 @@ pub fn wrap_object2<
 
 #[doc(hidden)]
 pub fn wrap_object3<
-  'a,
+  's,
   T: GarbageCollected + PrototypeChain + 'static,
   S: GarbageCollected + PrototypeChain + 'static,
   R: GarbageCollected + PrototypeChain + 'static,
 >(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'a, v8::Object>,
+  obj: v8::Local<'s, v8::Object>,
   t: (T, S, R),
-) -> v8::Local<'a, v8::Object> {
+) -> v8::Local<'s, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {
@@ -551,7 +552,7 @@ impl FunctionTemplateData {
 
   pub fn update_with_snapshotted_data(
     &mut self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     data_store: &mut SnapshotLoadDataStore,
     data: FunctionTemplateSnapshotData,
   ) {
@@ -577,13 +578,9 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
       _phantom_data: Default::default(),
     }
   }
-  pub fn get<F>(
-    &self,
-    scope: &mut v8::HandleScope,
-    f: F,
-  ) -> v8::Global<v8::Object>
+  pub fn get<F>(&self, scope: &mut v8::PinScope, f: F) -> v8::Global<v8::Object>
   where
-    F: FnOnce(&mut v8::HandleScope) -> T,
+    F: FnOnce(&mut v8::PinScope) -> T,
   {
     self
       .cell
@@ -597,7 +594,7 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
 
   pub fn set(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     value: T,
   ) -> Result<(), v8::Global<v8::Object>> {
     let obj = make_cppgc_object(scope, value);
@@ -606,7 +603,7 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
 
   pub fn try_unwrap(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
   ) -> Option<UnsafePtr<T>> {
     let obj = self.cell.get()?;
     let val = v8::Local::new(scope, obj);

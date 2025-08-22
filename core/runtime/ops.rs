@@ -357,9 +357,9 @@ where
   }
 }
 
-pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
-  scope: &mut v8::HandleScope,
-  input: v8::Local<v8::Value>,
+pub fn serde_v8_to_rust<'a, 's, 'i, T: Deserialize<'a>>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
 ) -> serde_v8::Result<T> {
   from_v8(scope, input)
 }
@@ -391,14 +391,14 @@ where
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
-pub fn to_v8_slice_detachable<'a, T>(
-  scope: &mut v8::HandleScope,
-  input: v8::Local<'a, v8::Value>,
+pub fn to_v8_slice_detachable<'s, 'i, T>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
 ) -> Result<serde_v8::V8Slice<T>, &'static str>
 where
   T: V8Sliceable,
-  v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
-  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
+  v8::Local<'s, T::V8>: TryFrom<v8::Local<'s, v8::Value>>,
+  v8::Local<'s, v8::ArrayBufferView>: From<v8::Local<'s, T::V8>>,
 {
   let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
     Ok(buf) => {
@@ -1269,7 +1269,7 @@ mod tests {
   #[op2(fast)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
-    s2: v8::Local<v8::String>,
+    s2: v8::Local<'s, v8::String>,
     s3: v8::Local<'s, v8::String>,
   ) -> u32 {
     if s.same_value(s2.into()) {
@@ -1309,8 +1309,8 @@ mod tests {
   }
 
   #[op2]
-  pub fn op_test_v8_type_handle_scope<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     s: &v8::String,
   ) -> v8::Local<'s, v8::String> {
     let s = s.to_rust_string_lossy(scope);
@@ -1319,8 +1319,8 @@ mod tests {
 
   /// Extract whatever lives in "key" from the object.
   #[op2]
-  pub fn op_test_v8_type_handle_scope_obj<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope_obj<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     o: &v8::Object,
   ) -> Option<v8::Local<'s, v8::Value>> {
     let key = v8::String::new(scope, "key").unwrap().into();
@@ -1329,8 +1329,8 @@ mod tests {
 
   /// Extract whatever lives in "key" from the object.
   #[op2]
-  pub fn op_test_v8_type_handle_scope_result<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope_result<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     o: &v8::Object,
   ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
     let key = v8::String::new(scope, "key").unwrap().into();
@@ -1392,7 +1392,7 @@ mod tests {
 
   #[op2]
   pub fn op_test_v8_global(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     #[global] s: v8::Global<v8::String>,
   ) -> u32 {
     let s = s.open(scope);
@@ -1854,9 +1854,9 @@ mod tests {
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
   #[op2(fast)]
   pub fn op_buffer_slice_unsafe_callback(
-    scope: &mut v8::HandleScope,
-    buffer: v8::Local<v8::ArrayBuffer>,
-    callback: v8::Local<v8::Function>,
+    scope: &mut v8::PinScope,
+    buffer: v8::Local<'s, v8::ArrayBuffer>,
+    callback: v8::Local<'s, v8::Function>,
   ) {
     println!("{:?}", buffer.data());
     let recv = callback.into();
@@ -2099,7 +2099,7 @@ mod tests {
   #[op2(nofast)]
   fn op_isolate_queue_microtask(
     isolate: *mut v8::Isolate,
-    cb: v8::Local<v8::Function>,
+    cb: v8::Local<'s, v8::Function>,
   ) {
     // SAFETY: testing
     unsafe { isolate.as_mut().unwrap().enqueue_microtask(cb) };
@@ -2475,7 +2475,7 @@ mod tests {
 
     fn to_v8(
       self,
-      scope: &mut v8::HandleScope<'a>,
+      scope: &mut v8::PinScope<'s, 'i>,
     ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
       self.0.to_v8(scope)
     }
@@ -2485,8 +2485,8 @@ mod tests {
     type Error = JsErrorBox;
 
     fn from_v8(
-      scope: &mut v8::HandleScope<'a>,
-      value: v8::Local<'a, v8::Value>,
+      scope: &mut v8::PinScope<'s, 'i>,
+      value: v8::Local<'s, v8::Value>,
     ) -> Result<Self, Self::Error> {
       bool::from_v8(scope, value).map(Bool)
     }

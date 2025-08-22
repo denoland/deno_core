@@ -224,7 +224,7 @@ pub(crate) fn with_isolate(
 
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(info, scope) =>
-    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(#info) };)
+    (let #scope = ::std::pin::pin!(unsafe { deno_core::v8::CallbackScope::new(#info) }); let mut scope = scope.init();)
   )
 }
 
@@ -512,7 +512,8 @@ pub fn from_arg(
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = if !#arg_ident.is_string() {
             #maybe_scope
-            let mut tc = deno_core::v8::TryCatch::new(&mut #scope);
+            let tc = ::std::pin::pin!(deno_core::v8::TryCatch::new(&mut #scope));
+            let mut tc = tc.init();
             match #arg_ident.to_string(&mut tc) {
                 Some(v) => v.into(),
                 None => {
