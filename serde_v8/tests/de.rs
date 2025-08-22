@@ -36,11 +36,11 @@ enum EnumPayloads {
 
 fn dedo(
   code: &str,
-  f: impl FnOnce(&mut v8::HandleScope, v8::Local<v8::Value>),
+  f: impl FnOnce(&mut v8::PinScope, v8::Local<v8::Value>),
 ) {
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    let handle_scope = &mut v8::PinScope::new(isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let v = js_exec(scope, code);

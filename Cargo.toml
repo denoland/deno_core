@@ -28,7 +28,9 @@ deno_error = { version = "0.7.0", features = ["serde_json", "serde", "url", "tok
 deno_ops = { version = "0.233.0", path = "./ops" }
 deno_unsync = "0.4.2"
 serde_v8 = { version = "0.266.0", path = "./serde_v8" }
-v8 = { version = "140.0.0", default-features = false }
+# v8 = { version = "137.3.0", default-features = false }
+v8 = { path = "137.3.0", default-features = false }
+v8 = { path = "../rv8", default-features = false }
 
 anyhow = "1"
 bencher = "0.1"
@@ -95,3 +97,18 @@ codegen-units = 1
 incremental = true
 lto = true
 opt-level = 'z' # Optimize for size
+
+[profile.release.package.v8]
+opt-level = 3
+
+[profile.release.package.deno_core]
+opt-level = 3
+
+[profile.release.package.serde_v8]
+opt-level = 3
+
+[profile.release.package.dcore]
+opt-level = 3
+
+[profile.release.package.deno_core_testing]
+opt-level = 3

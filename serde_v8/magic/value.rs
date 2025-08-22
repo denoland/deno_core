@@ -34,10 +34,10 @@ impl<'s> From<Value<'s>> for v8::Local<'s, v8::Value> {
 }
 
 impl ToV8 for Value<'_> {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    _scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    _scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     // SAFETY: not fully safe, since lifetimes are detached from original scope
     Ok(unsafe {
       transmute::<v8::Local<v8::Value>, v8::Local<v8::Value>>(self.v8_value)
@@ -46,9 +46,9 @@ impl ToV8 for Value<'_> {
 }
 
 impl FromV8 for Value<'_> {
-  fn from_v8(
-    _scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    _scope: &mut v8::PinScope,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     // SAFETY: not fully safe, since lifetimes are detached from original scope
     Ok(unsafe { transmute::<Value, Value>(value.into()) })

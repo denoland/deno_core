@@ -51,10 +51,10 @@ const _: () =
   assert!(size_of::<Vec<u8>>() == size_of::<SmallVec<[u8; USIZE2X]>>());
 
 impl ToV8 for ByteString {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     let v =
       v8::String::new_from_one_byte(scope, self, v8::NewStringType::Normal)
         .unwrap();
@@ -63,9 +63,9 @@ impl ToV8 for ByteString {
 }
 
 impl FromV8 for ByteString {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     let v8str = v8::Local::<v8::String>::try_from(value)
       .map_err(|_| Error::ExpectedString(value.type_repr()))?;

@@ -24,9 +24,12 @@ use crate::magic::transl8::ToV8;
 type JsValue<'s> = v8::Local<'s, v8::Value>;
 type JsResult<'s> = Result<JsValue<'s>>;
 
-type ScopePtr<'a, 'b, 'c> = &'c RefCell<&'b mut v8::HandleScope<'a>>;
+type ScopePtr<'a, 'b, 'c, 'i> = &'c RefCell<&'b mut v8::PinScope<'a, 'i>>;
 
-pub fn to_v8<'a, T>(scope: &mut v8::HandleScope<'a>, input: T) -> JsResult<'a>
+pub fn to_v8<'a, 'i, T>(
+  scope: &mut v8::PinScope<'a, 'i>,
+  input: T,
+) -> JsResult<'a>
 where
   T: Serialize,
 {
@@ -38,15 +41,15 @@ where
 
 /// Wraps other serializers into an enum tagged variant form.
 /// Uses {"Variant": ...payload...} for compatibility with serde-json.
-pub struct VariantSerializer<'a, 'b, 'c, S> {
+pub struct VariantSerializer<'a, 'b, 'c, 'i, S> {
   inner: S,
-  scope: ScopePtr<'a, 'b, 'c>,
+  scope: ScopePtr<'a, 'b, 'c, 'i>,
   variant: &'static str,
 }
 
-impl<'a, 'b, 'c, S> VariantSerializer<'a, 'b, 'c, S> {
+impl<'a, 'b, 'c, 'i, S> VariantSerializer<'a, 'b, 'c, 'i, S> {
   pub fn new(
-    scope: ScopePtr<'a, 'b, 'c>,
+    scope: ScopePtr<'a, 'b, 'c, 'i>,
     variant: &'static str,
     inner: S,
   ) -> Self {
@@ -68,7 +71,7 @@ impl<'a, 'b, 'c, S> VariantSerializer<'a, 'b, 'c, S> {
   }
 }
 
-impl<'a, S> ser::SerializeTupleVariant for VariantSerializer<'a, '_, '_, S>
+impl<'a, S> ser::SerializeTupleVariant for VariantSerializer<'a, '_, '_, '_, S>
 where
   S: ser::SerializeTupleStruct<Ok = JsValue<'a>, Error = Error>,
 {
@@ -87,7 +90,7 @@ where
   }
 }
 
-impl<'a, S> ser::SerializeStructVariant for VariantSerializer<'a, '_, '_, S>
+impl<'a, S> ser::SerializeStructVariant for VariantSerializer<'a, '_, '_, '_, S>
 where
   S: ser::SerializeStruct<Ok = JsValue<'a>, Error = Error>,
 {
@@ -107,13 +110,13 @@ where
   }
 }
 
-pub struct ArraySerializer<'a, 'b, 'c> {
+pub struct ArraySerializer<'a, 'b, 'c, 'i> {
   pending: Vec<JsValue<'a>>,
-  scope: ScopePtr<'a, 'b, 'c>,
+  scope: ScopePtr<'a, 'b, 'c, 'i>,
 }
 
-impl<'a, 'b, 'c> ArraySerializer<'a, 'b, 'c> {
-  pub fn new(scope: ScopePtr<'a, 'b, 'c>, len: Option<usize>) -> Self {
+impl<'a, 'b, 'c, 'i> ArraySerializer<'a, 'b, 'c, 'i> {
+  pub fn new(scope: ScopePtr<'a, 'b, 'c, 'i>, len: Option<usize>) -> Self {
     let pending = match len {
       Some(len) => Vec::with_capacity(len),
       None => vec![],
@@ -122,7 +125,7 @@ impl<'a, 'b, 'c> ArraySerializer<'a, 'b, 'c> {
   }
 }
 
-impl<'a> ser::SerializeSeq for ArraySerializer<'a, '_, '_> {
+impl<'a> ser::SerializeSeq for ArraySerializer<'a, '_, '_, '_> {
   type Ok = JsValue<'a>;
   type Error = Error;
 
@@ -143,7 +146,7 @@ impl<'a> ser::SerializeSeq for ArraySerializer<'a, '_, '_> {
   }
 }
 
-impl<'a> ser::SerializeTuple for ArraySerializer<'a, '_, '_> {
+impl<'a> ser::SerializeTuple for ArraySerializer<'a, '_, '_, '_> {
   type Ok = JsValue<'a>;
   type Error = Error;
 
@@ -159,7 +162,7 @@ impl<'a> ser::SerializeTuple for ArraySerializer<'a, '_, '_> {
   }
 }
 
-impl<'a> ser::SerializeTupleStruct for ArraySerializer<'a, '_, '_> {
+impl<'a> ser::SerializeTupleStruct for ArraySerializer<'a, '_, '_, '_> {
   type Ok = JsValue<'a>;
   type Error = Error;
 
@@ -175,14 +178,14 @@ impl<'a> ser::SerializeTupleStruct for ArraySerializer<'a, '_, '_> {
   }
 }
 
-pub struct ObjectSerializer<'a, 'b, 'c> {
-  scope: ScopePtr<'a, 'b, 'c>,
+pub struct ObjectSerializer<'a, 'b, 'c, 'i> {
+  scope: ScopePtr<'a, 'b, 'c, 'i>,
   keys: Vec<v8::Local<'a, v8::Name>>,
   values: Vec<JsValue<'a>>,
 }
 
-impl<'a, 'b, 'c> ObjectSerializer<'a, 'b, 'c> {
-  pub fn new(scope: ScopePtr<'a, 'b, 'c>, len: usize) -> Self {
+impl<'a, 'b, 'c, 'i> ObjectSerializer<'a, 'b, 'c, 'i> {
+  pub fn new(scope: ScopePtr<'a, 'b, 'c, 'i>, len: usize) -> Self {
     let keys = Vec::with_capacity(len);
     let values = Vec::with_capacity(len);
     Self {
@@ -193,7 +196,7 @@ impl<'a, 'b, 'c> ObjectSerializer<'a, 'b, 'c> {
   }
 }
 
-impl<'a> ser::SerializeStruct for ObjectSerializer<'a, '_, '_> {
+impl<'a> ser::SerializeStruct for ObjectSerializer<'a, '_, '_, '_> {
   type Ok = JsValue<'a>;
   type Error = Error;
 
@@ -223,14 +226,16 @@ impl<'a> ser::SerializeStruct for ObjectSerializer<'a, '_, '_> {
   }
 }
 
-pub struct MagicalSerializer<'a, 'b, 'c, T> {
-  scope: ScopePtr<'a, 'b, 'c>,
+pub struct MagicalSerializer<'a, 'b, 'c, 'i, T> {
+  scope: ScopePtr<'a, 'b, 'c, 'i>,
   opaque: u64,
   p1: std::marker::PhantomData<T>,
 }
 
-impl<'a, 'b, 'c, T> MagicalSerializer<'a, 'b, 'c, T> {
-  pub fn new(scope: ScopePtr<'a, 'b, 'c>) -> MagicalSerializer<'a, 'b, 'c, T> {
+impl<'a, 'b, 'c, 'i, T> MagicalSerializer<'a, 'b, 'c, 'i, T> {
+  pub fn new(
+    scope: ScopePtr<'a, 'b, 'c, 'i>,
+  ) -> MagicalSerializer<'a, 'b, 'c, 'i, T> {
     Self {
       scope,
       opaque: 0,
@@ -240,7 +245,7 @@ impl<'a, 'b, 'c, T> MagicalSerializer<'a, 'b, 'c, T> {
 }
 
 impl<'a, T: MagicType + ToV8> ser::SerializeStruct
-  for MagicalSerializer<'a, '_, '_, T>
+  for MagicalSerializer<'a, '_, '_, '_, T>
 {
   type Ok = JsValue<'a>;
   type Error = Error;
@@ -271,20 +276,20 @@ impl<'a, T: MagicType + ToV8> ser::SerializeStruct
 }
 
 // Dispatches between magic and regular struct serializers
-pub enum StructSerializers<'a, 'b, 'c> {
-  ExternalPointer(MagicalSerializer<'a, 'b, 'c, magic::ExternalPointer>),
-  Magic(MagicalSerializer<'a, 'b, 'c, magic::Value<'a>>),
-  GlobalMagic(MagicalSerializer<'a, 'b, 'c, magic::GlobalValue>),
-  RustToV8Buf(MagicalSerializer<'a, 'b, 'c, ToJsBuffer>),
-  MagicAnyValue(MagicalSerializer<'a, 'b, 'c, AnyValue>),
-  MagicDetached(MagicalSerializer<'a, 'b, 'c, DetachedBuffer>),
-  MagicByteString(MagicalSerializer<'a, 'b, 'c, ByteString>),
-  MagicU16String(MagicalSerializer<'a, 'b, 'c, U16String>),
-  MagicBigInt(MagicalSerializer<'a, 'b, 'c, BigInt>),
-  Regular(ObjectSerializer<'a, 'b, 'c>),
+pub enum StructSerializers<'a, 'b, 'c, 'i> {
+  ExternalPointer(MagicalSerializer<'a, 'b, 'c, 'i, magic::ExternalPointer>),
+  Magic(MagicalSerializer<'a, 'b, 'c, 'i, magic::Value<'a>>),
+  GlobalMagic(MagicalSerializer<'a, 'b, 'c, 'i, magic::GlobalValue>),
+  RustToV8Buf(MagicalSerializer<'a, 'b, 'c, 'i, ToJsBuffer>),
+  MagicAnyValue(MagicalSerializer<'a, 'b, 'c, 'i, AnyValue>),
+  MagicDetached(MagicalSerializer<'a, 'b, 'c, 'i, DetachedBuffer>),
+  MagicByteString(MagicalSerializer<'a, 'b, 'c, 'i, ByteString>),
+  MagicU16String(MagicalSerializer<'a, 'b, 'c, 'i, U16String>),
+  MagicBigInt(MagicalSerializer<'a, 'b, 'c, 'i, BigInt>),
+  Regular(ObjectSerializer<'a, 'b, 'c, 'i>),
 }
 
-impl<'a> ser::SerializeStruct for StructSerializers<'a, '_, '_> {
+impl<'a> ser::SerializeStruct for StructSerializers<'a, '_, '_, '_> {
   type Ok = JsValue<'a>;
   type Error = Error;
 
@@ -324,14 +329,14 @@ impl<'a> ser::SerializeStruct for StructSerializers<'a, '_, '_> {
 }
 
 // Serializes to JS Objects, NOT JS Maps ...
-pub struct MapSerializer<'a, 'b, 'c> {
-  scope: ScopePtr<'a, 'b, 'c>,
+pub struct MapSerializer<'a, 'b, 'c, 'i> {
+  scope: ScopePtr<'a, 'b, 'c, 'i>,
   keys: Vec<v8::Local<'a, v8::Name>>,
   values: Vec<JsValue<'a>>,
 }
 
-impl<'a, 'b, 'c> MapSerializer<'a, 'b, 'c> {
-  pub fn new(scope: ScopePtr<'a, 'b, 'c>, len: Option<usize>) -> Self {
+impl<'a, 'b, 'c, 'i> MapSerializer<'a, 'b, 'c, 'i> {
+  pub fn new(scope: ScopePtr<'a, 'b, 'c, 'i>, len: Option<usize>) -> Self {
     let keys = Vec::with_capacity(len.unwrap_or_default());
     let values = Vec::with_capacity(len.unwrap_or_default());
     Self {
@@ -342,7 +347,7 @@ impl<'a, 'b, 'c> MapSerializer<'a, 'b, 'c> {
   }
 }
 
-impl<'a> ser::SerializeMap for MapSerializer<'a, '_, '_> {
+impl<'a> ser::SerializeMap for MapSerializer<'a, '_, '_, '_> {
   type Ok = JsValue<'a>;
   type Error = Error;
 
@@ -377,12 +382,12 @@ impl<'a> ser::SerializeMap for MapSerializer<'a, '_, '_> {
   }
 }
 
-pub struct Serializer<'a, 'b, 'c> {
-  scope: ScopePtr<'a, 'b, 'c>,
+pub struct Serializer<'a, 'b, 'c, 'i> {
+  scope: ScopePtr<'a, 'b, 'c, 'i>,
 }
 
-impl<'a, 'b, 'c> Serializer<'a, 'b, 'c> {
-  pub fn new(scope: ScopePtr<'a, 'b, 'c>) -> Self {
+impl<'a, 'b, 'c, 'i> Serializer<'a, 'b, 'c, 'i> {
+  pub fn new(scope: ScopePtr<'a, 'b, 'c, 'i>) -> Self {
     Serializer { scope }
   }
 }
@@ -398,19 +403,19 @@ macro_rules! forward_to {
 pub(crate) const MAX_SAFE_INTEGER: i64 = (1 << 53) - 1;
 pub(crate) const MIN_SAFE_INTEGER: i64 = -MAX_SAFE_INTEGER;
 
-impl<'a, 'b, 'c> ser::Serializer for Serializer<'a, 'b, 'c> {
+impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
   type Ok = v8::Local<'a, v8::Value>;
   type Error = Error;
 
-  type SerializeSeq = ArraySerializer<'a, 'b, 'c>;
-  type SerializeTuple = ArraySerializer<'a, 'b, 'c>;
-  type SerializeTupleStruct = ArraySerializer<'a, 'b, 'c>;
+  type SerializeSeq = ArraySerializer<'a, 'b, 'c, 'i>;
+  type SerializeTuple = ArraySerializer<'a, 'b, 'c, 'i>;
+  type SerializeTupleStruct = ArraySerializer<'a, 'b, 'c, 'i>;
   type SerializeTupleVariant =
-    VariantSerializer<'a, 'b, 'c, ArraySerializer<'a, 'b, 'c>>;
-  type SerializeMap = MapSerializer<'a, 'b, 'c>;
-  type SerializeStruct = StructSerializers<'a, 'b, 'c>;
+    VariantSerializer<'a, 'b, 'c, 'i, ArraySerializer<'a, 'b, 'c, 'i>>;
+  type SerializeMap = MapSerializer<'a, 'b, 'c, 'i>;
+  type SerializeStruct = StructSerializers<'a, 'b, 'c, 'i>;
   type SerializeStructVariant =
-    VariantSerializer<'a, 'b, 'c, StructSerializers<'a, 'b, 'c>>;
+    VariantSerializer<'a, 'b, 'c, 'i, StructSerializers<'a, 'b, 'c, 'i>>;
 
   forward_to! {
       serialize_i8(i8, serialize_i32, 'a);
@@ -631,8 +636,8 @@ impl<'a, 'b, 'c> ser::Serializer for Serializer<'a, 'b, 'c> {
   }
 }
 
-pub fn slice_to_uint8array<'a>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn slice_to_uint8array<'a, 'b>(
+  scope: &mut v8::PinScope<'a, 'b>,
   buf: &[u8],
 ) -> v8::Local<'a, v8::Uint8Array> {
   let buffer = if buf.is_empty() {

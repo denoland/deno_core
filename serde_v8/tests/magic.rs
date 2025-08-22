@@ -22,7 +22,7 @@ struct MagicOp {
 fn magic_basic() {
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    let handle_scope = &mut v8::PinScope::new(isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
@@ -48,7 +48,7 @@ fn magic_buffer() {
   v8_do(|| {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    let handle_scope = &mut v8::PinScope::new(isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
@@ -124,7 +124,7 @@ fn magic_byte_string() {
   v8_do(|| {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    let handle_scope = &mut v8::PinScope::new(isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let global = context.global(scope);
@@ -197,7 +197,7 @@ fn magic_value() {
   v8_do(|| {
     // Init isolate
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    let handle_scope = &mut v8::PinScope::new(isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 

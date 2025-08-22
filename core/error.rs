@@ -22,6 +22,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use std::pin::pin;
 use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
@@ -731,13 +732,14 @@ impl JsError {
     ))
   }
 
-  pub fn from_v8_message<'a>(
-    scope: &'a mut v8::HandleScope,
-    msg: v8::Local<'a, v8::Message>,
+  pub fn from_v8_message<'s, 'i>(
+    scope: &mut v8::HandleScope<'s, 'i>,
+    msg: v8::Local<'s, v8::Message>,
   ) -> Box<Self> {
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
-    let scope = &mut v8::HandleScope::new(scope);
+    let scope = pin!(v8::HandleScope::new(scope));
+    let scope = &mut scope.init();
 
     let exception_message = msg.get(scope).to_rust_string_lossy(scope);
 

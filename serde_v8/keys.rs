@@ -12,8 +12,8 @@ pub struct KeyCache(HashMap<&'static str, v8::Global<v8::String>>);
 // creates an optimized v8::String for a struct field
 // TODO: experiment with external strings
 // TODO: evaluate if own KeyCache is better than v8's dedupe
-pub fn v8_struct_key<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn v8_struct_key<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   field: &'static str,
 ) -> v8::Local<'s, v8::String> {
   // Internalized v8 strings are significantly faster than "normal" v8 strings
