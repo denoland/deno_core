@@ -314,6 +314,9 @@ pub fn to_v8_error<'a>(
   }
 }
 
+/// Effectively throw an uncatchable error. This will terminate runtime
+/// execution before any more JS code can run, except in the REPL where it
+/// should just output the error to the console.
 pub fn dispatch_exception(
   scope: &mut v8::HandleScope,
   exception: v8::Local<v8::Value>,
@@ -324,7 +327,7 @@ pub fn dispatch_exception(
     inspector.exception_thrown(scope, exception, false);
     inspector.is_dispatching_message()
   }) {
-    // This indicates that the op is being called from a REPL. Skip termination.
+    // This indicates that the fn is being called from a REPL. Skip termination.
     return;
   }
 
