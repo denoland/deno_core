@@ -153,7 +153,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
   fn ensure_default_context_in_group(
     &mut self,
     context_group_id: i32,
-  ) -> Option<v8::Local<v8::Context>> {
+  ) -> Option<v8::Local<'_, v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     let isolate: &mut v8::Isolate = unsafe { &mut *self.isolate_ptr };
     let scope = &mut unsafe { v8::CallbackScope::new(isolate) };

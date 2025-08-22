@@ -89,7 +89,7 @@ impl<F: Future> FusedFuture for Cancelable<F> {
 }
 
 impl Resource for CancelHandle {
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     "cancellation".into()
   }
 

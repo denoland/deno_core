@@ -258,7 +258,7 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
 
 pub fn to_cow_byte_ptr(
   string: &v8::fast_api::FastApiOneByteString,
-) -> Cow<[u8]> {
+) -> Cow<'_, [u8]> {
   string.as_bytes().into()
 }
 
@@ -433,7 +433,7 @@ where
 /// Callers must ensure that the returned slice does not outlive the [`v8::BackingStore`] of the
 /// [`v8::ArrayBuffer`].
 pub unsafe fn to_slice_buffer(
-  input: v8::Local<v8::Value>,
+  input: v8::Local<'_, v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
   unsafe {
     let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
@@ -460,7 +460,7 @@ pub unsafe fn to_slice_buffer(
 /// Callers must ensure that the returned slice does not outlive the [`v8::BackingStore`] of the
 /// [`v8::ArrayBuffer`].
 pub unsafe fn to_slice_buffer_any(
-  input: v8::Local<v8::Value>,
+  input: v8::Local<'_, v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
   unsafe {
     let (data, len) = {

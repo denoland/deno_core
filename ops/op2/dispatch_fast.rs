@@ -107,7 +107,10 @@ impl FastSignature {
             call_args.push(
               map_v8_fastcall_arg_to_arg(generator_state, name_out, arg)
                 .map_err(|s| {
-                  V8SignatureMappingError::NoArgMapping(s, arg.clone())
+                  V8SignatureMappingError::NoArgMapping(
+                    s,
+                    Box::new(arg.clone()),
+                  )
                 })?,
             )
           } else {
@@ -276,8 +279,9 @@ pub(crate) fn get_fast_signature(
   let mut args = vec![];
   let mut index_in = 0;
   for (index_out, (arg, _)) in signature.args.iter().cloned().enumerate() {
-    let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?
+    let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg).map_err(|s| {
+      V8SignatureMappingError::NoArgMapping(s, Box::new(arg.clone()))
+    })?
     else {
       return Ok(None);
     };
@@ -304,7 +308,10 @@ pub(crate) fn get_fast_signature(
     signature.ret_val.arg()
   };
   let output = match map_retval_to_v8_fastcall_type(ret_val).map_err(|s| {
-    V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+    V8SignatureMappingError::NoRetValMapping(
+      s,
+      Box::new(signature.ret_val.clone()),
+    )
   })? {
     None => return Ok(None),
     Some(rv) => rv,
@@ -415,7 +422,10 @@ pub(crate) fn generate_dispatch_fast(
     let (return_value, mapper, _) =
       map_async_return_type(generator_state, &signature.ret_val).map_err(
         |s| {
-          V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+          V8SignatureMappingError::NoRetValMapping(
+            s,
+            Box::new(signature.ret_val.clone()),
+          )
         },
       )?;
 

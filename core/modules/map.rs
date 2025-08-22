@@ -69,7 +69,7 @@ type CodeCacheReadyFuture = dyn Future<Output = ()>;
 
 struct ModEvaluate {
   module_map: Rc<ModuleMap>,
-  sender: Option<oneshot::Sender<Result<(), JsError>>>,
+  sender: Option<oneshot::Sender<Result<(), Box<JsError>>>>,
   module: Option<v8::Global<v8::Module>>,
   notify: Vec<v8::Global<v8::Function>>,
 }
@@ -663,21 +663,22 @@ impl ModuleMap {
 
     // V8 does not support creating code caches while also snapshotting,
     // and it's not needed anyway, as the snapshot already contains it.
-    if try_store_code_cache && !self.will_snapshot {
-      if let Some(code_cache_info) = code_cache_info.take() {
-        let unbound_module_script = module.get_unbound_module_script(tc_scope);
-        let code_cache =
-          unbound_module_script.create_code_cache().ok_or_else(|| {
-            ModuleError::Concrete(
-              ModuleConcreteError::UnboundModuleScriptCodeCache,
-            )
-          })?;
-        let fut =
-          async move { (code_cache_info.ready_callback)(&code_cache).await }
-            .boxed_local();
-        self.code_cache_ready_futs.borrow_mut().push(fut);
-        self.pending_code_cache_ready.set(true);
-      }
+    if try_store_code_cache
+      && !self.will_snapshot
+      && let Some(code_cache_info) = code_cache_info.take()
+    {
+      let unbound_module_script = module.get_unbound_module_script(tc_scope);
+      let code_cache =
+        unbound_module_script.create_code_cache().ok_or_else(|| {
+          ModuleError::Concrete(
+            ModuleConcreteError::UnboundModuleScriptCodeCache,
+          )
+        })?;
+      let fut =
+        async move { (code_cache_info.ready_callback)(&code_cache).await }
+          .boxed_local();
+      self.code_cache_ready_futs.borrow_mut().push(fut);
+      self.pending_code_cache_ready.set(true);
     }
 
     // TODO(bartlomieju): maybe move to a helper function?
@@ -1014,10 +1015,10 @@ impl ModuleMap {
     let module_type =
       get_requested_module_type_from_attributes(&import_attributes);
 
-    if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type) {
-      if let Some(handle) = self.get_handle(id) {
-        return Some(v8::Local::new(scope, handle));
-      }
+    if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type)
+      && let Some(handle) = self.get_handle(id)
+    {
+      return Some(v8::Local::new(scope, handle));
     }
 
     None
@@ -1064,26 +1065,25 @@ impl ModuleMap {
     let resolve_result =
       self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
 
-    if let Ok(module_specifier) = &resolve_result {
-      if let Some(id) = self
+    if let Ok(module_specifier) = &resolve_result
+      && let Some(id) = self
         .data
         .borrow()
         .get_id(module_specifier.as_str(), &requested_module_type)
-      {
-        let module = self
-          .data
-          .borrow()
-          .get_handle(id)
-          .map(|handle| v8::Local::new(scope, handle))
-          .expect("Dyn import module info not found");
+    {
+      let module = self
+        .data
+        .borrow()
+        .get_handle(id)
+        .map(|handle| v8::Local::new(scope, handle))
+        .expect("Dyn import module info not found");
 
-        if module.get_status() == v8::ModuleStatus::Evaluated {
-          let resolver = resolver_handle.open(scope);
-          let module_namespace = module.get_module_namespace();
-          resolver.resolve(scope, module_namespace).unwrap();
+      if module.get_status() == v8::ModuleStatus::Evaluated {
+        let resolver = resolver_handle.open(scope);
+        let module_namespace = module.get_module_namespace();
+        resolver.resolve(scope, module_namespace).unwrap();
 
-          return false;
-        }
+        return false;
       }
     }
 
@@ -1152,7 +1152,7 @@ impl ModuleMap {
       id,
     );
 
-    let (sender, receiver) = oneshot::channel::<Result<_, JsError>>();
+    let (sender, receiver) = oneshot::channel::<Result<_, Box<JsError>>>();
     let receiver = receiver.map(|res| {
       res
         .map(|r| r.map_err(|r| CoreErrorKind::Js(r).into_box()))
