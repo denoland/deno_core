@@ -188,7 +188,7 @@ fn test_op_high_arity() {
   let r = runtime
     .execute_script("test.js", "Deno.core.ops.op_add_4(1, 2, 3, 4)")
     .unwrap();
-  let scope = &mut runtime.handle_scope();
+  deno_core::jsruntime_make_handle_scope!(scope, runtime);
   assert_eq!(r.open(scope).integer_value(scope), Some(10));
 }
 

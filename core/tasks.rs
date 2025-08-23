@@ -191,11 +191,11 @@ impl V8CrossThreadTaskSpawner {
   /// event loop's [`v8::HandleScope`].
   pub fn spawn_blocking<'a, F, T>(&self, f: F) -> T
   where
-    F: FnOnce(&mut v8::HandleScope) -> T + Send + 'a,
+    F: FnOnce(&mut v8::PinScope) -> T + Send + 'a,
     T: Send + 'a,
   {
     let (tx, rx) = std::sync::mpsc::sync_channel(0);
-    let task: Box<dyn FnOnce(&mut v8::HandleScope<'_>) + Send> =
+    let task: Box<dyn FnOnce(&mut &mut v8::PinScope<'_, '_>) + Send> =
       Box::new(|scope| {
         let r = f(scope);
         _ = tx.send(r);

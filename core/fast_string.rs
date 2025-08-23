@@ -560,16 +560,16 @@ mod tests {
 
     let mut code: FastString = ascii_str!("123456").into();
     code.truncate(3);
-    assert_eq!(s, code.as_ref());
+    assert_eq!(s, code.as_str());
 
     let mut code: FastString = "123456".to_owned().into();
     code.truncate(3);
-    assert_eq!(s, code.as_ref());
+    assert_eq!(s, code.as_str());
 
     let arc_str: Arc<str> = "123456".into();
     let mut code: FastString = arc_str.into();
     code.truncate(3);
-    assert_eq!(s, code.as_ref());
+    assert_eq!(s, code.as_str());
   }
 
   #[test]

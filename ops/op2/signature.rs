@@ -2111,7 +2111,7 @@ mod tests {
     (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void, false)
   );
   test!(
-    fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
+    fn op_v8_scope<'s>(scope: &mut &mut v8::PinScope<'s, '_>);
     <'s> (Ref(Mut, HandleScope)) -> Infallible(Void, false)
   );
   test!(
@@ -2304,7 +2304,6 @@ mod tests {
 
   // Generics
 
-  expect_fail!(op_with_two_lifetimes, TooManyLifetimes, fn f<'a, 'b>() {});
   expect_fail!(
     op_with_lifetime_bounds,
     LifetimesMayNotHaveBounds("'a".into()),

@@ -37,7 +37,7 @@ use std::convert::Infallible;
 ///   // Any error type that implements `std::error::Error` can be used here.
 ///   type Error = std::convert::Infallible;
 ///
-///   fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+///   fn to_v8(self, scope: &mut &mut v8::PinScope<'a, '_>) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
 ///     // For performance, pass this value as a `v8::Integer` (i.e. a `smi`).
 ///     // The `Smi` wrapper type implements this conversion for you.
 ///     Smi(self.0).to_v8(scope)
@@ -98,7 +98,7 @@ pub trait ToV8<'a> {
 ///   // Any error type that implements `std::error::Error` can be used here.
 ///   type Error = JsErrorBox;
 ///
-///   fn from_v8(scope: &mut v8::HandleScope<'a>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
+///   fn from_v8(scope: &mut &mut v8::PinScope<'a, '_>, value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
 ///     /// We expect this value to be a `v8::Integer`, so we use the [`Smi`][deno_core::convert::Smi] wrapper type to convert it.
 ///     Smi::from_v8(scope, value).map(|Smi(v)| Foo(v))
 ///   }

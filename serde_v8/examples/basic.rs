@@ -16,12 +16,12 @@ fn main() {
 
   {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::PinScope::new(isolate);
+    v8::make_handle_scope!(handle_scope, isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
 
     fn exec<'s>(
-      scope: &mut v8::PinScope<'s>,
+      scope: &mut v8::PinScope<'s, '_>,
       src: &str,
     ) -> v8::Local<'s, v8::Value> {
       let code = v8::String::new(scope, src).unwrap();

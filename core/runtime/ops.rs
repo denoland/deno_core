@@ -1853,8 +1853,8 @@ mod tests {
 
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
   #[op2(fast)]
-  pub fn op_buffer_slice_unsafe_callback(
-    scope: &mut v8::PinScope,
+  pub fn op_buffer_slice_unsafe_callback<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     buffer: v8::Local<'s, v8::ArrayBuffer>,
     callback: v8::Local<'s, v8::Function>,
   ) {
@@ -2091,18 +2091,20 @@ mod tests {
   }
 
   #[op2(nofast)]
-  fn op_isolate_run_microtasks(isolate: *mut v8::Isolate) {
+  fn op_isolate_run_microtasks(isolate: v8::UnsafeRawIsolatePtr) {
     // SAFETY: testing
-    unsafe { isolate.as_mut().unwrap().perform_microtask_checkpoint() };
+    unsafe {
+      v8::Isolate::from_raw_isolate_ptr(isolate).perform_microtask_checkpoint();
+    };
   }
 
   #[op2(nofast)]
   fn op_isolate_queue_microtask(
-    isolate: *mut v8::Isolate,
-    cb: v8::Local<'s, v8::Function>,
+    isolate: v8::UnsafeRawIsolatePtr,
+    cb: v8::Local<'_, v8::Function>,
   ) {
     // SAFETY: testing
-    unsafe { isolate.as_mut().unwrap().enqueue_microtask(cb) };
+    unsafe { v8::Isolate::from_raw_isolate_ptr(isolate).enqueue_microtask(cb) };
   }
 
   #[tokio::test]
@@ -2473,9 +2475,9 @@ mod tests {
   impl<'a> ToV8<'a> for Bool {
     type Error = std::convert::Infallible;
 
-    fn to_v8(
+    fn to_v8<'i>(
       self,
-      scope: &mut v8::PinScope<'s, 'i>,
+      scope: &mut v8::PinScope<'a, 'i>,
     ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
       self.0.to_v8(scope)
     }
@@ -2484,9 +2486,9 @@ mod tests {
   impl<'a> FromV8<'a> for Bool {
     type Error = JsErrorBox;
 
-    fn from_v8(
-      scope: &mut v8::PinScope<'s, 'i>,
-      value: v8::Local<'s, v8::Value>,
+    fn from_v8<'i>(
+      scope: &mut v8::PinScope<'a, 'i>,
+      value: v8::Local<'a, v8::Value>,
     ) -> Result<Self, Self::Error> {
       bool::from_v8(scope, value).map(Bool)
     }

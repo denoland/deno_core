@@ -146,11 +146,13 @@ fn bench_op(
   let run = runtime.execute_script("", ascii_str!("run()")).unwrap();
   #[allow(deprecated)]
   let bench = tokio.block_on(runtime.resolve_value(run)).unwrap();
-  let mut scope = runtime.handle_scope();
-  let bench: v8::Local<v8::Function> =
-    v8::Local::new(&mut scope, bench).try_into().unwrap();
-  let bench = v8::Global::new(&mut scope, bench);
-  drop(scope);
+  let bench = {
+    deno_core::jsruntime_make_handle_scope!(scope, &mut runtime);
+    let bench: v8::Local<v8::Function> =
+      v8::Local::new(scope, bench).try_into().unwrap();
+    let bench = v8::Global::new(scope, bench);
+    bench
+  };
   drop(guard);
   b.iter(move || do_benchmark(&bench, &tokio, &mut runtime));
 }

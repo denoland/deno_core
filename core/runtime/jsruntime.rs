@@ -688,19 +688,18 @@ pub struct CreateRealmOptions {
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
 }
 
-macro_rules! handle_scope {
+#[macro_export]
+macro_rules! jsruntime_make_handle_scope {
   ($scope: ident, $self: expr) => {
     // let isolate = &mut self.inner.v8_isolate;
     // self.inner.main_realm.handle_scope(isolate)
     let context = $self.main_context();
     let isolate = &mut *$self.v8_isolate();
-    v8::make_handle_scope!($scope, isolate);
-    let context = v8::Local::new($scope, context);
-    let $scope = &mut v8::ContextScope::new($scope, context);
+    $crate::v8::make_handle_scope!($scope, isolate);
+    let context = $crate::v8::Local::new($scope, context);
+    let $scope = &mut $crate::v8::ContextScope::new($scope, context);
   };
 }
-
-pub(crate) use handle_scope;
 
 impl JsRuntime {
   /// Explicitly initalizes the V8 platform using the passed platform. This
@@ -1347,7 +1346,7 @@ impl JsRuntime {
     context_global: &v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
   ) {
-    handle_scope!(scope, self);
+    jsruntime_make_handle_scope!(scope, self);
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
@@ -1379,7 +1378,7 @@ impl JsRuntime {
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), CoreError> {
-    handle_scope!(scope, self);
+    jsruntime_make_handle_scope!(scope, self);
 
     for source_file in &BUILTIN_SOURCES {
       let name = source_file.specifier.v8_string(scope).unwrap();
@@ -1540,7 +1539,7 @@ impl JsRuntime {
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
-      handle_scope!(scope, self);
+      jsruntime_make_handle_scope!(scope, self);
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
@@ -1693,7 +1692,7 @@ impl JsRuntime {
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
-    handle_scope!(scope, self);
+    jsruntime_make_handle_scope!(scope, self);
     Self::scoped_call_with_args(scope, function, args)
   }
 
@@ -1882,7 +1881,7 @@ impl JsRuntime {
     promise: v8::Global<v8::Value>,
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    handle_scope!(scope, self);
+    jsruntime_make_handle_scope!(scope, self);
     Self::scoped_resolve(scope, promise)
   }
 
