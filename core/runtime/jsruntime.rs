@@ -88,7 +88,6 @@ use std::sync::Mutex;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
-use v8::Isolate;
 
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
@@ -958,7 +957,7 @@ impl JsRuntime {
       );
     }
 
-    let isolate_ptr = isolate.as_mut() as *mut Isolate;
+    let isolate_ptr = unsafe { isolate.as_raw_isolate_ptr() };
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
     // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
@@ -1307,8 +1306,8 @@ impl JsRuntime {
   }
 
   #[inline]
-  fn v8_isolate_ptr(&mut self) -> *mut v8::Isolate {
-    &mut **self.inner.v8_isolate as _
+  fn v8_isolate_ptr(&mut self) -> v8::UnsafeRawIsolatePtr {
+    unsafe { self.inner.v8_isolate.as_raw_isolate_ptr() }
   }
 
   #[inline]
@@ -1857,7 +1856,7 @@ impl JsRuntime {
     }
 
     let context = self.main_context();
-    let isolate_ptr = self.inner.v8_isolate.as_mut() as *mut _;
+    let isolate_ptr = unsafe { self.inner.v8_isolate.as_raw_isolate_ptr() };
     v8::make_handle_scope_with_context!(
       scope,
       self.inner.v8_isolate.as_mut(),
@@ -2022,9 +2021,9 @@ impl JsRuntime {
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), CoreError>> {
     // SAFETY: We know this isolate is valid and non-null at this time
-    let isolate_scope = std::pin::pin!(v8::HandleScope::new(unsafe {
-      &mut *self.v8_isolate_ptr()
-    }));
+    let mut isolate =
+      unsafe { v8::Isolate::from_raw_isolate_ptr(self.v8_isolate_ptr()) };
+    let isolate_scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
     let isolate_scope = &mut isolate_scope.init();
     let context =
       v8::Local::new(isolate_scope, self.inner.main_realm.context());

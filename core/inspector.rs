@@ -89,7 +89,7 @@ pub struct JsRuntimeInspector {
   waker: Arc<InspectorWaker>,
   deregister_tx: Option<oneshot::Sender<()>>,
   is_dispatching_message: Rc<RefCell<bool>>,
-  isolate_ptr: *mut v8::Isolate,
+  isolate_ptr: v8::UnsafeRawIsolatePtr,
   context: v8::Global<v8::Context>,
 }
 
@@ -149,12 +149,16 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
     self.flags.borrow_mut().waiting_for_session = false;
   }
 
-  fn ensure_default_context_in_group(
-    &mut self,
+  fn ensure_default_context_in_group<'a>(
+    &'a mut self,
     context_group_id: i32,
-  ) -> Option<v8::Local<'_, v8::Context>> {
+  ) -> Option<v8::Local<'a,v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    let isolate: &mut v8::Isolate = unsafe { &mut *self.isolate_ptr };
+    let mut isolate: v8::Isolate =
+      unsafe { v8::Isolate::from_raw_isolate_ptr(self.isolate_ptr) };
+    let isolate: &mut v8::Isolate = unsafe {
+      std::mem::transmute::<&mut v8::Isolate, &'a mut v8::Isolate>(&mut isolate)
+    };
     v8::make_callback_scope!(unsafe scope, isolate);
     Some(v8::Local::new(scope, self.context.clone()))
   }
@@ -176,7 +180,7 @@ impl JsRuntimeInspector {
   const CONTEXT_GROUP_ID: i32 = 1;
 
   pub fn new<'s, 'i>(
-    isolate_ptr: *mut v8::Isolate,
+    isolate_ptr: v8::UnsafeRawIsolatePtr,
     scope: &mut v8::PinScope<'s, 'i>,
     context: v8::Local<'s, v8::Context>,
     is_main_runtime: bool,

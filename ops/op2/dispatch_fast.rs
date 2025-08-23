@@ -354,7 +354,7 @@ fn throw_type_error(
 pub(crate) fn generate_fast_result_early_exit(
   generator_state: &mut GeneratorState,
 ) -> TokenStream {
-generator_state.needs_opctx = true;
+  generator_state.needs_opctx = true;
   let create_scope = create_scope(generator_state);
   gs_quote!(generator_state(result) => {
     let #result = match #result {
@@ -516,7 +516,7 @@ pub(crate) fn generate_dispatch_fast(
   {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(scope, fast_api_callback_options) =>
-      (let mut #scope = unsafe { &mut *#fast_api_callback_options.isolate };)
+      (let mut #scope = unsafe { #fast_api_callback_options.isolate_unchecked_mut() };)
     )
   } else {
     quote!()

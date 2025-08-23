@@ -1437,7 +1437,7 @@ fn parse_type_path(
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
-      ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
+      ( v8 :: UnsafeRawIsolatePtr ) => Ok(CBare(TSpecial(Special::Isolate))),
       ( v8 :: PinScope $( < $_scope:lifetime , $_i:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
@@ -1884,11 +1884,15 @@ pub(crate) fn parse_type(
         _ => Err(ArgError::InvalidType(stringify_token(ty), "for pointer")),
       }
     }
-    Type::Path(of) => Arg::from_parsed(
-      parse_type_path(position, attrs.clone(), TypePathContext::None, of)?,
-      attrs,
-    )
-    .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path")),
+    Type::Path(of) => {
+      let typath =
+        parse_type_path(position, attrs.clone(), TypePathContext::None, of)?;
+      if let CBare(TSpecial(Special::Isolate)) = typath {
+        return Ok(Arg::Special(Special::Isolate));
+      }
+      Arg::from_parsed(typath, attrs)
+        .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
+    }
     _ => Err(ArgError::InvalidType(
       stringify_token(ty),
       "for top-level type",

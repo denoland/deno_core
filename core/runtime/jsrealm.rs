@@ -76,7 +76,7 @@ pub struct ContextState {
   pub(crate) op_ctxs: Box<[OpCtx]>,
   pub(crate) op_method_decls: Vec<OpMethodDecl>,
   pub(crate) methods_ctx_offset: usize,
-  pub(crate) isolate: Option<*mut v8::Isolate>,
+  pub(crate) isolate: Option<v8::UnsafeRawIsolatePtr>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
@@ -86,7 +86,7 @@ pub struct ContextState {
 impl ContextState {
   pub(crate) fn new(
     op_driver: Rc<OpDriverImpl>,
-    isolate_ptr: *mut v8::Isolate,
+    isolate_ptr: v8::UnsafeRawIsolatePtr,
     op_ctxs: Box<[OpCtx]>,
     op_method_decls: Vec<OpMethodDecl>,
     methods_ctx_offset: usize,
@@ -193,14 +193,16 @@ impl JsRealmInner {
     let state = self.state();
     let raw_ptr = self.state().isolate.unwrap();
     // SAFETY: We know the isolate outlives the realm
-    let isolate = unsafe { raw_ptr.as_mut().unwrap() };
+    let mut isolate = unsafe { v8::Isolate::from_raw_isolate_ptr(raw_ptr) };
+    let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
+    let scope = &mut scope.init();
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
     {
-      let ctx = self.context().open(isolate);
+      let ctx = self.context().open(scope);
       // SAFETY: Clear all embedder data
       unsafe {
         let ctx_state =

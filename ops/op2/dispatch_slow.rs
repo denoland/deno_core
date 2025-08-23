@@ -218,7 +218,8 @@ pub(crate) fn with_isolate(
 ) -> TokenStream {
   generator_state.needs_opctx = true;
   gs_quote!(generator_state(opctx, scope) =>
-    (let mut #scope = unsafe { &mut *#opctx.isolate };)
+    (let mut #scope = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+    let mut scope = &mut #scope;)
   )
 }
 
