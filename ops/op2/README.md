@@ -911,7 +911,7 @@ Only usable in `deno_core`.
 <td>
 
 ```text
-*mut v8::Isolate
+v8::UnsafeRawIsolatePtr
 ```
 
 </td><td>

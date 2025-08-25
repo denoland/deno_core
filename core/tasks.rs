@@ -195,7 +195,7 @@ impl V8CrossThreadTaskSpawner {
     T: Send + 'a,
   {
     let (tx, rx) = std::sync::mpsc::sync_channel(0);
-    let task: Box<dyn FnOnce(&mut &mut v8::PinScope<'_, '_>) + Send> =
+    let task: Box<dyn FnOnce(&mut v8::PinScope<'_, '_>) + Send> =
       Box::new(|scope| {
         let r = f(scope);
         _ = tx.send(r);

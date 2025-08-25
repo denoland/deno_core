@@ -2111,7 +2111,7 @@ mod tests {
     (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void, false)
   );
   test!(
-    fn op_v8_scope<'s>(scope: &mut &mut v8::PinScope<'s, '_>);
+    fn op_v8_scope<'s>(scope: &mut v8::PinScope<'s, '_>);
     <'s> (Ref(Mut, HandleScope)) -> Infallible(Void, false)
   );
   test!(
@@ -2166,7 +2166,7 @@ mod tests {
     (Rc(JsRuntimeState)) -> Infallible(Void, false)
   );
   test!(
-    fn op_isolate(isolate: *mut v8::Isolate);
+    fn op_isolate(isolate: v8::UnsafeRawIsolatePtr);
     (Special(Isolate)) -> Infallible(Void, false)
   );
   test!(
