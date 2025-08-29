@@ -857,7 +857,9 @@ pub trait WebIdlInterfaceConverter:
   const NAME: &'static str;
 }
 
-impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a> for crate::cppgc::Ref<T> {
+impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
+  for crate::cppgc::Ref<T>
+{
   type Options = ();
 
   fn convert<'b>(
