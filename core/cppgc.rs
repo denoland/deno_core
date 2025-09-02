@@ -417,23 +417,9 @@ pub fn try_unwrap_cppgc_persistent_object<
   isolate: &mut v8::Isolate,
   val: v8::Local<'sc, v8::Value>,
 ) -> Option<Ref<T>> {
-  let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
-    return None;
-  };
-  if !obj.is_api_wrapper() {
-    return None;
-  }
-
-  let obj = unsafe {
-    v8::Object::unwrap::<CPPGC_SINGLE_TAG, CppGcObject<T>>(isolate, obj)
-  }?;
-
-  if obj.tag != TypeId::of::<T>() {
-    return None;
-  }
-
+  let ptr = try_unwrap_cppgc_object::<T>(isolate, val)?;
   Some(Ref {
-    inner: v8::cppgc::Persistent::new(&obj),
+    inner: v8::cppgc::Persistent::new(&ptr.inner),
   })
 }
 
