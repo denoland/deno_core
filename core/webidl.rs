@@ -858,7 +858,7 @@ pub trait WebIdlInterfaceConverter:
 }
 
 impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
-  for crate::cppgc::Ptr<T>
+  for crate::cppgc::Ref<T>
 {
   type Options = ();
 
@@ -869,8 +869,8 @@ impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
     context: ContextFn<'b>,
     _options: &Self::Options,
   ) -> Result<Self, WebIdlError> {
-    match crate::cppgc::try_unwrap_cppgc_object::<T>(scope, value) {
-      Some(ptr) => Ok(ptr),
+    match crate::cppgc::try_unwrap_cppgc_persistent_object::<T>(scope, value) {
+      Some(persistent) => Ok(persistent),
       _ => Err(WebIdlError::new(
         prefix,
         context,

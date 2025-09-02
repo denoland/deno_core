@@ -346,13 +346,13 @@ pub fn wrap_object3<
   obj
 }
 
-pub struct Ptr<T: GarbageCollected> {
+pub struct UnsafePtr<T: GarbageCollected> {
   inner: v8::cppgc::Ptr<CppGcObject<T>>,
   root: Option<v8::cppgc::Persistent<CppGcObject<T>>>,
 }
 
 #[doc(hidden)]
-impl<T: GarbageCollected> Ptr<T> {
+impl<T: GarbageCollected> UnsafePtr<T> {
   /// If this pointer is used in an async function, it could leave the stack,
   /// so this method can be called to root it in the GC and keep the reference
   /// valid.
@@ -363,7 +363,7 @@ impl<T: GarbageCollected> Ptr<T> {
   }
 }
 
-impl<T: GarbageCollected> std::ops::Deref for Ptr<T> {
+impl<T: GarbageCollected> std::ops::Deref for UnsafePtr<T> {
   type Target = T;
   fn deref(&self) -> &T {
     &self.inner.member
@@ -375,7 +375,7 @@ impl<T: GarbageCollected> std::ops::Deref for Ptr<T> {
 pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
   isolate: &mut v8::Isolate,
   val: v8::Local<'sc, v8::Value>,
-) -> Option<Ptr<T>> {
+) -> Option<UnsafePtr<T>> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
     return None;
   };
@@ -391,10 +391,55 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
     return None;
   }
 
-  Some(Ptr {
+  Some(UnsafePtr {
     inner: obj,
     root: None,
   })
+}
+
+pub struct Ref<T: GarbageCollected> {
+  inner: v8::cppgc::Persistent<CppGcObject<T>>,
+}
+
+impl<T: GarbageCollected> std::ops::Deref for Ref<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    &self.inner.borrow().unwrap().member
+  }
+}
+
+#[doc(hidden)]
+#[allow(clippy::needless_lifetimes)]
+pub fn try_unwrap_cppgc_persistent_object<
+  'sc,
+  T: GarbageCollected + 'static,
+>(
+  isolate: &mut v8::Isolate,
+  val: v8::Local<'sc, v8::Value>,
+) -> Option<Ref<T>> {
+  let ptr = try_unwrap_cppgc_object::<T>(isolate, val)?;
+  Some(Ref {
+    inner: v8::cppgc::Persistent::new(&ptr.inner),
+  })
+}
+
+pub struct Member<T: GarbageCollected> {
+  inner: v8::cppgc::Member<CppGcObject<T>>,
+}
+
+impl<T: GarbageCollected> From<Ref<T>> for Member<T> {
+  fn from(value: Ref<T>) -> Self {
+    Member {
+      inner: v8::cppgc::Member::new(&value.inner),
+    }
+  }
+}
+
+impl<T: GarbageCollected> std::ops::Deref for Member<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    &self.inner.borrow().unwrap().member
+  }
 }
 
 #[doc(hidden)]
@@ -405,7 +450,7 @@ pub fn try_unwrap_cppgc_proto_object<
 >(
   isolate: &mut v8::Isolate,
   val: v8::Local<'sc, v8::Value>,
-) -> Option<Ptr<T>> {
+) -> Option<UnsafePtr<T>> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
     return None;
   };
@@ -437,7 +482,7 @@ pub fn try_unwrap_cppgc_proto_object<
     obj
   };
 
-  Some(Ptr {
+  Some(UnsafePtr {
     inner: obj,
     root: None,
   })
@@ -542,7 +587,10 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
     self.cell.set(v8::Global::new(scope, obj))
   }
 
-  pub fn try_unwrap(&self, scope: &mut v8::HandleScope) -> Option<Ptr<T>> {
+  pub fn try_unwrap(
+    &self,
+    scope: &mut v8::HandleScope,
+  ) -> Option<UnsafePtr<T>> {
     let obj = self.cell.get()?;
     let val = v8::Local::new(scope, obj);
     try_unwrap_cppgc_object(scope, val.cast())
