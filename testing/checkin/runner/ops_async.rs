@@ -67,7 +67,9 @@ pub struct TestResource {
   value: u32,
 }
 
-impl GarbageCollected for TestResource {
+unsafe impl GarbageCollected for TestResource {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestResource"
   }

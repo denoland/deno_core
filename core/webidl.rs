@@ -858,7 +858,7 @@ pub trait WebIdlInterfaceConverter:
 }
 
 impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
-  for crate::cppgc::Ptr<T>
+  for crate::cppgc::UnsafePtr<T>
 {
   type Options = ();
 

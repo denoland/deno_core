@@ -502,7 +502,7 @@ pub(crate) fn generate_dispatch_fast(
       let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, this.into()) else {
         #throw_exception
       };
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     })
   } else {
     quote!()
@@ -729,7 +729,19 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Special(Special::Isolate) => {
       *needs_fast_api_callback_options = true;
       gs_quote!(generator_state(fast_api_callback_options) => {
-       let #arg_ident = #fast_api_callback_options.isolate;
+        let #arg_ident = #fast_api_callback_options.isolate;
+      })
+    }
+    Arg::Ref(RefType::Ref, Special::Isolate) => {
+      *needs_fast_api_callback_options = true;
+      gs_quote!(generator_state(fast_api_callback_options) => {
+        let #arg_ident = unsafe { &*#fast_api_callback_options.isolate };
+      })
+    }
+    Arg::Ref(RefType::Mut, Special::Isolate) => {
+      *needs_fast_api_callback_options = true;
+      gs_quote!(generator_state(fast_api_callback_options) => {
+        let #arg_ident = unsafe { &mut *#fast_api_callback_options.isolate };
       })
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
@@ -835,16 +847,15 @@ fn map_v8_fastcall_arg_to_arg(
         let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) else {
           #throw_exception
         };
-        let #arg_ident = &*#arg_ident;
+        let #arg_ident = unsafe { #arg_ident.as_ref() };
       })
     }
     Arg::OptionCppGcResource(ty) => {
-      let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-
       *needs_fast_isolate = true;
       let throw_exception =
-        throw_type_error(generator_state, format!("expected {ty:?}"));
+        throw_type_error(generator_state, format!("expected {ty}"));
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
@@ -853,7 +864,7 @@ fn map_v8_fastcall_arg_to_arg(
         } else {
           #throw_exception
         };
-        let #arg_ident = #arg_ident.as_deref();
+        let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
       })
     }
     _ => quote!(let #arg_ident = #arg_ident as _;),
@@ -918,6 +929,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::VarArgs
     | Arg::This
     | Arg::Special(Special::Isolate)
+    | Arg::Ref(_, Special::Isolate)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
