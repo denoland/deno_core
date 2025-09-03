@@ -352,7 +352,7 @@ pub fn wrap_object3<
 }
 
 pub struct UnsafePtr<T: GarbageCollected> {
-  inner: v8::cppgc::UnsafePtr<CppGcObject<T>>,
+  inner: v8::cppgc::Ptr<CppGcObject<T>>,
   root: Option<v8::cppgc::Persistent<CppGcObject<T>>>,
 }
 
@@ -371,6 +371,13 @@ impl<T: GarbageCollected> UnsafePtr<T> {
     if self.root.is_none() {
       self.root = Some(v8::cppgc::Persistent::new(&self.inner));
     }
+  }
+}
+
+impl<T: GarbageCollected> std::ops::Deref for UnsafePtr<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    &self.inner.member
   }
 }
 
@@ -399,6 +406,51 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
     inner: obj,
     root: None,
   })
+}
+
+pub struct Ref<T: GarbageCollected> {
+  inner: v8::cppgc::Persistent<CppGcObject<T>>,
+}
+
+impl<T: GarbageCollected> std::ops::Deref for Ref<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    &self.inner.borrow().unwrap().member
+  }
+}
+
+#[doc(hidden)]
+#[allow(clippy::needless_lifetimes)]
+pub fn try_unwrap_cppgc_persistent_object<
+  'sc,
+  T: GarbageCollected + 'static,
+>(
+  isolate: &mut v8::Isolate,
+  val: v8::Local<'sc, v8::Value>,
+) -> Option<Ref<T>> {
+  let ptr = try_unwrap_cppgc_object::<T>(isolate, val)?;
+  Some(Ref {
+    inner: v8::cppgc::Persistent::new(&ptr.inner),
+  })
+}
+
+pub struct Member<T: GarbageCollected> {
+  inner: v8::cppgc::Member<CppGcObject<T>>,
+}
+
+impl<T: GarbageCollected> From<Ref<T>> for Member<T> {
+  fn from(value: Ref<T>) -> Self {
+    Member {
+      inner: v8::cppgc::Member::new(&value.inner),
+    }
+  }
+}
+
+impl<T: GarbageCollected> std::ops::Deref for Member<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    &self.inner.borrow().unwrap().member
+  }
 }
 
 #[doc(hidden)]
@@ -501,5 +553,57 @@ impl FunctionTemplateData {
       .into_iter()
       .map(|(k, v)| (k, data_store.get::<v8::FunctionTemplate>(scope, v)))
       .collect();
+  }
+}
+
+#[derive(Debug)]
+pub struct SameObject<T: GarbageCollected + 'static> {
+  cell: std::cell::OnceCell<v8::Global<v8::Object>>,
+  _phantom_data: std::marker::PhantomData<T>,
+}
+
+impl<T: GarbageCollected + 'static> SameObject<T> {
+  #[allow(clippy::new_without_default)]
+  pub fn new() -> Self {
+    Self {
+      cell: Default::default(),
+      _phantom_data: Default::default(),
+    }
+  }
+
+  pub fn get<F>(
+    &self,
+    scope: &mut v8::HandleScope,
+    f: F,
+  ) -> v8::Global<v8::Object>
+  where
+    F: FnOnce(&mut v8::HandleScope) -> T,
+  {
+    self
+      .cell
+      .get_or_init(|| {
+        let v = f(scope);
+        let obj = make_cppgc_object(scope, v);
+        v8::Global::new(scope, obj)
+      })
+      .clone()
+  }
+
+  pub fn set(
+    &self,
+    scope: &mut v8::HandleScope,
+    value: T,
+  ) -> Result<(), v8::Global<v8::Object>> {
+    let obj = make_cppgc_object(scope, value);
+    self.cell.set(v8::Global::new(scope, obj))
+  }
+
+  pub fn try_unwrap(
+    &self,
+    scope: &mut v8::HandleScope,
+  ) -> Option<UnsafePtr<T>> {
+    let obj = self.cell.get()?;
+    let val = v8::Local::new(scope, obj);
+    try_unwrap_cppgc_object(scope, val.cast())
   }
 }
