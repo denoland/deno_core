@@ -280,8 +280,8 @@ pub(crate) fn generate_op2(
       }
     };
 
-  let arg_count: usize = if config.required != 0 {
-    config.required as usize
+  let arg_count: usize = if let Some(required) = config.required {
+    required as usize
   } else {
     args.len() + is_async as usize
   };

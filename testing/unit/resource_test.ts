@@ -109,9 +109,9 @@ test(async function testDomPoint() {
     Object.getPrototypeOf(p1),
     "x",
   );
-  assertEquals(get.name, "x");
+  assertEquals(get.name, "get x");
   assertEquals(get.length, 0);
-  assertEquals(set.name, "x");
+  assertEquals(set.name, "set x");
   assertEquals(set.length, 1);
 
   assert(p1 instanceof DOMPoint);
