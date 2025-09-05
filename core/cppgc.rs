@@ -357,6 +357,7 @@ pub struct UnsafePtr<T: GarbageCollected> {
 }
 
 impl<T: GarbageCollected> UnsafePtr<T> {
+  #[allow(clippy::missing_safety_doc)]
   pub unsafe fn as_ref(&self) -> &T {
     unsafe { &self.inner.as_ref().member }
   }
