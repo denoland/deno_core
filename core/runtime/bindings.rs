@@ -516,6 +516,7 @@ fn op_ctx_template_or_accessor<'s>(
 
   let op_ctx_ptr = op_ctx as *const OpCtx as *const c_void;
   let external = v8::External::new(scope, op_ctx_ptr as *mut c_void);
+  let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
 
   if let Some((named_getter, named_setter)) =
     accessor_store.get(op_ctx.decl.name)
@@ -527,11 +528,13 @@ fn op_ctx_template_or_accessor<'s>(
         getter.decl.slow_fn
       };
 
-      Some(
-        v8::FunctionTemplate::builder_raw(getter_raw)
-          .data(external.into())
-          .build(scope),
-      )
+      let tmpl = v8::FunctionTemplate::builder_raw(getter_raw)
+        .data(external.into())
+        .build(scope);
+      let op_fn = tmpl.get_function(scope).unwrap();
+      op_fn.set_name(key);
+
+      Some(tmpl)
     } else {
       None
     };
@@ -543,18 +546,20 @@ fn op_ctx_template_or_accessor<'s>(
         setter.decl.slow_fn
       };
 
-      Some(
-        v8::FunctionTemplate::builder_raw(setter_raw)
-          .data(external.into())
-          .build(scope),
-      )
+      let tmpl = v8::FunctionTemplate::builder_raw(setter_raw)
+        .data(external.into())
+        .length(1)
+        .build(scope);
+      let op_fn = tmpl.get_function(scope).unwrap();
+      op_fn.set_name(key);
+
+      Some(tmpl)
     } else {
       None
     };
 
-    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap().into();
     tmpl.set_accessor_property(
-      key,
+      key.into(),
       getter_fn,
       setter_fn,
       v8::PropertyAttribute::default(),
