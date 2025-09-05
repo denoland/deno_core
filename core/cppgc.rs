@@ -563,8 +563,9 @@ impl FunctionTemplateData {
   }
 }
 
+#[derive(Debug)]
 pub struct SameObject<T: GarbageCollected + 'static> {
-  cell: std::cell::OnceCell<GcCell<v8::Global<v8::Object>>>,
+  cell: std::cell::OnceCell<v8::Global<v8::Object>>,
   _phantom_data: std::marker::PhantomData<T>,
 }
 
@@ -576,7 +577,6 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
       _phantom_data: Default::default(),
     }
   }
-
   pub fn get<F>(
     &self,
     scope: &mut v8::HandleScope,
@@ -585,12 +585,14 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
   where
     F: FnOnce(&mut v8::HandleScope) -> T,
   {
-    let cell = self.cell.get_or_init(|| {
-      let v = f(scope);
-      let obj = make_cppgc_object(scope, v);
-      GcCell::new(v8::Global::new(scope, obj))
-    });
-    cell.get(scope).clone()
+    self
+      .cell
+      .get_or_init(|| {
+        let v = f(scope);
+        let obj = make_cppgc_object(scope, v);
+        v8::Global::new(scope, obj)
+      })
+      .clone()
   }
 
   pub fn set(
@@ -599,8 +601,7 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
     value: T,
   ) -> Result<(), v8::Global<v8::Object>> {
     let obj = make_cppgc_object(scope, value);
-    let global = v8::Global::new(scope, obj);
-    self.cell.set(GcCell::new(global))
+    self.cell.set(v8::Global::new(scope, obj))
   }
 
   pub fn try_unwrap(
@@ -608,7 +609,7 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
     scope: &mut v8::HandleScope,
   ) -> Option<UnsafePtr<T>> {
     let obj = self.cell.get()?;
-    let val = obj.get(scope);
+    let val = v8::Local::new(scope, obj);
     try_unwrap_cppgc_object(scope, val.cast())
   }
 }
