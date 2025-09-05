@@ -105,7 +105,10 @@ test(async function testDomPoint() {
   assertEquals(p5.x, 200);
 
   assertEquals(DOMPoint.fromPoint.length, 1);
-  const { get, set } = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(p1), "x");
+  const { get, set } = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(p1),
+    "x",
+  );
   assertEquals(get.name, "x");
   assertEquals(get.length, 0);
   assertEquals(set.name, "x");
