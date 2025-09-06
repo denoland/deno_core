@@ -531,7 +531,7 @@ fn op_ctx_template_or_accessor<'s>(
         .data(external.into())
         .build(scope);
       let op_fn = tmpl.get_function(scope).unwrap();
-      let method_name = format!("get {}", op_ctx.decl.name_fast.to_string());
+      let method_name = format!("get {}", op_ctx.decl.name_fast);
       let method_name = v8::String::new(scope, method_name.as_str()).unwrap();
       op_fn.set_name(method_name);
 
@@ -552,7 +552,7 @@ fn op_ctx_template_or_accessor<'s>(
         .length(1)
         .build(scope);
       let op_fn = tmpl.get_function(scope).unwrap();
-      let method_name = format!("set {}", op_ctx.decl.name_fast.to_string());
+      let method_name = format!("set {}", op_ctx.decl.name_fast);
       let method_name = v8::String::new(scope, method_name.as_str()).unwrap();
       op_fn.set_name(method_name);
 
