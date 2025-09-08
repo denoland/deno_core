@@ -134,7 +134,7 @@ jobs:
       RUST_BACKTRACE: full
       # note: this may be temporary
       RUSTFLAGS: >-
-        -D warnings -Cdebuginfo=0 ${{ inputs.target == 'x86_64-pc-windows-msvc' &&
+        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022' &&
         '-Clink-arg=/DEBUG:NONE' || '' }}
       CARGO_PROFILE_RELEASE_DEBUG: false
       CARGO_BUILD_JOBS: 1
