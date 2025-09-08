@@ -1,5 +1,5 @@
 [target.'cfg(windows)']
 rustflags = [
   "-C",
-  "link-arg=/PDBPAGESIZE:16384", # sets page size to 16 KiB (up to 16 GiB PDB)
+  "-Csymbol-mangling-version=v0"
 ]
