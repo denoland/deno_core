@@ -67,7 +67,7 @@ jobs:
           save-if: ${{ inputs.is_main }}
 
       - name: Clean
-        if: inputs.is_main
+        if: ${{ inputs.is_main || inputs.os == 'windows-2022' }}
         run: cargo clean
 
       # ************************************************************************************************
