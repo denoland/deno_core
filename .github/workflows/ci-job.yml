@@ -132,4 +132,6 @@ jobs:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
       RUST_BACKTRACE: full
-      RUSTFLAGS: -D warnings
+      RUSTFLAGS: >-
+        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022-xl' &&
+        '-Clink-arg=/DEBUG:NONE' || '' }}
