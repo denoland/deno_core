@@ -64,7 +64,7 @@ jobs:
               os: macOS-latest
               jobs: [lint, test]
             windows:
-              os: windows-2022-xl
+              os: windows-2022
               jobs: [lint, test]
       - name: Read job configuration (tag)
         uses: cloudposse/github-action-yaml-config-query@main
