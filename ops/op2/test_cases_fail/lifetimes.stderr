@@ -1,3 +1,15 @@
+error[E0200]: the trait `GarbageCollected` requires an `unsafe impl` declaration
+ --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
+  |
+  | impl GarbageCollected for Wrap {
+  | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: the trait `GarbageCollected` enforces invariants that the compiler can't check. Review the trait documentation and make sure this implementation upholds those invariants before adding the `unsafe` keyword
+help: add `unsafe` to this trait implementation
+  |
+8 | unsafe impl GarbageCollected for Wrap {
+  | ++++++
+
 error[E0716]: temporary value dropped while borrowed
  --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
   |
