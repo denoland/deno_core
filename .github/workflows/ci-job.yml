@@ -135,3 +135,7 @@ jobs:
       RUSTFLAGS: >-
         -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022-xl' &&
         '-Clink-arg=/DEBUG:NONE' || '' }}
+
+      RUSTDOCFLAGS: >-
+        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022-xl' &&
+        '-Clink-arg=/DEBUG:NONE' || '' }}
