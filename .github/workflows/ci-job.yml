@@ -132,6 +132,9 @@ jobs:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
       RUST_BACKTRACE: full
-      RUSTFLAGS: -D warnings -C debuginfo=0
+      # note: this may be temporary
+      RUSTFLAGS: >-
+        -D warnings -Cdebuginfo=0 ${{ inputs.target == 'x86_64-pc-windows-msvc' &&
+        '-Clink-arg=/DEBUG:NONE' || '' }}
       CARGO_PROFILE_RELEASE_DEBUG: false
       CARGO_BUILD_JOBS: 1
