@@ -186,7 +186,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = { Foo::call(self_) };
                 deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
                 return 0;
@@ -285,7 +285,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = {
                     let arg0 = args.get(0usize as i32);
                     let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
@@ -413,7 +413,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = {
                     let arg0 = args.get(0usize as i32);
                     let Some(arg0) = deno_core::_ops::to_u32_option(&arg0) else {
@@ -590,7 +590,7 @@ impl Foo {
                         return unsafe { std::mem::zeroed() };
                     }
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = { self_.call() };
                 result as _
             }
@@ -614,7 +614,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = { Foo::call(self_) };
                 deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
                 return 0;
@@ -714,7 +714,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = {
                     let arg0 = Some(&args);
                     Foo::call(self_, arg0)
@@ -817,7 +817,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = { Foo::call(self_) };
                 deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
                 return 0;
@@ -1003,7 +1003,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = { Foo::call(self_) };
                 deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
                 return 0;
@@ -1169,7 +1169,7 @@ impl Foo {
                         return unsafe { std::mem::zeroed() };
                     }
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = { self_.call() };
                 result as _
             }
@@ -1204,7 +1204,7 @@ impl Foo {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Foo");
                     return 1;
                 };
-                let self_ = &*self_;
+                let self_ = unsafe { self_.as_ref() };
                 let result = { Foo::call(self_) };
                 deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
                 return 0;

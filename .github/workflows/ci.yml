@@ -65,7 +65,7 @@ jobs:
               jobs: [lint, test]
             windows:
               os: windows-2022-xl
-              jobs: [test]
+              jobs: [lint, test]
       - name: Read job configuration (tag)
         uses: cloudposse/github-action-yaml-config-query@main
         id: read-jobs-tag

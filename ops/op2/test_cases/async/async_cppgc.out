@@ -180,7 +180,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 };
                 arg0.root();
                 async move {
-                    let arg0 = &*arg0;
+                    let arg0 = unsafe { arg0.as_ref() };
                     Self::call(arg0).await
                 }
             };
@@ -302,7 +302,7 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     return 1;
                 };
                 async move {
-                    let arg0 = arg0.as_deref();
+                    let arg0 = unsafe { arg0.as_ref().map(|a| a.as_ref()) };
                     Self::call(arg0).await
                 }
             };
