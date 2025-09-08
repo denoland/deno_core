@@ -1,5 +1,5 @@
 [target.'cfg(windows)']
 rustflags = [
   "-C",
-  "-Csymbol-mangling-version=v0"
+  "-Csymbol-mangling-version=v0",
 ]
