@@ -1,5 +1,0 @@
-[target.'cfg(windows)']
-rustflags = [
-  "-Csymbol-mangling-version=v0",
-  "-Ctarget-feature=+crt-static",
-]

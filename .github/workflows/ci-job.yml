@@ -67,7 +67,7 @@ jobs:
           save-if: ${{ inputs.is_main }}
 
       - name: Clean
-        if: ${{ inputs.is_main || inputs.os == 'windows-2022-xl' }}
+        if: inputs.is_main
         run: cargo clean
 
       # ************************************************************************************************
@@ -132,9 +132,4 @@ jobs:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
       RUST_BACKTRACE: full
-      # note: this may be temporary
-      RUSTFLAGS: >-
-        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022-xl' &&
-        '-Clink-arg=/DEBUG:NONE' || '' }}
-      CARGO_PROFILE_RELEASE_DEBUG: false
-      CARGO_BUILD_JOBS: 1
+      RUSTFLAGS: -D warnings
