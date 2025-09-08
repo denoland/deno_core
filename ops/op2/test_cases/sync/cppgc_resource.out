@@ -118,7 +118,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                         return unsafe { std::mem::zeroed() };
                     }
                 };
-                let arg0 = &*arg0;
+                let arg0 = unsafe { arg0.as_ref() };
                 Self::call(arg0)
             };
             result as _
@@ -143,7 +143,7 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
-                let arg0 = &*arg0;
+                let arg0 = unsafe { arg0.as_ref() };
                 Self::call(arg0)
             };
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
@@ -310,12 +310,12 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                         };
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
-                            "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
+                            "expected Wrap",
                         );
                         return unsafe { std::mem::zeroed() };
                     }
                 };
-                let arg0 = arg0.as_deref();
+                let arg0 = unsafe { arg0.as_ref().map(|a| a.as_ref()) };
                 Self::call(arg0)
             };
             result as _
@@ -344,7 +344,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
-                let arg0 = arg0.as_deref();
+                let arg0 = unsafe { arg0.as_ref().map(|a| a.as_ref()) };
                 Self::call(arg0)
             };
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
@@ -606,7 +606,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                         return unsafe { std::mem::zeroed() };
                     }
                 };
-                let arg0 = &*arg0;
+                let arg0 = unsafe { arg0.as_ref() };
                 Self::call(arg0)
             };
             result as _
@@ -631,7 +631,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
-                let arg0 = &*arg0;
+                let arg0 = unsafe { arg0.as_ref() };
                 Self::call(arg0)
             };
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
@@ -896,7 +896,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                         return unsafe { std::mem::zeroed() };
                     }
                 };
-                let arg0 = &*arg0;
+                let arg0 = unsafe { arg0.as_ref() };
                 Self::call(arg0)
             };
             result as _
@@ -921,7 +921,7 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
                     deno_core::_ops::throw_error_one_byte_info(&info, "expected Wrap");
                     return 1;
                 };
-                let arg0 = &*arg0;
+                let arg0 = unsafe { arg0.as_ref() };
                 Self::call(arg0)
             };
             deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
