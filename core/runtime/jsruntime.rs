@@ -1692,6 +1692,7 @@ impl JsRuntime {
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
+  {
     jsruntime_make_handle_scope!(scope, self);
     Self::scoped_call_with_args(scope, function, args)
   }
@@ -1826,8 +1827,8 @@ impl JsRuntime {
 
   fn pump_v8_message_loop(
     &self,
-  ) -> Result<(), Box<JsError>> {
     scope: &mut v8::PinScope,
+  ) -> Result<(), Box<JsError>> {
     while v8::Platform::pump_message_loop(
       &v8::V8::get_current_platform(),
       scope,

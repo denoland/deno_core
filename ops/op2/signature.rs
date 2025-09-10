@@ -147,6 +147,7 @@ pub enum Special {
   JsRuntimeState,
   FastApiCallbackOptions,
   Isolate,
+  RawIsolatePtr,
 }
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -360,14 +361,16 @@ impl Arg {
         | Special::OpState
         | Special::JsRuntimeState
         | Special::HandleScope
-        | Special::Isolate,
+        | Special::Isolate
+        | Special::RawIsolatePtr,
       ) => true,
       Self::Ref(
         _,
         Special::FastApiCallbackOptions
         | Special::OpState
         | Special::JsRuntimeState
-        | Special::HandleScope,
+        | Special::HandleScope
+        | Special::Isolate,
       ) => true,
       Self::RcRefCell(
         Special::FastApiCallbackOptions
@@ -1437,7 +1440,8 @@ fn parse_type_path(
       }
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
-      ( v8 :: UnsafeRawIsolatePtr ) => Ok(CBare(TSpecial(Special::Isolate))),
+      ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
+      ( v8 :: UnsafeRawIsolatePtr ) => Ok(CBare(TSpecial(Special::RawIsolatePtr))),
       ( v8 :: PinScope $( < $_scope:lifetime , $_i:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
@@ -1476,9 +1480,17 @@ fn parse_type_path(
   // the easiest way to work with the 'rules!' macro above.
   match res {
     // OpState and JsRuntimeState appears in both ways
-    CBare(TSpecial(
-      Special::OpState | Special::JsRuntimeState | Special::Isolate,
-    )) => {}
+    CBare(TSpecial(Special::OpState | Special::JsRuntimeState)) => {}
+    CBare(TSpecial(Special::RawIsolatePtr)) => {
+      if ctx == TypePathContext::Ref {
+        return Err(ArgError::InvalidReference(stringify_token(tp)));
+      }
+    }
+    CBare(TSpecial(Special::Isolate)) => {
+      if ctx != TypePathContext::Ref {
+        return Err(ArgError::MissingReference(stringify_token(tp)));
+      }
+    }
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {
@@ -1875,6 +1887,9 @@ pub(crate) fn parse_type(
             CBare(TSpecial(Special::Isolate)) => {
               Ok(Arg::Special(Special::Isolate))
             }
+            CBare(TSpecial(Special::RawIsolatePtr)) => {
+              Ok(Arg::Special(Special::RawIsolatePtr))
+            }
             _ => Err(ArgError::InvalidType(
               stringify_token(of),
               "for pointer to type path",
@@ -1889,6 +1904,8 @@ pub(crate) fn parse_type(
         parse_type_path(position, attrs.clone(), TypePathContext::None, of)?;
       if let CBare(TSpecial(Special::Isolate)) = typath {
         return Ok(Arg::Special(Special::Isolate));
+      } else if let CBare(TSpecial(Special::RawIsolatePtr)) = typath {
+        return Ok(Arg::Special(Special::RawIsolatePtr));
       }
       Arg::from_parsed(typath, attrs)
         .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
@@ -2165,9 +2182,38 @@ mod tests {
     fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
     (Rc(JsRuntimeState)) -> Infallible(Void, false)
   );
+  expect_fail!(
+    op_isolate_raw_ref,
+    ArgError(
+      "isolate".into(),
+      InvalidReference("v8::UnsafeRawIsolatePtr".into())
+    ),
+    fn f(isolate: &v8::UnsafeRawIsolatePtr) {}
+  );
+  expect_fail!(
+    op_isolate_raw_mut,
+    ArgError(
+      "isolate".into(),
+      InvalidReference("v8::UnsafeRawIsolatePtr".into())
+    ),
+    fn f(isolate: &mut v8::UnsafeRawIsolatePtr) {}
+  );
+  expect_fail!(
+    op_isolate_bare,
+    ArgError("isolate".into(), MissingReference("v8::Isolate".into())),
+    fn f(isolate: v8::Isolate) {}
+  );
+  test!(
+    fn op_isolate_ref(isolate: &v8::Isolate);
+    (Ref(Ref, Isolate)) -> Infallible(Void, false)
+  );
+  test!(
+    fn op_isolate_mut(isolate: &mut v8::Isolate);
+    (Ref(Mut, Isolate)) -> Infallible(Void, false)
+  );
   test!(
     fn op_isolate(isolate: v8::UnsafeRawIsolatePtr);
-    (Special(Isolate)) -> Infallible(Void, false)
+    (Special(RawIsolatePtr)) -> Infallible(Void, false)
   );
   test!(
     #[serde]

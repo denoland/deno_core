@@ -314,9 +314,9 @@ pub fn to_v8_error<'s, 'i>(
 /// Effectively throw an uncatchable error. This will terminate runtime
 /// execution before any more JS code can run, except in the REPL where it
 /// should just output the error to the console.
-pub fn dispatch_exception(
-  scope: &mut v8::HandleScope,
-  exception: v8::Local<v8::Value>,
+pub fn dispatch_exception<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  exception: v8::Local<'s, v8::Value>,
   promise: bool,
 ) {
   let state = JsRuntime::state_from(scope);
@@ -717,15 +717,15 @@ impl JsError {
       && a.aggregated == b.aggregated
   }
 
+  pub fn from_v8_exception<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    exception: v8::Local<'s, v8::Value>,
   ) -> Box<Self> {
     Box::new(Self::inner_from_v8_exception(
       scope,
       exception,
       Default::default(),
     ))
-  pub fn from_v8_exception<'s, 'i>(
-    scope: &mut v8::PinScope<'s, 'i>,
-    exception: v8::Local<'s, v8::Value>,
   }
 
   pub fn from_v8_message<'s, 'i>(

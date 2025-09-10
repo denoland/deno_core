@@ -382,7 +382,8 @@ pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
 
 pub struct Foo;
 
-impl deno_core::GarbageCollected for Foo {
+unsafe impl deno_core::GarbageCollected for Foo {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"Foo"
   }

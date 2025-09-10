@@ -595,17 +595,23 @@ pub fn from_arg(
     Arg::External(External::Ptr(_)) => {
       from_arg_option(generator_state, &arg_ident, "external")
     }
-    Arg::Special(Special::Isolate) => {
+    Arg::Special(Special::RawIsolatePtr) => {
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)
     }
     Arg::Ref(RefType::Ref, Special::Isolate) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = unsafe { &*#opctx.isolate };)
+      quote!(
+        let #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+        let #arg_ident = &#arg_ident;
+      )
     }
     Arg::Ref(RefType::Mut, Special::Isolate) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = unsafe { &mut *#opctx.isolate };)
+      quote!(
+        let mut #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+        let #arg_ident = &mut #arg_ident;
+      )
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;

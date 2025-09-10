@@ -538,7 +538,7 @@ pub fn to_v8_slice_any(
 }
 
 #[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
-#[cfg(all(test, not(miri)))]
+#[cfg(all(test, not(false)))]
 mod tests {
   use crate::FromV8;
   use crate::GarbageCollected;
