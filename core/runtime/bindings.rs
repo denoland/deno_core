@@ -646,7 +646,7 @@ fn create_accessor_store(method_ctxs: &[OpCtx]) -> AccessorStore<'_> {
 }
 
 pub extern "C" fn wasm_async_resolve_promise_callback(
-  _isolate: *mut v8::RealIsolate,
+  _isolate: v8::UnsafeRawIsolatePtr,
   context: v8::Local<v8::Context>,
   resolver: v8::Local<v8::PromiseResolver>,
   compilation_result: v8::Local<v8::Value>,

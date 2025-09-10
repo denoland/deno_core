@@ -1164,9 +1164,9 @@ impl ModuleMap {
 
     let Some(value) = module.evaluate(tc_scope) else {
       if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-        // let undefined = v8::undefined(tc_scope).into();
-        // _ = sender
-        //   .send(exception_to_err_result(tc_scope, undefined, true, false));
+        let undefined = v8::undefined(tc_scope).into();
+        _ = sender
+          .send(exception_to_err_result(tc_scope, undefined, true, false));
       } else {
         debug_assert_eq!(module.get_status(), v8::ModuleStatus::Errored);
       }
@@ -1180,10 +1180,10 @@ impl ModuleMap {
 
     if self.exception_state.has_dispatched_exception() {
       // This will be overridden in `exception_to_err_result()`.
-      // let exception = v8::undefined(tc_scope).into();
-      // sender
-      //   .send(exception_to_err_result(tc_scope, exception, true, false))
-      //   .expect("Failed to send module evaluation error.");
+      let exception = v8::undefined(tc_scope).into();
+      sender
+        .send(exception_to_err_result(tc_scope, exception, true, false))
+        .expect("Failed to send module evaluation error.");
     } else {
       debug_assert!(
         status == v8::ModuleStatus::Evaluated
