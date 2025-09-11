@@ -695,7 +695,7 @@ struct InspectorSession {
   v8_channel: v8::inspector::ChannelBase,
   v8_session: v8::UniqueRef<v8::inspector::V8InspectorSession>,
   send: InspectorSessionSend,
-  rx: SessionProxyReceiver,
+  // rx: SessionProxyReceiver,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
@@ -708,7 +708,7 @@ impl InspectorSession {
     v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
     is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
-    rx: SessionProxyReceiver,
+    // rx: SessionProxyReceiver,
     options: InspectorSessionOptions,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
@@ -731,7 +731,7 @@ impl InspectorSession {
         v8_channel,
         v8_session,
         send,
-        rx,
+        // rx,
         kind: options.kind,
       }
     })
@@ -801,28 +801,28 @@ impl v8::inspector::ChannelImpl for InspectorSession {
   fn flush_protocol_notifications(&mut self) {}
 }
 
-// TODO(bartlomieju): maybe remove this and add `InspectorSession::pump_messages` method
-// that would drain a possibly sync channel to remove asynchronocity
-impl Stream for InspectorSession {
-  type Item = ();
+// // TODO(bartlomieju): maybe remove this and add `InspectorSession::pump_messages` method
+// // that would drain a possibly sync channel to remove asynchronocity
+// impl Stream for InspectorSession {
+//   type Item = ();
 
-  fn poll_next(
-    self: Pin<&mut Self>,
-    cx: &mut Context,
-  ) -> Poll<Option<Self::Item>> {
-    let inner = self.get_mut();
-    if let Poll::Ready(maybe_msg) = inner.rx.poll_next_unpin(cx) {
-      if let Some(msg) = maybe_msg {
-        inner.dispatch_message(msg);
-        return Poll::Ready(Some(()));
-      } else {
-        return Poll::Ready(None);
-      }
-    }
+//   fn poll_next(
+//     self: Pin<&mut Self>,
+//     cx: &mut Context,
+//   ) -> Poll<Option<Self::Item>> {
+//     let inner = self.get_mut();
+//     if let Poll::Ready(maybe_msg) = inner.rx.poll_next_unpin(cx) {
+//       if let Some(msg) = maybe_msg {
+//         inner.dispatch_message(msg);
+//         return Poll::Ready(Some(()));
+//       } else {
+//         return Poll::Ready(None);
+//       }
+//     }
 
-    Poll::Pending
-  }
-}
+//     Poll::Pending
+//   }
+// }
 
 #[derive(Debug, Boxed)]
 pub struct InspectorPostMessageError(pub Box<InspectorPostMessageErrorKind>);
