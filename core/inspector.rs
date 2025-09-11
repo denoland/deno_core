@@ -60,7 +60,7 @@ pub struct InspectorSessionProxy {
   pub options: InspectorSessionOptions,
 }
 
-type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
+pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
 
 #[derive(Clone, Copy)]
 enum PollState {
@@ -463,6 +463,8 @@ impl JsRuntimeInspector {
     options: InspectorSessionOptions,
     send: InspectorSessionSend,
   ) -> UnboundedSender<String> {
+    // TODO(bartlomieju): this should be a sync channel in the future - or better, maybe it
+    // should return a callback instead of a channel
     // The 'inbound' channel carries messages received from the session.
     let (inbound_tx, inbound_rx) = mpsc::unbounded();
 
@@ -502,6 +504,18 @@ impl JsRuntimeInspector {
     let inbound_tx = self.create_raw_session(options, receive);
 
     LocalInspectorSession::new(inbound_tx, outbound_rx)
+  }
+
+  /// Create a local inspector session that can be used on
+  /// the same thread as the isolate.
+  pub fn create_local_sync_session(
+    &self,
+    callback: InspectorSessionSend,
+    options: InspectorSessionOptions,
+  ) -> LocalSyncInspectorSession {
+    // The 'outbound' channel carries messages sent to the session.
+    let inbound_tx = self.create_raw_session(options, callback);
+    LocalSyncInspectorSession::new(inbound_tx)
   }
 }
 
@@ -787,6 +801,8 @@ impl v8::inspector::ChannelImpl for InspectorSession {
   fn flush_protocol_notifications(&mut self) {}
 }
 
+// TODO(bartlomieju): maybe remove this and add `InspectorSession::pump_messages` method
+// that would drain a possibly sync channel to remove asynchronocity
 impl Stream for InspectorSession {
   type Item = ();
 
@@ -953,6 +969,46 @@ impl LocalInspectorSession {
       // Ignore if the receiver has been dropped.
       let _ = self.notification_tx.unbounded_send(message);
     }
+  }
+}
+
+/// A local inspector session that can be used to send and receive protocol messages directly on
+/// the same thread as an isolate.
+///
+/// Does not provide any abstraction over CDP messages.
+pub struct LocalSyncInspectorSession {
+  v8_session_tx: UnboundedSender<String>,
+  next_message_id: i32,
+}
+
+impl LocalSyncInspectorSession {
+  pub fn new(v8_session_tx: UnboundedSender<String>) -> Self {
+    Self {
+      v8_session_tx,
+      next_message_id: 0,
+    }
+  }
+
+  /// Send a message to the V8 inspector.
+  ///
+  /// Returns assigned message ID.
+  pub fn post_message<T: serde::Serialize>(
+    &mut self,
+    method: &str,
+    params: Option<T>,
+  ) -> i32 {
+    let id = self.next_message_id;
+    self.next_message_id += 1;
+
+    let message = json!({
+        "id": id,
+        "method": method,
+        "params": params,
+    });
+
+    let stringified_msg = serde_json::to_string(&message).unwrap();
+    self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
+    id
   }
 }
 
