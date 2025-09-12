@@ -192,7 +192,7 @@ fn handle_ws_request(
     // The 'outbound' channel carries messages sent to the websocket.
     let (outbound_tx, outbound_rx) = mpsc::unbounded();
     // The 'inbound' channel carries messages received from the websocket.
-    let (inbound_tx, inbound_rx) = std::sync::mpsc::channel();
+    let (inbound_tx, inbound_rx) = mpsc::unbounded();
 
     let inspector_session_proxy = InspectorSessionProxy {
       tx: outbound_tx,
@@ -406,7 +406,7 @@ async fn server(
 /// task yielding.
 async fn pump_websocket_messages(
   mut websocket: WebSocket<TokioIo<hyper::upgrade::Upgraded>>,
-  inbound_tx: std::sync::mpsc::Sender<String>,
+  inbound_tx: UnboundedSender<String>,
   mut outbound_rx: UnboundedReceiver<InspectorMsg>,
 ) {
   'pump: loop {
@@ -419,7 +419,7 @@ async fn pump_websocket_messages(
             match msg.opcode {
                 OpCode::Text => {
                     if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
-                      let _ = inbound_tx.send(s);
+                      let _ = inbound_tx.unbounded_send(s);
                     }
                 }
                 OpCode::Close => {
