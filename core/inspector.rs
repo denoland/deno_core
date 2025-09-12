@@ -22,6 +22,7 @@ use crate::serde_json::json;
 use boxed_error::Boxed;
 use deno_error::JsErrorBox;
 use parking_lot::Mutex;
+use std::backtrace;
 use std::cell::BorrowMutError;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -39,11 +40,13 @@ use std::thread;
 use thiserror::Error;
 use v8::HandleScope;
 
+#[derive(Debug)]
 pub enum InspectorMsgKind {
   Notification,
   Message(i32),
 }
 
+#[derive(Debug)]
 pub struct InspectorMsg {
   pub kind: InspectorMsgKind,
   pub content: String,
@@ -346,7 +349,7 @@ impl JsRuntimeInspector {
             Box::new(move |msg| {
               let _ = session_proxy.tx.unbounded_send(msg);
             }),
-            session_proxy.rx,
+            Some(session_proxy.rx),
             session_proxy.options,
           );
           let prev = sessions.handshake.replace(session);
@@ -462,11 +465,12 @@ impl JsRuntimeInspector {
     rx
   }
 
+  // TODO(bartlomieju): remove this, once `ext/node` doesn't depend on it
   pub fn create_raw_session(
     &self,
     options: InspectorSessionOptions,
     send: InspectorSessionSend,
-  ) -> (usize, std::sync::mpsc::Sender<String>) {
+  ) -> std::sync::mpsc::Sender<String> {
     // TODO(bartlomieju): this should be a sync channel in the future - or better, maybe it
     // should return a callback instead of a channel
     // The 'inbound' channel carries messages received from the session.
@@ -478,11 +482,39 @@ impl JsRuntimeInspector {
       self.v8_inspector.clone(),
       self.is_dispatching_message.clone(),
       send,
-      inbound_rx,
+      Some(inbound_rx),
       options,
     );
 
-    let idx = {
+    self
+      .sessions
+      .borrow_mut()
+      .established
+      .push(inspector_session);
+
+    take(&mut self.flags.borrow_mut().waiting_for_session);
+
+    inbound_tx
+  }
+
+  // TODO(bartlomieju): remove this function once all APIs use `LocalSyncInspectorSession`
+  pub fn create_local_sync_session(
+    &self,
+    inspector: Rc<RefCell<JsRuntimeInspector>>,
+    callback: InspectorSessionSend,
+    options: InspectorSessionOptions,
+  ) -> LocalSyncInspectorSession {
+    // InspectorSessions for a local session is added directly to the "established"
+    // sessions, so it doesn't need to go through the session sender.
+    let inspector_session = InspectorSession::new(
+      self.v8_inspector.clone(),
+      self.is_dispatching_message.clone(),
+      callback,
+      None,
+      options,
+    );
+
+    let session_id = {
       let mut s = self.sessions.borrow_mut();
       s.established.push(inspector_session);
       s.established.len() - 1
@@ -490,38 +522,7 @@ impl JsRuntimeInspector {
 
     take(&mut self.flags.borrow_mut().waiting_for_session);
 
-    (idx, inbound_tx)
-  }
-
-  /// Create a local inspector session that can be used on
-  /// the same thread as the isolate.
-  pub fn create_local_session(
-    &self,
-    options: InspectorSessionOptions,
-  ) -> LocalInspectorSession {
-    // The 'outbound' channel carries messages sent to the session.
-    let (outbound_tx, outbound_rx) = mpsc::unbounded();
-
-    let receive = Box::new(move |msg| {
-      let _ = outbound_tx.unbounded_send(msg);
-    });
-
-    let (_, inbound_tx) = self.create_raw_session(options, receive);
-
-    LocalInspectorSession::new(inbound_tx, outbound_rx)
-  }
-
-  /// Create a local inspector session that can be used on
-  /// the same thread as the isolate.
-  pub fn create_local_sync_session(
-    &self,
-    inspector: Rc<RefCell<JsRuntimeInspector>>,
-    callback: InspectorSessionSend,
-    options: InspectorSessionOptions,
-  ) -> LocalSyncInspectorSession {
-    // The 'outbound' channel carries messages sent to the session.
-    let (session_id, inbound_tx) = self.create_raw_session(options, callback);
-    LocalSyncInspectorSession::new(session_id, inspector, inbound_tx)
+    LocalSyncInspectorSession::new(session_id, inspector)
   }
 }
 
@@ -550,6 +551,9 @@ struct SessionContainer {
   v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
   handshake: Option<Box<InspectorSession>>,
+
+  // TODO(bartlomieju): make `InspectorSession` be a wrapper around `Box<InspectorSessionInner>`
+  #[allow(clippy::vec_box)]
   established: Vec<Box<InspectorSession>>,
 }
 
@@ -701,7 +705,7 @@ struct InspectorSession {
   v8_channel: v8::inspector::ChannelBase,
   v8_session: v8::UniqueRef<v8::inspector::V8InspectorSession>,
   send: InspectorSessionSend,
-  rx: SessionProxyReceiver,
+  rx: Option<SessionProxyReceiver>,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
@@ -714,7 +718,7 @@ impl InspectorSession {
     v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
     is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
-    rx: std::sync::mpsc::Receiver<String>,
+    rx: Option<std::sync::mpsc::Receiver<String>>,
     options: InspectorSessionOptions,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
@@ -772,15 +776,17 @@ impl InspectorSession {
       .schedule_pause_on_next_statement(reason, detail);
   }
 
+  // TODO(bartlomieju): completely phase out this function
   fn pump_messages(&mut self) -> bool {
+    if self.rx.is_none() {
+      return false;
+    }
+
     let mut dispatched = false;
-    loop {
-      if let Ok(msg) = self.rx.try_recv() {
-        dispatched = true;
-        self.dispatch_message(msg);
-      } else {
-        break;
-      }
+
+    while let Ok(msg) = self.rx.as_ref().unwrap().try_recv() {
+      dispatched = true;
+      self.dispatch_message(msg);
     }
     dispatched
   }
@@ -874,161 +880,30 @@ impl InspectorPostMessageError {
 
 /// A local inspector session that can be used to send and receive protocol messages directly on
 /// the same thread as an isolate.
-pub struct LocalInspectorSession {
-  v8_session_tx: std::sync::mpsc::Sender<String>,
-  v8_session_rx: UnboundedReceiver<InspectorMsg>,
-  response_tx_map: HashMap<i32, oneshot::Sender<serde_json::Value>>,
-  next_message_id: i32,
-  notification_tx: UnboundedSender<Value>,
-  notification_rx: Option<UnboundedReceiver<Value>>,
-}
-
-impl LocalInspectorSession {
-  pub fn new(
-    v8_session_tx: std::sync::mpsc::Sender<String>,
-    v8_session_rx: UnboundedReceiver<InspectorMsg>,
-  ) -> Self {
-    let response_tx_map = HashMap::new();
-    let next_message_id = 0;
-
-    let (notification_tx, notification_rx) = mpsc::unbounded::<Value>();
-
-    Self {
-      v8_session_tx,
-      v8_session_rx,
-      response_tx_map,
-      next_message_id,
-      notification_tx,
-      notification_rx: Some(notification_rx),
-    }
-  }
-
-  pub fn take_notification_rx(&mut self) -> UnboundedReceiver<Value> {
-    self.notification_rx.take().unwrap()
-  }
-
-  pub async fn post_message<T: serde::Serialize>(
-    &mut self,
-    method: &str,
-    params: Option<T>,
-  ) -> Result<serde_json::Value, InspectorPostMessageError> {
-    let id = self.next_message_id;
-    self.next_message_id += 1;
-
-    let (response_tx, mut response_rx) =
-      oneshot::channel::<serde_json::Value>();
-    self.response_tx_map.insert(id, response_tx);
-
-    let message = json!({
-        "id": id,
-        "method": method,
-        "params": params,
-    });
-
-    let stringified_msg = serde_json::to_string(&message).unwrap();
-    self.v8_session_tx.send(stringified_msg).unwrap();
-
-    loop {
-      let receive_fut = self.receive_from_v8_session().boxed_local();
-      match select(receive_fut, &mut response_rx).await {
-        Either::Left(_) => continue,
-        Either::Right((result, _)) => {
-          let response =
-            result.map_err(InspectorPostMessageErrorKind::FutureCanceled)?;
-          if let Some(error) = response.get("error") {
-            return Err(
-              InspectorPostMessageErrorKind::JsBox(JsErrorBox::generic(
-                error.to_string(),
-              ))
-              .into_box(),
-            );
-          }
-
-          let result = response.get("result").unwrap().clone();
-          return Ok(result);
-        }
-      }
-    }
-  }
-
-  pub async fn receive_from_v8_session(&mut self) {
-    let inspector_msg = self.v8_session_rx.next().await.unwrap();
-    if let InspectorMsgKind::Message(msg_id) = inspector_msg.kind {
-      let message: serde_json::Value =
-        match serde_json::from_str(&inspector_msg.content) {
-          Ok(v) => v,
-          Err(error) => match error.classify() {
-            serde_json::error::Category::Syntax => json!({
-              "id": msg_id,
-              "result": {
-                "result": {
-                  "type": "error",
-                  "description": "Unterminated string literal",
-                  "value": "Unterminated string literal",
-                },
-                "exceptionDetails": {
-                  "exceptionId": 0,
-                  "text": "Unterminated string literal",
-                  "lineNumber": 0,
-                  "columnNumber": 0
-                },
-              },
-            }),
-            _ => panic!("Could not parse inspector message"),
-          },
-        };
-
-      self
-        .response_tx_map
-        .remove(&msg_id)
-        .unwrap()
-        .send(message)
-        .unwrap();
-    } else {
-      let message = serde_json::from_str(&inspector_msg.content).unwrap();
-      // Ignore if the receiver has been dropped.
-      let _ = self.notification_tx.unbounded_send(message);
-    }
-  }
-}
-
-/// A local inspector session that can be used to send and receive protocol messages directly on
-/// the same thread as an isolate.
 ///
 /// Does not provide any abstraction over CDP messages.
 pub struct LocalSyncInspectorSession {
   inspector: Rc<RefCell<JsRuntimeInspector>>,
   session_id: usize,
-  v8_session_tx: std::sync::mpsc::Sender<String>,
-  next_message_id: i32,
 }
 
 impl LocalSyncInspectorSession {
   pub fn new(
     session_id: usize,
     inspector: Rc<RefCell<JsRuntimeInspector>>,
-    v8_session_tx: std::sync::mpsc::Sender<String>,
   ) -> Self {
     Self {
       inspector,
       session_id,
-      v8_session_tx,
-      next_message_id: 0,
     }
   }
 
-  /// Send a message to the V8 inspector.
-  ///
-  /// Returns assigned message ID.
   pub fn post_message<T: serde::Serialize>(
     &mut self,
     id: i32,
     method: &str,
     params: Option<T>,
-  ) -> i32 {
-    // let id = self.next_message_id;
-    // self.next_message_id += 1;
-
+  ) {
     let message = json!({
         "id": id,
         "method": method,
@@ -1041,8 +916,6 @@ impl LocalSyncInspectorSession {
       .inspector
       .borrow_mut()
       .dispatch_message_from_frontend(self.session_id, stringified_msg);
-    // self.v8_session_tx.send(stringified_msg).unwrap();
-    id
   }
 }
 
