@@ -150,8 +150,8 @@ fn bench_op(
     deno_core::jsruntime_make_handle_scope!(scope, &mut runtime);
     let bench: v8::Local<v8::Function> =
       v8::Local::new(scope, bench).try_into().unwrap();
-    let bench = v8::Global::new(scope, bench);
-    bench
+
+    v8::Global::new(scope, bench)
   };
   drop(guard);
   b.iter(move || do_benchmark(&bench, &tokio, &mut runtime));

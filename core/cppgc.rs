@@ -601,10 +601,7 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
     self.cell.set(v8::Global::new(scope, obj))
   }
 
-  pub fn try_unwrap(
-    &self,
-    scope: &mut v8::PinScope,
-  ) -> Option<UnsafePtr<T>> {
+  pub fn try_unwrap(&self, scope: &mut v8::PinScope) -> Option<UnsafePtr<T>> {
     let obj = self.cell.get()?;
     let val = v8::Local::new(scope, obj);
     try_unwrap_cppgc_object(scope, val.cast())
