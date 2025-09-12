@@ -355,7 +355,7 @@ pub(crate) fn with_self(
     });
 
     generator_state.moves.push(quote! {
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     });
 
     tokens
@@ -364,7 +364,7 @@ pub(crate) fn with_self(
       let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
       };
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     })
   }
 }
@@ -599,6 +599,14 @@ pub fn from_arg(
       *needs_opctx = true;
       quote!(let #arg_ident = #opctx.isolate;)
     }
+    Arg::Ref(RefType::Ref, Special::Isolate) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = unsafe { &*#opctx.isolate };)
+    }
+    Arg::Ref(RefType::Mut, Special::Isolate) => {
+      *needs_opctx = true;
+      quote!(let #arg_ident = unsafe { &mut *#opctx.isolate };)
+    }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
       quote!(let #arg_ident = &mut #scope;)
@@ -832,7 +840,7 @@ pub fn from_arg(
           #arg_ident.root();
         };
         generator_state.moves.push(quote! {
-          let #arg_ident = &*#arg_ident;
+          let #arg_ident = unsafe { #arg_ident.as_ref() };
         });
         tokens
       } else {
@@ -840,7 +848,7 @@ pub fn from_arg(
           let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
-          let #arg_ident = &*#arg_ident;
+          let #arg_ident = unsafe { #arg_ident.as_ref() };
         }
       }
     }
@@ -871,7 +879,7 @@ pub fn from_arg(
         };
 
         generator_state.moves.push(quote! {
-          let #arg_ident = #arg_ident.as_deref();
+          let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
         });
 
         tokens
@@ -884,7 +892,7 @@ pub fn from_arg(
           } else {
             #throw_exception;
           };
-          let #arg_ident = #arg_ident.as_deref();
+          let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
         }
       }
     }

@@ -1483,7 +1483,9 @@ fn parse_type_path(
   // the easiest way to work with the 'rules!' macro above.
   match res {
     // OpState and JsRuntimeState appears in both ways
-    CBare(TSpecial(Special::OpState | Special::JsRuntimeState)) => {}
+    CBare(TSpecial(
+      Special::OpState | Special::JsRuntimeState | Special::Isolate,
+    )) => {}
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {

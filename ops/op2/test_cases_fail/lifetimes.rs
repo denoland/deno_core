@@ -5,7 +5,9 @@ use deno_core::GarbageCollected;
 
 struct Wrap;
 
-impl GarbageCollected for Wrap {
+unsafe impl GarbageCollected for Wrap {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"Wrap"
   }

@@ -11,6 +11,7 @@ use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
 use deno_core::op2;
 use deno_core::url::Url;
+use deno_core::v8;
 use deno_core::v8::IsolateHandle;
 use deno_error::JsErrorBox;
 use std::cell::RefCell;
@@ -34,7 +35,9 @@ pub struct WorkerControl {
   shutdown_flag: Option<UnboundedSender<()>>,
 }
 
-impl GarbageCollected for WorkerControl {
+unsafe impl GarbageCollected for WorkerControl {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"WorkerControl"
   }
