@@ -466,7 +466,7 @@ impl JsRuntimeInspector {
   }
 
   // TODO(bartlomieju): remove this, once `ext/node` doesn't depend on it
-  pub fn create_raw_session(
+  fn create_raw_session(
     &self,
     options: InspectorSessionOptions,
     send: InspectorSessionSend,
@@ -499,28 +499,31 @@ impl JsRuntimeInspector {
 
   // TODO(bartlomieju): remove this function once all APIs use `LocalSyncInspectorSession`
   pub fn create_local_sync_session(
-    &self,
     inspector: Rc<RefCell<JsRuntimeInspector>>,
     callback: InspectorSessionSend,
     options: InspectorSessionOptions,
   ) -> LocalSyncInspectorSession {
-    // InspectorSessions for a local session is added directly to the "established"
-    // sessions, so it doesn't need to go through the session sender.
-    let inspector_session = InspectorSession::new(
-      self.v8_inspector.clone(),
-      self.is_dispatching_message.clone(),
-      callback,
-      None,
-      options,
-    );
-
     let session_id = {
-      let mut s = self.sessions.borrow_mut();
-      s.established.push(inspector_session);
-      s.established.len() - 1
-    };
+      let self_ = inspector.borrow_mut();
+      // InspectorSessions for a local session is added directly to the "established"
+      // sessions, so it doesn't need to go through the session sender.
+      let inspector_session = InspectorSession::new(
+        self_.v8_inspector.clone(),
+        self_.is_dispatching_message.clone(),
+        callback,
+        None,
+        options,
+      );
 
-    take(&mut self.flags.borrow_mut().waiting_for_session);
+      let session_id = {
+        let mut s = self_.sessions.borrow_mut();
+        s.established.push(inspector_session);
+        s.established.len() - 1
+      };
+
+      take(&mut self_.flags.borrow_mut().waiting_for_session);
+      session_id
+    };
 
     LocalSyncInspectorSession::new(session_id, inspector)
   }
@@ -898,6 +901,13 @@ impl LocalSyncInspectorSession {
     }
   }
 
+  pub fn dispatch(&mut self, msg: String) {
+    self
+      .inspector
+      .borrow_mut()
+      .dispatch_message_from_frontend(self.session_id, msg);
+  }
+
   pub fn post_message<T: serde::Serialize>(
     &mut self,
     id: i32,
@@ -911,11 +921,7 @@ impl LocalSyncInspectorSession {
     });
 
     let stringified_msg = serde_json::to_string(&message).unwrap();
-
-    self
-      .inspector
-      .borrow_mut()
-      .dispatch_message_from_frontend(self.session_id, stringified_msg);
+    self.dispatch(stringified_msg);
   }
 }
 

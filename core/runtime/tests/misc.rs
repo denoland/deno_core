@@ -481,10 +481,12 @@ fn local_inspector_evaluate(
       let _ = tx.send(value["result"].clone());
     }
   });
-  let mut local_inspector_session = runtime
-    .inspector()
-    .borrow()
-    .create_local_sync_session(inspector, callback, session_options);
+  let mut local_inspector_session =
+    JsRuntimeInspector::create_local_sync_session(
+      inspector,
+      callback,
+      session_options,
+    );
 
   local_inspector_session.post_message(
     1,
