@@ -50,7 +50,7 @@ pub struct MacroConfig {
   /// Marks an op to have it collect stack trace of the call site in the OpState.
   pub stack_trace: bool,
   /// Total required number of arguments for the op.
-  pub required: u8,
+  pub required: Option<u8>,
   /// Rename the op to the given name.
   pub rename: Option<String>,
   /// Symbol.for("op_name") for the op.
@@ -117,7 +117,7 @@ impl MacroConfig {
         Flags::NoSideEffects => config.no_side_effects = true,
         Flags::StackTrace => config.stack_trace = true,
         Flags::StaticMethod => config.static_member = true,
-        Flags::Required(req) => config.required = *req,
+        Flags::Required(req) => config.required = Some(*req),
         Flags::Rename(rename) => config.rename = Some(rename.clone()),
         Flags::Symbol(symbol) => {
           config.rename = Some(symbol.clone());
