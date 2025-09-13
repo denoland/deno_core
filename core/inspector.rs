@@ -210,6 +210,7 @@ impl JsRuntimeInspector {
       v8::inspector::V8Inspector::create(scope, &mut *self_).into(),
     )));
     self_.sessions = Arc::new(Mutex::new(SessionContainer::new(
+      self_.waker.clone(),
       self_.v8_inspector.clone(),
     )));
 
@@ -494,6 +495,7 @@ pub struct SessionsState {
 /// A helper structure that helps coordinate sessions during different
 /// parts of their lifecycle.
 pub struct SessionContainer {
+  pub waker: Arc<InspectorWaker>,
   v8_inspector: V8InspectorPtr,
 
   pump_message_loops: SelectAll<InspectorSessionPumpMessagesLoop>,
@@ -505,8 +507,9 @@ pub struct SessionContainer {
 }
 
 impl SessionContainer {
-  fn new(v8_inspector: V8InspectorPtr) -> Self {
+  fn new(waker: Arc<InspectorWaker>, v8_inspector: V8InspectorPtr) -> Self {
     Self {
+      waker,
       v8_inspector,
       pump_message_loops: SelectAll::new(),
       next_local_id: 1,
@@ -608,9 +611,9 @@ impl SessionContainer {
   /// for actual use.
   fn temporary_placeholder() -> Self {
     Self {
+      waker: InspectorWaker::temporary_placeholder(),
       v8_inspector: Default::default(),
       pump_message_loops: SelectAll::new(),
-      // pump_message_futures: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
     }
@@ -622,13 +625,13 @@ struct InspectorWakerInner {
   task_waker: Option<task::Waker>,
   parked_thread: Option<thread::Thread>,
   inspector_ptr: Option<NonNull<JsRuntimeInspector>>,
-  isolate_handle: v8::IsolateHandle,
+  isolate_handle: Option<v8::IsolateHandle>,
 }
 
 // SAFETY: unsafe trait must have unsafe implementation
 unsafe impl Send for InspectorWakerInner {}
 
-struct InspectorWaker(Mutex<InspectorWakerInner>);
+pub struct InspectorWaker(Mutex<InspectorWakerInner>);
 
 impl InspectorWaker {
   fn new(isolate_handle: v8::IsolateHandle) -> Arc<Self> {
@@ -637,7 +640,18 @@ impl InspectorWaker {
       task_waker: None,
       parked_thread: None,
       inspector_ptr: None,
-      isolate_handle,
+      isolate_handle: Some(isolate_handle),
+    };
+    Arc::new(Self(Mutex::new(inner)))
+  }
+
+  fn temporary_placeholder() -> Arc<Self> {
+    let inner = InspectorWakerInner {
+      poll_state: PollState::Idle,
+      task_waker: None,
+      parked_thread: None,
+      inspector_ptr: None,
+      isolate_handle: None,
     };
     Arc::new(Self(Mutex::new(inner)))
   }
@@ -667,7 +681,10 @@ impl task::ArcWake for InspectorWaker {
             .take()
             .map(|ptr| ptr.as_ptr() as *mut c_void)
           {
-            w.isolate_handle.request_interrupt(handle_interrupt, arg);
+            w.isolate_handle
+              .as_ref()
+              .unwrap()
+              .request_interrupt(handle_interrupt, arg);
           }
           extern "C" fn handle_interrupt(
             _isolate: &mut v8::Isolate,
