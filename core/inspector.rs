@@ -76,6 +76,8 @@ struct V8InspectorPtr(
   pub Arc<Mutex<v8::UniquePtr<v8::inspector::V8Inspector>>>,
 );
 
+unsafe impl Send for V8InspectorPtr {}
+
 /// This structure is used responsible for providing inspector interface
 /// to the `JsRuntime`.
 ///
@@ -335,21 +337,7 @@ impl JsRuntimeInspector {
     let cx = &mut Context::from_waker(&waker_ref);
 
     loop {
-      'session_loop: loop {
-        eprintln!("'session loop");
-        let poll_result = sessions.pump_message_loops.poll_next_unpin(cx);
-        eprintln!("pump message loops poll {:#?}", poll_result);
-        // Poll established sessions.
-        match poll_result {
-          Poll::Ready(Some((session_id, message))) => {
-            eprintln!("got a message for session {}", session_id);
-            sessions.dispatch_message_from_frontend(session_id, message);
-            continue;
-          }
-          Poll::Ready(None) => break 'session_loop,
-          Poll::Pending => break 'session_loop,
-        };
-      }
+      sessions.pump_message_loops_and_dispatch_messages(cx);
 
       let should_block =
         self.flags.borrow().on_pause || self.flags.borrow().waiting_for_session;
@@ -388,12 +376,14 @@ impl JsRuntimeInspector {
         w.poll_state
       });
       match new_state {
-        PollState::Idle => break Ok(Poll::Pending), // Yield to task.
-        PollState::Polling => {} // Poll the session handler again.
+        PollState::Idle => break,            // Yield to task.
+        PollState::Polling => continue,      // Poll the session handler again.
         PollState::Parked => thread::park(), // Park the thread.
         _ => unreachable!(),
       };
     }
+
+    Ok(Poll::Pending)
   }
 
   /// This function blocks the thread until at least one inspector client has
@@ -514,9 +504,6 @@ pub struct SessionContainer {
   local: HashMap<i32, Box<InspectorSession>>,
 }
 
-unsafe impl Sync for SessionContainer {}
-unsafe impl Send for SessionContainer {}
-
 impl SessionContainer {
   fn new(v8_inspector: V8InspectorPtr) -> Self {
     Self {
@@ -561,6 +548,26 @@ impl SessionContainer {
       rx: session_proxy.rx,
     };
     self.pump_message_loops.push(pump_messages_loop);
+
+    // TODO(bartlomieju): wake up the task to pump messages
+  }
+
+  fn pump_message_loops_and_dispatch_messages(&mut self, cx: &mut Context) {
+    loop {
+      eprintln!("'session loop");
+      let poll_result = self.pump_message_loops.poll_next_unpin(cx);
+      eprintln!("pump message loops poll {:#?}", poll_result);
+      // Poll established sessions.
+      match poll_result {
+        Poll::Ready(Some((session_id, message))) => {
+          eprintln!("got a message for session {}", session_id);
+          self.dispatch_message_from_frontend(session_id, message);
+          continue;
+        }
+        Poll::Ready(None) => break,
+        Poll::Pending => break,
+      };
+    }
   }
 
   pub fn dispatch_message_from_frontend(
