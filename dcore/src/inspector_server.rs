@@ -30,6 +30,7 @@ use std::net::SocketAddr;
 use std::pin::pin;
 use std::process;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Poll;
 use std::thread;
 use tokio::net::TcpListener;
@@ -94,13 +95,21 @@ impl InspectorServer {
   ) {
     let inspector_rc = js_runtime.inspector();
     let mut inspector = inspector_rc.borrow_mut();
-    let session_sender = inspector.get_session_sender();
     let deregister_rx = inspector.add_deregister_handler();
+    let sessions_container = inspector.sessions.clone();
+
+    let register_callback = Arc::new(move |session_proxy| {
+      sessions_container
+        .try_lock()
+        .unwrap()
+        .create_new_session(session_proxy);
+    });
+
     // TODO(bartlomieju): remove `session_sender` and instead directly use `inspector` to register
     // a new session. Need to rewrite `JsRuntimeInspector` to be a `Arc<Mutex<>>` instead of `Rc<RefCell<>>`.
     let info = InspectorInfo::new(
       self.host,
-      session_sender,
+      register_callback,
       deregister_rx,
       module_url,
       wait_for_session,
@@ -143,7 +152,7 @@ fn handle_ws_request(
   }
 
   // run in a block to not hold borrow to `inspector_map` for too long
-  let new_session_tx = {
+  let register_cb = {
     let inspector_map = inspector_map_rc.borrow();
     let maybe_inspector_info = inspector_map.get(&maybe_uuid.unwrap());
 
@@ -154,7 +163,7 @@ fn handle_ws_request(
     }
 
     let info = maybe_inspector_info.unwrap();
-    info.new_session_tx.clone()
+    info.register_cb.clone()
   };
   let (parts, _) = req.into_parts();
   let mut req = http::Request::from_parts(parts, body);
@@ -207,7 +216,7 @@ fn handle_ws_request(
     };
 
     eprintln!("Debugger session started.");
-    let _ = new_session_tx.unbounded_send(inspector_session_proxy);
+    (*register_cb)(inspector_session_proxy);
     pump_websocket_messages(websocket, inbound_tx, outbound_rx).await;
   });
 
@@ -422,6 +431,7 @@ async fn pump_websocket_messages(
                 OpCode::Text => {
                     if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
                       let _ = inbound_tx.unbounded_send(s);
+                      eprintln!("sent a message from WS to inspector");
                     }
                 }
                 OpCode::Close => {
@@ -442,13 +452,16 @@ async fn pump_websocket_messages(
   }
 }
 
+// TODO(bartlomieju): using Send + Sync here is bad...
+type RegisterCb = Arc<dyn Fn(InspectorSessionProxy) + Send + Sync>;
+
 /// Inspector information that is sent from the isolate thread to the server
 /// thread when a new inspector is created.
 pub struct InspectorInfo {
   pub host: SocketAddr,
   pub uuid: Uuid,
   pub thread_name: Option<String>,
-  pub new_session_tx: UnboundedSender<InspectorSessionProxy>,
+  pub register_cb: RegisterCb,
   pub deregister_rx: oneshot::Receiver<()>,
   pub url: String,
   pub wait_for_session: bool,
@@ -457,7 +470,7 @@ pub struct InspectorInfo {
 impl InspectorInfo {
   pub fn new(
     host: SocketAddr,
-    new_session_tx: mpsc::UnboundedSender<InspectorSessionProxy>,
+    register_cb: RegisterCb,
     deregister_rx: oneshot::Receiver<()>,
     url: String,
     wait_for_session: bool,
@@ -466,7 +479,7 @@ impl InspectorInfo {
       host,
       uuid: Uuid::new_v4(),
       thread_name: thread::current().name().map(|n| n.to_owned()),
-      new_session_tx,
+      register_cb,
       deregister_rx,
       url,
       wait_for_session,
