@@ -332,6 +332,7 @@ impl JsRuntimeInspector {
 
     loop {
       'session_loop: loop {
+        // TODO(bartlomieju): this handshake step is BS, remove it
         // Do one "handshake" with a newly connected session at a time.
         if let Some(mut session) = sessions.handshake.take() {
           let poll_result = session.poll_next_unpin(cx);
@@ -423,7 +424,9 @@ impl JsRuntimeInspector {
   /// established a websocket connection.
   pub fn wait_for_session(&mut self) {
     loop {
-      // TODO: doesn't account for "local" sessions
+      // TODO: doesn't account for "local" sessions - which might be okay,
+      // because if we're waiting, then there's no way a local
+      // session can be created at this point
       if self.sessions.get_mut().established.is_empty() {
         self.flags.get_mut().waiting_for_session = true;
         let _ = self.poll_sessions(None).unwrap();
@@ -442,6 +445,9 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
+      // TODO: doesn't account for "local" sessions - which might be okay,
+      // because if we're waiting, then there's no way a local
+      // session can be created at this point
       match self.sessions.get_mut().established.iter_mut().next() {
         Some(session) => break session.break_on_next_statement(),
         None => {
@@ -566,23 +572,32 @@ impl SessionContainer {
 
   fn sessions_state(&self) -> SessionsState {
     SessionsState {
-      has_active: !self.established.is_empty() || self.handshake.is_some(),
+      has_active: !self.established.is_empty()
+        || self.handshake.is_some()
+        || !self.local.is_empty(),
       has_blocking: self
         .established
         .iter()
+        .chain(self.local.values())
         .any(|s| matches!(s.kind, InspectorSessionKind::Blocking)),
       has_nonblocking: self
         .established
         .iter()
+        .chain(self.local.values())
         .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking { .. })),
-      has_nonblocking_wait_for_disconnect: self.established.iter().any(|s| {
-        matches!(
-          s.kind,
-          InspectorSessionKind::NonBlocking {
-            wait_for_disconnect: true
-          }
-        )
-      }),
+      has_nonblocking_wait_for_disconnect: self
+        .established
+        .iter()
+        // TODO(bartlomieju): not sure if that's possible in "Local" sessions - check it
+        .chain(self.local.values())
+        .any(|s| {
+          matches!(
+            s.kind,
+            InspectorSessionKind::NonBlocking {
+              wait_for_disconnect: true
+            }
+          )
+        }),
     }
   }
 
