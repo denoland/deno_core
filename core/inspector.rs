@@ -552,6 +552,7 @@ impl SessionContainer {
     // TODO(bartlomieju): wake up the task to pump messages
   }
 
+  // TODO(bartlomieju): this probably shouldn't exist -
   fn pump_message_loops_and_dispatch_messages(&mut self, cx: &mut Context) {
     loop {
       eprintln!("'session loop");
