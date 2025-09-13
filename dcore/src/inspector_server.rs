@@ -96,6 +96,8 @@ impl InspectorServer {
     let mut inspector = inspector_rc.borrow_mut();
     let session_sender = inspector.get_session_sender();
     let deregister_rx = inspector.add_deregister_handler();
+    // TODO(bartlomieju): remove `session_sender` and instead directly use `inspector` to register
+    // a new session. Need to rewrite `JsRuntimeInspector` to be a `Arc<Mutex<>>` instead of `Rc<RefCell<>>`.
     let info = InspectorInfo::new(
       self.host,
       session_sender,

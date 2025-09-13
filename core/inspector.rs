@@ -10,13 +10,10 @@ use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
 use crate::futures::channel::oneshot;
-use crate::futures::future::Either;
-use crate::futures::future::select;
 use crate::futures::prelude::*;
 use crate::futures::stream::SelectAll;
 use crate::futures::stream::StreamExt;
 use crate::futures::task;
-use crate::serde_json::Value;
 use crate::serde_json::json;
 
 use boxed_error::Boxed;
@@ -541,6 +538,8 @@ struct SessionContainer {
   handshake: Option<Box<InspectorSession>>,
   established: SelectAll<Box<InspectorSession>>,
 
+  // TODO(bartlomieju): remove `established` in favor of this field
+  // pump_message_futures: FuturesUnordered<PumpSessionMessagesFuture>,
   next_local_id: i32,
   // TODO(bartlomieju): does this field actually need to be on this struct? Maybe move to `JsRuntimeInspector`?
   // TODO(bartlomieju): `local` makes no sense here - figure out a better name for this field
@@ -557,6 +556,7 @@ impl SessionContainer {
       session_rx: new_session_rx,
       handshake: None,
       established: SelectAll::new(),
+      // pump_message_futures: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
     }
@@ -570,7 +570,17 @@ impl SessionContainer {
     self.v8_inspector = Default::default();
     self.handshake.take();
     self.established.clear();
+    // self.pump_message_futures.clear();
     self.local.clear();
+  }
+
+  pub fn dispatch_message_from_frontend(
+    &mut self,
+    session_id: i32,
+    message: String,
+  ) {
+    let session = self.local.get_mut(&session_id).unwrap();
+    session.dispatch_message(message);
   }
 
   fn sessions_state(&self) -> SessionsState {
@@ -615,6 +625,7 @@ impl SessionContainer {
       session_rx: rx,
       handshake: None,
       established: SelectAll::new(),
+      // pump_message_futures: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
     }
@@ -814,6 +825,24 @@ impl v8::inspector::ChannelImpl for InspectorSession {
   }
 
   fn flush_protocol_notifications(&mut self) {}
+}
+
+#[allow(unused)]
+type PumpSessionMessagesFuture = Pin<Box<dyn Future<Output = ()>>>;
+
+#[allow(unused)]
+async fn pump_messages_for_session(
+  sessions: Rc<RefCell<SessionContainer>>,
+  session_id: i32,
+  mut rx: UnboundedReceiver<String>,
+) {
+  while let Some(msg) = rx.next().await {
+    // TODO(bartlomieju): this is exactly what `LocalSyncInspectorSession`
+    // is doing
+    sessions
+      .borrow_mut()
+      .dispatch_message_from_frontend(session_id, msg);
+  }
 }
 
 // TODO(bartlomieju): remove this one - make it a method instead
