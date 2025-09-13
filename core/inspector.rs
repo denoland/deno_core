@@ -427,13 +427,16 @@ impl JsRuntimeInspector {
       // TODO: doesn't account for "local" sessions - which might be okay,
       // because if we're waiting, then there's no way a local
       // session can be created at this point
-      if self.sessions.get_mut().established.is_empty() {
-        self.flags.get_mut().waiting_for_session = true;
-        let _ = self.poll_sessions(None).unwrap();
-      } else {
-        self.flags.get_mut().waiting_for_session = false;
-        break;
-      }
+      match self.sessions.get_mut().established.iter_mut().next() {
+        Some(_session) => {
+          self.flags.get_mut().waiting_for_session = false;
+          break;
+        }
+        None => {
+          self.flags.get_mut().waiting_for_session = true;
+          let _ = self.poll_sessions(None).unwrap();
+        }
+      };
     }
   }
 
