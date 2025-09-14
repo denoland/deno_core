@@ -428,36 +428,36 @@ async fn pump_websocket_messages(
 ) {
   'pump: loop {
     tokio::select! {
-        Some(msg) = outbound_rx.next() => {
-            let msg = Frame::text(msg.content.into_bytes().into());
-            let _ = websocket.write_frame(msg).await;
-        }
-        Ok(msg) = websocket.read_frame() => {
-            match msg.opcode {
-                OpCode::Text => {
-                    if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
-                      let _ = inbound_tx.unbounded_send(s);
-                      eprintln!("sent a message from WS to inspector");
-                      // Wake up JsRuntime task if it's already not awake
-                      if let Some(s) = session_container.try_lock() {
-                        ArcWake::wake(s.waker.clone());
-                      }
-                    }
-                }
-                OpCode::Close => {
-                    // Users don't care if there was an error coming from debugger,
-                    // just about the fact that debugger did disconnect.
-                    eprintln!("Debugger session ended");
-                    break 'pump;
-                }
-                _ => {
-                    // Ignore other messages.
-                }
+      Some(msg) = outbound_rx.next() => {
+        let msg = Frame::text(msg.content.into_bytes().into());
+        let _ = websocket.write_frame(msg).await;
+      }
+      Ok(msg) = websocket.read_frame() => {
+        match msg.opcode {
+          OpCode::Text => {
+            if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
+              let _ = inbound_tx.unbounded_send(s);
+              eprintln!("sent a message from WS to inspector");
+              // Wake up JsRuntime task if it's already not awake
+              if let Some(s) = session_container.try_lock() {
+                ArcWake::wake(s.waker.clone());
+              }
             }
+          }
+          OpCode::Close => {
+            // Users don't care if there was an error coming from debugger,
+            // just about the fact that debugger did disconnect.
+            eprintln!("Debugger session ended");
+            break 'pump;
+          }
+          _ => {
+              // Ignore other messages.
+          }
         }
-        else => {
-          break 'pump;
-        }
+      }
+      else => {
+        break 'pump;
+      }
     }
   }
 }
