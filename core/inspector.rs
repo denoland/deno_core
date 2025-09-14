@@ -259,7 +259,7 @@ impl JsRuntimeInspector {
     message: String,
   ) {
     let mut sessions = self.sessions.try_lock().unwrap();
-    let session = sessions.local.get_mut(&session_id).unwrap();
+    let session = sessions.sessions.get_mut(&session_id).unwrap();
     session.dispatch_message(message);
   }
 
@@ -391,10 +391,14 @@ impl JsRuntimeInspector {
   /// established a websocket connection.
   pub fn wait_for_session(&mut self) {
     loop {
-      // TODO: doesn't account for "local" sessions - which might be okay,
-      // because if we're waiting, then there's no way a local
-      // session can be created at this point
-      match self.sessions.try_lock().unwrap().local.values_mut().next() {
+      match self
+        .sessions
+        .try_lock()
+        .unwrap()
+        .sessions
+        .values_mut()
+        .next()
+      {
         Some(_session) => {
           self.flags.get_mut().waiting_for_session = false;
           break;
@@ -415,10 +419,14 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
-      // TODO: doesn't account for "local" sessions - which might be okay,
-      // because if we're waiting, then there's no way a local
-      // session can be created at this point
-      match self.sessions.try_lock().unwrap().local.values_mut().next() {
+      match self
+        .sessions
+        .try_lock()
+        .unwrap()
+        .sessions
+        .values_mut()
+        .next()
+      {
         Some(session) => break session.break_on_next_statement(),
         None => {
           self.flags.get_mut().waiting_for_session = true;
@@ -461,7 +469,7 @@ impl JsRuntimeInspector {
         let mut s = self_.sessions.try_lock().unwrap();
         let id = s.next_local_id;
         s.next_local_id += 1;
-        assert!(s.local.insert(id, inspector_session).is_none());
+        assert!(s.sessions.insert(id, inspector_session).is_none());
         id
       };
 
@@ -502,8 +510,7 @@ pub struct SessionContainer {
 
   next_local_id: i32,
   // TODO(bartlomieju): does this field actually need to be on this struct? Maybe move to `JsRuntimeInspector`?
-  // TODO(bartlomieju): `local` makes no sense here - figure out a better name for this field
-  local: HashMap<i32, Box<InspectorSession>>,
+  sessions: HashMap<i32, Box<InspectorSession>>,
 }
 
 impl SessionContainer {
@@ -513,7 +520,7 @@ impl SessionContainer {
       v8_inspector,
       pump_message_loops: SelectAll::new(),
       next_local_id: 1,
-      local: HashMap::new(),
+      sessions: HashMap::new(),
     }
   }
 
@@ -524,7 +531,7 @@ impl SessionContainer {
   fn drop_sessions(&mut self) {
     self.v8_inspector = Default::default();
     self.pump_message_loops.clear();
-    self.local.clear();
+    self.sessions.clear();
   }
 
   pub fn create_new_session(&mut self, session_proxy: InspectorSessionProxy) {
@@ -542,7 +549,7 @@ impl SessionContainer {
     let session_id = {
       let id = self.next_local_id;
       self.next_local_id += 1;
-      assert!(self.local.insert(id, session).is_none());
+      assert!(self.sessions.insert(id, session).is_none());
       id
     };
 
@@ -579,22 +586,22 @@ impl SessionContainer {
     session_id: i32,
     message: String,
   ) {
-    let session = self.local.get_mut(&session_id).unwrap();
+    let session = self.sessions.get_mut(&session_id).unwrap();
     session.dispatch_message(message);
   }
 
   fn sessions_state(&self) -> SessionsState {
     SessionsState {
-      has_active: !self.local.is_empty(),
+      has_active: !self.sessions.is_empty(),
       has_blocking: self
-        .local
+        .sessions
         .values()
         .any(|s| matches!(s.kind, InspectorSessionKind::Blocking)),
       has_nonblocking: self
-        .local
+        .sessions
         .values()
         .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking { .. })),
-      has_nonblocking_wait_for_disconnect: self.local.values().any(|s| {
+      has_nonblocking_wait_for_disconnect: self.sessions.values().any(|s| {
         matches!(
           s.kind,
           InspectorSessionKind::NonBlocking {
@@ -615,7 +622,7 @@ impl SessionContainer {
       v8_inspector: Default::default(),
       pump_message_loops: SelectAll::new(),
       next_local_id: 1,
-      local: HashMap::new(),
+      sessions: HashMap::new(),
     }
   }
 }
