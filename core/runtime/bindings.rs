@@ -527,11 +527,15 @@ fn op_ctx_template_or_accessor<'s>(
         getter.decl.slow_fn
       };
 
-      Some(
-        v8::FunctionTemplate::builder_raw(getter_raw)
-          .data(external.into())
-          .build(scope),
-      )
+      let tmpl = v8::FunctionTemplate::builder_raw(getter_raw)
+        .data(external.into())
+        .build(scope);
+      let op_fn = tmpl.get_function(scope).unwrap();
+      let method_name = format!("get {}", op_ctx.decl.name_fast);
+      let method_name = v8::String::new(scope, method_name.as_str()).unwrap();
+      op_fn.set_name(method_name);
+
+      Some(tmpl)
     } else {
       None
     };
@@ -543,18 +547,23 @@ fn op_ctx_template_or_accessor<'s>(
         setter.decl.slow_fn
       };
 
-      Some(
-        v8::FunctionTemplate::builder_raw(setter_raw)
-          .data(external.into())
-          .build(scope),
-      )
+      let tmpl = v8::FunctionTemplate::builder_raw(setter_raw)
+        .data(external.into())
+        .length(1)
+        .build(scope);
+      let op_fn = tmpl.get_function(scope).unwrap();
+      let method_name = format!("set {}", op_ctx.decl.name_fast);
+      let method_name = v8::String::new(scope, method_name.as_str()).unwrap();
+      op_fn.set_name(method_name);
+
+      Some(tmpl)
     } else {
       None
     };
 
-    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap().into();
+    let key = op_ctx.decl.name_fast.v8_string(scope).unwrap();
     tmpl.set_accessor_property(
-      key,
+      key.into(),
       getter_fn,
       setter_fn,
       v8::PropertyAttribute::default(),
