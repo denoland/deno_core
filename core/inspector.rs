@@ -6,6 +6,7 @@
 
 use crate::error::CoreError;
 use crate::error::CoreErrorKind;
+use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
 use crate::futures::channel::oneshot;
@@ -28,7 +29,6 @@ use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::atomic::AtomicBool;
 use std::task::Context;
 use std::task::Poll;
 use std::thread;
@@ -60,7 +60,7 @@ pub struct InspectorSessionProxy {
   pub options: InspectorSessionOptions,
 }
 
-pub type InspectorSessionCallback = Box<dyn Fn(InspectorMsg)>;
+pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
 
 #[derive(Clone, Copy, Debug)]
 enum PollState {
@@ -70,13 +70,6 @@ enum PollState {
   Parked,
   Dropped,
 }
-
-#[derive(Clone, Default, Debug)]
-struct V8InspectorPtr(
-  pub Arc<Mutex<v8::UniquePtr<v8::inspector::V8Inspector>>>,
-);
-
-unsafe impl Send for V8InspectorPtr {}
 
 /// This structure is used responsible for providing inspector interface
 /// to the `JsRuntime`.
@@ -90,12 +83,13 @@ unsafe impl Send for V8InspectorPtr {}
 /// is used for REPL or coverage collection.
 pub struct JsRuntimeInspector {
   v8_inspector_client: v8::inspector::V8InspectorClientBase,
-  v8_inspector: V8InspectorPtr,
-  pub sessions: Arc<Mutex<SessionContainer>>,
+  v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+  new_session_tx: UnboundedSender<InspectorSessionProxy>,
+  sessions: RefCell<SessionContainer>,
   flags: RefCell<InspectorFlags>,
   waker: Arc<InspectorWaker>,
   deregister_tx: Option<oneshot::Sender<()>>,
-  is_dispatching_message: Arc<AtomicBool>,
+  is_dispatching_message: Rc<RefCell<bool>>,
   isolate_ptr: *mut v8::Isolate,
   context: v8::Global<v8::Context>,
 }
@@ -111,7 +105,7 @@ impl Drop for JsRuntimeInspector {
     // deleted, however InspectorSession also has a drop handler that cleans
     // up after itself. To avoid a double free, make sure the inspector is
     // dropped last.
-    self.sessions.try_lock().unwrap().drop_sessions();
+    self.sessions.borrow_mut().drop_sessions();
 
     // Notify counterparty that this instance is being destroyed. Ignoring
     // result because counterparty waiting for the signal might have already
@@ -188,6 +182,9 @@ impl JsRuntimeInspector {
     context: v8::Local<v8::Context>,
     is_main_runtime: bool,
   ) -> Rc<RefCell<Self>> {
+    let (new_session_tx, new_session_rx) =
+      mpsc::unbounded::<InspectorSessionProxy>();
+
     let v8_inspector_client =
       v8::inspector::V8InspectorClientBase::new::<Self>();
 
@@ -197,7 +194,8 @@ impl JsRuntimeInspector {
     let self__ = Rc::new(RefCell::new(Self {
       v8_inspector_client,
       v8_inspector: Default::default(),
-      sessions: Arc::new(Mutex::new(SessionContainer::temporary_placeholder())),
+      sessions: RefCell::new(SessionContainer::temporary_placeholder()),
+      new_session_tx,
       flags: Default::default(),
       waker,
       deregister_tx: None,
@@ -206,13 +204,13 @@ impl JsRuntimeInspector {
       context: v8::Global::new(scope, context),
     }));
     let mut self_ = self__.borrow_mut();
-    self_.v8_inspector = V8InspectorPtr(Arc::new(Mutex::new(
+    self_.v8_inspector = Rc::new(RefCell::new(
       v8::inspector::V8Inspector::create(scope, &mut *self_).into(),
-    )));
-    self_.sessions = Arc::new(Mutex::new(SessionContainer::new(
-      self_.waker.clone(),
+    ));
+    self_.sessions = RefCell::new(SessionContainer::new(
       self_.v8_inspector.clone(),
-    )));
+      new_session_rx,
+    ));
 
     // Tell the inspector about the main realm.
     let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
@@ -227,9 +225,7 @@ impl JsRuntimeInspector {
     let aux_data_view = v8::inspector::StringView::from(aux_data.as_bytes());
     self_
       .v8_inspector
-      .0
-      .try_lock()
-      .unwrap()
+      .borrow_mut()
       .as_mut()
       .unwrap()
       .context_created(
@@ -248,9 +244,7 @@ impl JsRuntimeInspector {
   }
 
   pub fn is_dispatching_message(&self) -> bool {
-    self
-      .is_dispatching_message
-      .load(std::sync::atomic::Ordering::Acquire)
+    *self.is_dispatching_message.borrow()
   }
 
   pub fn dispatch_message_from_frontend(
@@ -258,8 +252,8 @@ impl JsRuntimeInspector {
     session_id: i32,
     message: String,
   ) {
-    let mut sessions = self.sessions.try_lock().unwrap();
-    let session = sessions.sessions.get_mut(&session_id).unwrap();
+    let mut sessions = self.sessions.borrow_mut();
+    let session = sessions.local.get_mut(&session_id).unwrap();
     session.dispatch_message(message);
   }
 
@@ -271,9 +265,7 @@ impl JsRuntimeInspector {
     let context = v8::Local::new(scope, context);
     self
       .v8_inspector
-      .0
-      .try_lock()
-      .unwrap()
+      .borrow_mut()
       .as_mut()
       .unwrap()
       .context_destroyed(context);
@@ -288,8 +280,7 @@ impl JsRuntimeInspector {
     let context = scope.get_current_context();
     let message = v8::Exception::create_message(scope, exception);
     let stack_trace = message.get_stack_trace(scope);
-
-    let mut v8_inspector_ref = self.v8_inspector.0.try_lock().unwrap();
+    let mut v8_inspector_ref = self.v8_inspector.borrow_mut();
     let v8_inspector = v8_inspector_ref.as_mut().unwrap();
     let stack_trace = v8_inspector.create_stack_trace(stack_trace);
     v8_inspector.exception_thrown(
@@ -310,9 +301,10 @@ impl JsRuntimeInspector {
   }
 
   pub fn sessions_state(&self) -> SessionsState {
-    self.sessions.try_lock().unwrap().sessions_state()
+    self.sessions.borrow().sessions_state()
   }
 
+  #[allow(clippy::result_unit_err)]
   pub fn poll_sessions(
     &self,
     mut invoker_cx: Option<&mut Context>,
@@ -321,7 +313,7 @@ impl JsRuntimeInspector {
     // However it is can happen that poll_sessions() gets re-entered, e.g.
     // when an interrupt request is honored while the inspector future is polled
     // by the task executor. We let the caller know by returning some error.
-    let Some(mut sessions) = self.sessions.try_lock() else {
+    let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
       return Err(());
     };
 
@@ -338,12 +330,53 @@ impl JsRuntimeInspector {
     let cx = &mut Context::from_waker(&waker_ref);
 
     loop {
-      sessions.pump_message_loops_and_dispatch_messages(cx);
+      loop {
+        // Do one "handshake" with a newly connected session at a time.
+        if let Some(mut session) = sessions.handshake.take() {
+          let poll_result = session.poll_next_unpin(cx);
+          match poll_result {
+            Poll::Pending => {
+              sessions.established.push(session);
+              continue;
+            }
+            Poll::Ready(Some(())) => {
+              sessions.established.push(session);
+              continue;
+            }
+            Poll::Ready(None) => {}
+          }
+        }
+
+        // Accept new connections.
+        let poll_result = sessions.session_rx.poll_next_unpin(cx);
+        if let Poll::Ready(Some(session_proxy)) = poll_result {
+          let session = InspectorSession::new(
+            sessions.v8_inspector.clone(),
+            self.is_dispatching_message.clone(),
+            Box::new(move |msg| {
+              let _ = session_proxy.tx.unbounded_send(msg);
+            }),
+            Some(session_proxy.rx),
+            session_proxy.options,
+          );
+          let prev = sessions.handshake.replace(session);
+          assert!(prev.is_none());
+        }
+
+        // Poll established sessions.
+        match sessions.established.poll_next_unpin(cx) {
+          Poll::Ready(Some(())) => {
+            continue;
+          }
+          Poll::Ready(None) => break,
+          Poll::Pending => break,
+        };
+      }
 
       let should_block =
         self.flags.borrow().on_pause || self.flags.borrow().waiting_for_session;
+
       let new_state = self.waker.update(|w| {
-        eprintln!("new state {:?} should block {}", w.poll_state, should_block);
         match w.poll_state {
           PollState::Woken => {
             // The inspector was woken while the session handler was being
@@ -391,14 +424,7 @@ impl JsRuntimeInspector {
   /// established a websocket connection.
   pub fn wait_for_session(&mut self) {
     loop {
-      match self
-        .sessions
-        .try_lock()
-        .unwrap()
-        .sessions
-        .values_mut()
-        .next()
-      {
+      match self.sessions.get_mut().established.iter_mut().next() {
         Some(_session) => {
           self.flags.get_mut().waiting_for_session = false;
           break;
@@ -419,14 +445,7 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
-      match self
-        .sessions
-        .try_lock()
-        .unwrap()
-        .sessions
-        .values_mut()
-        .next()
-      {
+      match self.sessions.get_mut().established.iter_mut().next() {
         Some(session) => break session.break_on_next_statement(),
         None => {
           self.flags.get_mut().waiting_for_session = true;
@@ -434,6 +453,11 @@ impl JsRuntimeInspector {
         }
       };
     }
+  }
+
+  /// Obtain a sender for proxy channels.
+  pub fn get_session_sender(&self) -> UnboundedSender<InspectorSessionProxy> {
+    self.new_session_tx.clone()
   }
 
   /// Create a channel that notifies the frontend when inspector is dropped.
@@ -452,7 +476,7 @@ impl JsRuntimeInspector {
   // TODO(bartlomieju): remove this function once all APIs use `LocalSyncInspectorSession`
   pub fn create_local_sync_session(
     inspector: Rc<RefCell<JsRuntimeInspector>>,
-    callback: InspectorSessionCallback,
+    callback: InspectorSessionSend,
     options: InspectorSessionOptions,
   ) -> LocalSyncInspectorSession {
     let session_id = {
@@ -462,14 +486,15 @@ impl JsRuntimeInspector {
         self_.v8_inspector.clone(),
         self_.is_dispatching_message.clone(),
         callback,
+        None,
         options,
       );
 
       let session_id = {
-        let mut s = self_.sessions.try_lock().unwrap();
+        let mut s = self_.sessions.borrow_mut();
         let id = s.next_local_id;
         s.next_local_id += 1;
-        assert!(s.sessions.insert(id, inspector_session).is_none());
+        assert!(s.local.insert(id, inspector_session).is_none());
         id
       };
 
@@ -503,24 +528,26 @@ pub struct SessionsState {
 /// A helper structure that helps coordinate sessions during different
 /// parts of their lifecycle.
 pub struct SessionContainer {
-  pub waker: Arc<InspectorWaker>,
-  v8_inspector: V8InspectorPtr,
-
-  pump_message_loops: SelectAll<InspectorSessionPumpMessagesLoop>,
-
+  v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+  session_rx: UnboundedReceiver<InspectorSessionProxy>,
+  handshake: Option<Box<InspectorSession>>,
+  established: SelectAll<Box<InspectorSession>>,
   next_local_id: i32,
-  // TODO(bartlomieju): does this field actually need to be on this struct? Maybe move to `JsRuntimeInspector`?
-  sessions: HashMap<i32, Box<InspectorSession>>,
+  local: HashMap<i32, Box<InspectorSession>>,
 }
 
 impl SessionContainer {
-  fn new(waker: Arc<InspectorWaker>, v8_inspector: V8InspectorPtr) -> Self {
+  fn new(
+    v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+    new_session_rx: UnboundedReceiver<InspectorSessionProxy>,
+  ) -> Self {
     Self {
-      waker,
       v8_inspector,
-      pump_message_loops: SelectAll::new(),
+      session_rx: new_session_rx,
+      handshake: None,
+      established: SelectAll::new(),
       next_local_id: 1,
-      sessions: HashMap::new(),
+      local: HashMap::new(),
     }
   }
 
@@ -530,85 +557,38 @@ impl SessionContainer {
   /// all sessions before dropping the inspector instance.
   fn drop_sessions(&mut self) {
     self.v8_inspector = Default::default();
-    self.pump_message_loops.clear();
-    self.sessions.clear();
-  }
-
-  pub fn create_new_session(&mut self, session_proxy: InspectorSessionProxy) {
-    let session = InspectorSession::new(
-      self.v8_inspector.clone(),
-      // FIXME(bartlomieju)
-      // self.is_dispatching_message.clone(),
-      Arc::new(AtomicBool::new(false)),
-      Box::new(move |msg| {
-        let _ = session_proxy.tx.unbounded_send(msg);
-      }),
-      session_proxy.options,
-    );
-
-    let session_id = {
-      let id = self.next_local_id;
-      self.next_local_id += 1;
-      assert!(self.sessions.insert(id, session).is_none());
-      id
-    };
-
-    let pump_messages_loop = InspectorSessionPumpMessagesLoop {
-      session_id,
-      rx: session_proxy.rx,
-    };
-    self.pump_message_loops.push(pump_messages_loop);
-
-    // TODO(bartlomieju): wake up the task to pump messages
-  }
-
-  // TODO(bartlomieju): this probably shouldn't exist -
-  fn pump_message_loops_and_dispatch_messages(&mut self, cx: &mut Context) {
-    loop {
-      eprintln!("'session loop");
-      let poll_result = self.pump_message_loops.poll_next_unpin(cx);
-      eprintln!("pump message loops poll {:#?}", poll_result);
-      // Poll established sessions.
-      match poll_result {
-        Poll::Ready(Some((session_id, message))) => {
-          eprintln!("got a message for session {}", session_id);
-          self.dispatch_message_from_frontend(session_id, message);
-          continue;
-        }
-        Poll::Ready(None) => break,
-        Poll::Pending => break,
-      };
-    }
-  }
-
-  pub fn dispatch_message_from_frontend(
-    &mut self,
-    session_id: i32,
-    message: String,
-  ) {
-    let session = self.sessions.get_mut(&session_id).unwrap();
-    session.dispatch_message(message);
+    self.handshake.take();
+    self.established.clear();
+    self.local.clear();
   }
 
   fn sessions_state(&self) -> SessionsState {
     SessionsState {
-      has_active: !self.sessions.is_empty(),
+      has_active: !self.established.is_empty()
+        || self.handshake.is_some()
+        || !self.local.is_empty(),
       has_blocking: self
-        .sessions
-        .values()
+        .established
+        .iter()
+        .chain(self.local.values())
         .any(|s| matches!(s.kind, InspectorSessionKind::Blocking)),
       has_nonblocking: self
-        .sessions
-        .values()
+        .established
+        .iter()
+        .chain(self.local.values())
         .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking { .. })),
-      has_nonblocking_wait_for_disconnect: self.sessions.values().any(|s| {
-        matches!(
-          s.kind,
-          InspectorSessionKind::NonBlocking {
-            wait_for_disconnect: true
-          }
-        )
-      }),
+      has_nonblocking_wait_for_disconnect: self
+        .established
+        .iter()
+        .chain(self.local.values())
+        .any(|s| {
+          matches!(
+            s.kind,
+            InspectorSessionKind::NonBlocking {
+              wait_for_disconnect: true
+            }
+          )
+        }),
     }
   }
 
@@ -617,12 +597,14 @@ impl SessionContainer {
   /// of `Default` implementation to signal that it's not meant
   /// for actual use.
   fn temporary_placeholder() -> Self {
+    let (_tx, rx) = mpsc::unbounded::<InspectorSessionProxy>();
     Self {
-      waker: InspectorWaker::temporary_placeholder(),
       v8_inspector: Default::default(),
-      pump_message_loops: SelectAll::new(),
+      session_rx: rx,
+      handshake: None,
+      established: SelectAll::new(),
       next_local_id: 1,
-      sessions: HashMap::new(),
+      local: HashMap::new(),
     }
   }
 }
@@ -632,13 +614,13 @@ struct InspectorWakerInner {
   task_waker: Option<task::Waker>,
   parked_thread: Option<thread::Thread>,
   inspector_ptr: Option<NonNull<JsRuntimeInspector>>,
-  isolate_handle: Option<v8::IsolateHandle>,
+  isolate_handle: v8::IsolateHandle,
 }
 
 // SAFETY: unsafe trait must have unsafe implementation
 unsafe impl Send for InspectorWakerInner {}
 
-pub struct InspectorWaker(Mutex<InspectorWakerInner>);
+struct InspectorWaker(Mutex<InspectorWakerInner>);
 
 impl InspectorWaker {
   fn new(isolate_handle: v8::IsolateHandle) -> Arc<Self> {
@@ -647,18 +629,7 @@ impl InspectorWaker {
       task_waker: None,
       parked_thread: None,
       inspector_ptr: None,
-      isolate_handle: Some(isolate_handle),
-    };
-    Arc::new(Self(Mutex::new(inner)))
-  }
-
-  fn temporary_placeholder() -> Arc<Self> {
-    let inner = InspectorWakerInner {
-      poll_state: PollState::Idle,
-      task_waker: None,
-      parked_thread: None,
-      inspector_ptr: None,
-      isolate_handle: None,
+      isolate_handle,
     };
     Arc::new(Self(Mutex::new(inner)))
   }
@@ -688,10 +659,7 @@ impl task::ArcWake for InspectorWaker {
             .take()
             .map(|ptr| ptr.as_ptr() as *mut c_void)
           {
-            w.isolate_handle
-              .as_ref()
-              .unwrap()
-              .request_interrupt(handle_interrupt, arg);
+            w.isolate_handle.request_interrupt(handle_interrupt, arg);
           }
           extern "C" fn handle_interrupt(
             _isolate: &mut v8::Isolate,
@@ -725,31 +693,29 @@ pub enum InspectorSessionKind {
 /// An inspector session that proxies messages to concrete "transport layer",
 /// eg. Websocket or another set of channels.
 struct InspectorSession {
-  // TODO(bartlomieju): this field should be most likely removed
-  is_dispatching_message: Arc<AtomicBool>,
+  is_dispatching_message: Rc<RefCell<bool>>,
   v8_channel: v8::inspector::ChannelBase,
   v8_session: v8::UniqueRef<v8::inspector::V8InspectorSession>,
-  callback: InspectorSessionCallback,
+  send: InspectorSessionSend,
+  rx: Option<SessionProxyReceiver>,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
 }
 
-unsafe impl Send for InspectorSession {}
-
 impl InspectorSession {
   const CONTEXT_GROUP_ID: i32 = 1;
 
   pub fn new(
-    v8_inspector_ptr: V8InspectorPtr,
-    is_dispatching_message: Arc<AtomicBool>,
-    callback: InspectorSessionCallback,
+    v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+    is_dispatching_message: Rc<RefCell<bool>>,
+    send: InspectorSessionSend,
+    rx: Option<SessionProxyReceiver>,
     options: InspectorSessionOptions,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
       let v8_channel = v8::inspector::ChannelBase::new::<Self>();
-      // TODO(bartlomieju): could be abstracted away to `V8InspectorPtr::get_mut_ref()`
-      let mut v8_inspector = v8_inspector_ptr.0.try_lock().unwrap();
+      let mut v8_inspector = v8_inspector_rc.borrow_mut();
       let v8_inspector_ptr = v8_inspector.as_mut().unwrap();
       // TODO(piscisaureus): safety comment
       #[allow(clippy::undocumented_unsafe_blocks)]
@@ -766,7 +732,8 @@ impl InspectorSession {
         is_dispatching_message,
         v8_channel,
         v8_session,
-        callback,
+        send,
+        rx,
         kind: options.kind,
       }
     })
@@ -774,14 +741,10 @@ impl InspectorSession {
 
   // Dispatch message to V8 session
   fn dispatch_message(&mut self, msg: String) {
-    self
-      .is_dispatching_message
-      .store(true, std::sync::atomic::Ordering::SeqCst);
+    *self.is_dispatching_message.borrow_mut() = true;
     let msg = v8::inspector::StringView::from(msg.as_bytes());
     self.v8_session.dispatch_protocol_message(msg);
-    self
-      .is_dispatching_message
-      .store(false, std::sync::atomic::Ordering::SeqCst);
+    *self.is_dispatching_message.borrow_mut() = false;
   }
 
   fn send_message(
@@ -790,7 +753,7 @@ impl InspectorSession {
     msg: v8::UniquePtr<v8::inspector::StringBuffer>,
   ) {
     let msg = msg.unwrap().string().to_string();
-    (self.callback)(InspectorMsg {
+    (self.send)(InspectorMsg {
       kind: msg_kind,
       content: msg,
     });
@@ -840,50 +803,24 @@ impl v8::inspector::ChannelImpl for InspectorSession {
   fn flush_protocol_notifications(&mut self) {}
 }
 
-#[allow(unused)]
-type PumpSessionMessagesFuture = Pin<Box<dyn Future<Output = ()>>>;
-
-#[allow(unused)]
-async fn pump_messages_for_session(
-  sessions: Rc<RefCell<SessionContainer>>,
-  session_id: i32,
-  mut rx: UnboundedReceiver<String>,
-) {
-  while let Some(msg) = rx.next().await {
-    // TODO(bartlomieju): this is exactly what `LocalSyncInspectorSession`
-    // is doing
-    sessions
-      .borrow_mut()
-      .dispatch_message_from_frontend(session_id, msg);
-  }
-}
-
-struct InspectorSessionPumpMessagesLoop {
-  session_id: i32,
-  rx: SessionProxyReceiver,
-}
-
-// TODO(bartlomieju): remove this one - make it a method instead
-impl Stream for InspectorSessionPumpMessagesLoop {
-  // (session_id, message)
-  type Item = (i32, String);
+impl Stream for InspectorSession {
+  type Item = ();
 
   fn poll_next(
     self: Pin<&mut Self>,
     cx: &mut Context,
   ) -> Poll<Option<Self::Item>> {
     let inner = self.get_mut();
-    if let Poll::Ready(maybe_msg) = inner.rx.poll_next_unpin(cx) {
+    let rx = inner.rx.as_mut().unwrap();
+    if let Poll::Ready(maybe_msg) = rx.poll_next_unpin(cx) {
       if let Some(msg) = maybe_msg {
-        eprintln!("InspectorSessionPumpMessagesLoop::poll ready");
-        return Poll::Ready(Some((inner.session_id, msg)));
+        inner.dispatch_message(msg);
+        return Poll::Ready(Some(()));
       } else {
-        eprintln!("InspectorSessionPumpMessagesLoop::poll none");
         return Poll::Ready(None);
       }
     }
 
-    eprintln!("InspectorSessionPumpMessagesLoop::poll");
     Poll::Pending
   }
 }

@@ -7,7 +7,6 @@ use deno_core::InspectorSessionKind;
 use deno_core::InspectorSessionOptions;
 use deno_core::InspectorSessionProxy;
 use deno_core::JsRuntime;
-use deno_core::SessionContainer;
 use deno_core::anyhow::Context;
 use deno_core::futures::channel::mpsc;
 use deno_core::futures::channel::mpsc::UnboundedReceiver;
@@ -16,8 +15,6 @@ use deno_core::futures::channel::oneshot;
 use deno_core::futures::prelude::*;
 use deno_core::futures::select;
 use deno_core::futures::stream::StreamExt;
-use deno_core::futures::task::ArcWake;
-use deno_core::parking_lot::Mutex;
 use deno_core::serde_json::Value;
 use deno_core::serde_json::json;
 use deno_core::unsync::spawn;
@@ -33,7 +30,6 @@ use std::net::SocketAddr;
 use std::pin::pin;
 use std::process;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::task::Poll;
 use std::thread;
 use tokio::net::TcpListener;
@@ -98,14 +94,12 @@ impl InspectorServer {
   ) {
     let inspector_rc = js_runtime.inspector();
     let mut inspector = inspector_rc.borrow_mut();
+    let session_sender = inspector.get_session_sender();
     let deregister_rx = inspector.add_deregister_handler();
-    let session_container = inspector.sessions.clone();
 
-    // TODO(bartlomieju): remove `session_sender` and instead directly use `inspector` to register
-    // a new session. Need to rewrite `JsRuntimeInspector` to be a `Arc<Mutex<>>` instead of `Rc<RefCell<>>`.
     let info = InspectorInfo::new(
       self.host,
-      session_container,
+      session_sender,
       deregister_rx,
       module_url,
       wait_for_session,
@@ -148,7 +142,7 @@ fn handle_ws_request(
   }
 
   // run in a block to not hold borrow to `inspector_map` for too long
-  let session_container = {
+  let new_session_tx = {
     let inspector_map = inspector_map_rc.borrow();
     let maybe_inspector_info = inspector_map.get(&maybe_uuid.unwrap());
 
@@ -159,7 +153,7 @@ fn handle_ws_request(
     }
 
     let info = maybe_inspector_info.unwrap();
-    info.session_container.clone()
+    info.new_session_tx.clone()
   };
   let (parts, _) = req.into_parts();
   let mut req = http::Request::from_parts(parts, body);
@@ -212,17 +206,8 @@ fn handle_ws_request(
     };
 
     eprintln!("Debugger session started.");
-    {
-      let mut s = session_container.try_lock().unwrap();
-      s.create_new_session(inspector_session_proxy);
-    }
-    pump_websocket_messages(
-      websocket,
-      session_container,
-      inbound_tx,
-      outbound_rx,
-    )
-    .await;
+    let _ = new_session_tx.unbounded_send(inspector_session_proxy);
+    pump_websocket_messages(websocket, inbound_tx, outbound_rx).await;
   });
 
   Ok(resp)
@@ -422,7 +407,6 @@ async fn server(
 /// task yielding.
 async fn pump_websocket_messages(
   mut websocket: WebSocket<TokioIo<hyper::upgrade::Upgraded>>,
-  session_container: Arc<Mutex<SessionContainer>>,
   inbound_tx: UnboundedSender<String>,
   mut outbound_rx: UnboundedReceiver<InspectorMsg>,
 ) {
@@ -437,11 +421,6 @@ async fn pump_websocket_messages(
           OpCode::Text => {
             if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
               let _ = inbound_tx.unbounded_send(s);
-              eprintln!("sent a message from WS to inspector");
-              // Wake up JsRuntime task if it's already not awake
-              if let Some(s) = session_container.try_lock() {
-                ArcWake::wake(s.waker.clone());
-              }
             }
           }
           OpCode::Close => {
@@ -468,7 +447,7 @@ pub struct InspectorInfo {
   pub host: SocketAddr,
   pub uuid: Uuid,
   pub thread_name: Option<String>,
-  pub session_container: Arc<Mutex<SessionContainer>>,
+  pub new_session_tx: UnboundedSender<InspectorSessionProxy>,
   pub deregister_rx: oneshot::Receiver<()>,
   pub url: String,
   pub wait_for_session: bool,
@@ -477,7 +456,7 @@ pub struct InspectorInfo {
 impl InspectorInfo {
   pub fn new(
     host: SocketAddr,
-    session_container: Arc<Mutex<SessionContainer>>,
+    new_session_tx: mpsc::UnboundedSender<InspectorSessionProxy>,
     deregister_rx: oneshot::Receiver<()>,
     url: String,
     wait_for_session: bool,
@@ -486,7 +465,7 @@ impl InspectorInfo {
       host,
       uuid: Uuid::new_v4(),
       thread_name: thread::current().name().map(|n| n.to_owned()),
-      session_container,
+      new_session_tx,
       deregister_rx,
       url,
       wait_for_session,
