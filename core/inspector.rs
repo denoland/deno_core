@@ -313,6 +313,7 @@ impl JsRuntimeInspector {
     self.sessions.try_lock().unwrap().sessions_state()
   }
 
+  #[allow(clippy::result_unit_err)]
   pub fn poll_sessions(
     &self,
     mut invoker_cx: Option<&mut Context>,
@@ -450,11 +451,11 @@ impl JsRuntimeInspector {
   }
 
   // TODO(bartlomieju): remove this function once all APIs use `LocalSyncInspectorSession`
-  pub fn create_local_sync_session(
+  pub fn create_local_session(
     inspector: Rc<RefCell<JsRuntimeInspector>>,
     callback: InspectorSessionCallback,
     options: InspectorSessionOptions,
-  ) -> LocalSyncInspectorSession {
+  ) -> LocalInspectorSession {
     let session_id = {
       let self_ = inspector.borrow_mut();
 
@@ -477,7 +478,7 @@ impl JsRuntimeInspector {
       session_id
     };
 
-    LocalSyncInspectorSession::new(session_id, inspector)
+    LocalInspectorSession::new(session_id, inspector)
   }
 }
 
@@ -920,12 +921,12 @@ impl InspectorPostMessageError {
 /// the same thread as an isolate.
 ///
 /// Does not provide any abstraction over CDP messages.
-pub struct LocalSyncInspectorSession {
+pub struct LocalInspectorSession {
   inspector: Rc<RefCell<JsRuntimeInspector>>,
   session_id: i32,
 }
 
-impl LocalSyncInspectorSession {
+impl LocalInspectorSession {
   pub fn new(
     session_id: i32,
     inspector: Rc<RefCell<JsRuntimeInspector>>,
