@@ -305,10 +305,9 @@ impl JsRuntimeInspector {
     // However it is can happen that poll_sessions() gets re-entered, e.g.
     // when an interrupt request is honored while the inspector future is polled
     // by the task executor. We let the caller know by returning some error.
-    let mut sessions = self.sessions.borrow_mut();
-    // let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
-    //   return Err(());
-    // };
+    let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
+      return Err(());
+    };
 
     self.waker.update(|w| {
       match w.poll_state {
