@@ -146,9 +146,11 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_required_check = if generator_state.needs_args && config.required > 0
+  let with_required_check = if generator_state.needs_args
+    && let Some(required) = config.required
+    && required > 0
   {
-    with_required_check(generator_state, config.required)
+    with_required_check(generator_state, required)
   } else {
     quote!()
   };

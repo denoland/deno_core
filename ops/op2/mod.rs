@@ -280,7 +280,11 @@ pub(crate) fn generate_op2(
       }
     };
 
-  let arg_count: usize = args.len() + is_async as usize;
+  let arg_count: usize = if let Some(required) = config.required {
+    required as usize
+  } else {
+    args.len() + is_async as usize
+  };
   let vis = func.vis;
   let generic = signature
     .generic_bounds
