@@ -10,19 +10,15 @@ use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
 use crate::futures::channel::oneshot;
-use crate::futures::future::Either;
-use crate::futures::future::select;
 use crate::futures::prelude::*;
 use crate::futures::stream::SelectAll;
 use crate::futures::stream::StreamExt;
 use crate::futures::task;
-use crate::serde_json::Value;
 use crate::serde_json::json;
 
 use boxed_error::Boxed;
 use deno_error::JsErrorBox;
 use parking_lot::Mutex;
-use std::cell::BorrowMutError;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -39,17 +35,21 @@ use std::thread;
 use thiserror::Error;
 use v8::HandleScope;
 
+#[derive(Debug)]
 pub enum InspectorMsgKind {
   Notification,
   Message(i32),
 }
 
+#[derive(Debug)]
 pub struct InspectorMsg {
   pub kind: InspectorMsgKind,
   pub content: String,
 }
 
+// TODO(bartlomieju): remove this
 pub type SessionProxySender = UnboundedSender<InspectorMsg>;
+// TODO(bartlomieju): remove this
 pub type SessionProxyReceiver = UnboundedReceiver<String>;
 
 /// Encapsulates an UnboundedSender/UnboundedReceiver pair that together form
@@ -60,9 +60,9 @@ pub struct InspectorSessionProxy {
   pub options: InspectorSessionOptions,
 }
 
-type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
+pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum PollState {
   Idle,
   Woken,
@@ -247,6 +247,16 @@ impl JsRuntimeInspector {
     *self.is_dispatching_message.borrow()
   }
 
+  pub fn dispatch_message_from_frontend(
+    &self,
+    session_id: i32,
+    message: String,
+  ) {
+    let mut sessions = self.sessions.borrow_mut();
+    let session = sessions.local.get_mut(&session_id).unwrap();
+    session.dispatch_message(message);
+  }
+
   pub fn context_destroyed(
     &mut self,
     scope: &mut HandleScope,
@@ -294,15 +304,18 @@ impl JsRuntimeInspector {
     self.sessions.borrow().sessions_state()
   }
 
+  #[allow(clippy::result_unit_err)]
   pub fn poll_sessions(
     &self,
     mut invoker_cx: Option<&mut Context>,
-  ) -> Result<Poll<()>, BorrowMutError> {
+  ) -> Result<Poll<()>, ()> {
     // The futures this function uses do not have re-entrant poll() functions.
     // However it is can happen that poll_sessions() gets re-entered, e.g.
     // when an interrupt request is honored while the inspector future is polled
     // by the task executor. We let the caller know by returning some error.
-    let mut sessions = self.sessions.try_borrow_mut()?;
+    let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
+      return Err(());
+    };
 
     self.waker.update(|w| {
       match w.poll_state {
@@ -343,7 +356,7 @@ impl JsRuntimeInspector {
             Box::new(move |msg| {
               let _ = session_proxy.tx.unbounded_send(msg);
             }),
-            session_proxy.rx,
+            Some(session_proxy.rx),
             session_proxy.options,
           );
           let prev = sessions.handshake.replace(session);
@@ -397,12 +410,14 @@ impl JsRuntimeInspector {
         w.poll_state
       });
       match new_state {
-        PollState::Idle => break Ok(Poll::Pending), // Yield to task.
-        PollState::Polling => {} // Poll the session handler again.
+        PollState::Idle => break,            // Yield to task.
+        PollState::Polling => continue,      // Poll the session handler again.
         PollState::Parked => thread::park(), // Park the thread.
         _ => unreachable!(),
       };
     }
+
+    Ok(Poll::Pending)
   }
 
   /// This function blocks the thread until at least one inspector client has
@@ -458,50 +473,35 @@ impl JsRuntimeInspector {
     rx
   }
 
-  pub fn create_raw_session(
-    &self,
-    options: InspectorSessionOptions,
-    send: InspectorSessionSend,
-  ) -> UnboundedSender<String> {
-    // The 'inbound' channel carries messages received from the session.
-    let (inbound_tx, inbound_rx) = mpsc::unbounded();
-
-    // InspectorSessions for a local session is added directly to the "established"
-    // sessions, so it doesn't need to go through the session sender.
-    let inspector_session = InspectorSession::new(
-      self.v8_inspector.clone(),
-      self.is_dispatching_message.clone(),
-      send,
-      inbound_rx,
-      options,
-    );
-
-    self
-      .sessions
-      .borrow_mut()
-      .established
-      .push(inspector_session);
-    take(&mut self.flags.borrow_mut().waiting_for_session);
-
-    inbound_tx
-  }
-
-  /// Create a local inspector session that can be used on
-  /// the same thread as the isolate.
   pub fn create_local_session(
-    &self,
+    inspector: Rc<RefCell<JsRuntimeInspector>>,
+    callback: InspectorSessionSend,
     options: InspectorSessionOptions,
   ) -> LocalInspectorSession {
-    // The 'outbound' channel carries messages sent to the session.
-    let (outbound_tx, outbound_rx) = mpsc::unbounded();
+    let session_id = {
+      let self_ = inspector.borrow_mut();
 
-    let receive = Box::new(move |msg| {
-      let _ = outbound_tx.unbounded_send(msg);
-    });
+      let inspector_session = InspectorSession::new(
+        self_.v8_inspector.clone(),
+        self_.is_dispatching_message.clone(),
+        callback,
+        None,
+        options,
+      );
 
-    let inbound_tx = self.create_raw_session(options, receive);
+      let session_id = {
+        let mut s = self_.sessions.borrow_mut();
+        let id = s.next_local_id;
+        s.next_local_id += 1;
+        assert!(s.local.insert(id, inspector_session).is_none());
+        id
+      };
 
-    LocalInspectorSession::new(inbound_tx, outbound_rx)
+      take(&mut self_.flags.borrow_mut().waiting_for_session);
+      session_id
+    };
+
+    LocalInspectorSession::new(session_id, inspector)
   }
 }
 
@@ -526,11 +526,13 @@ pub struct SessionsState {
 
 /// A helper structure that helps coordinate sessions during different
 /// parts of their lifecycle.
-struct SessionContainer {
+pub struct SessionContainer {
   v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
   handshake: Option<Box<InspectorSession>>,
   established: SelectAll<Box<InspectorSession>>,
+  next_local_id: i32,
+  local: HashMap<i32, Box<InspectorSession>>,
 }
 
 impl SessionContainer {
@@ -543,6 +545,8 @@ impl SessionContainer {
       session_rx: new_session_rx,
       handshake: None,
       established: SelectAll::new(),
+      next_local_id: 1,
+      local: HashMap::new(),
     }
   }
 
@@ -554,27 +558,36 @@ impl SessionContainer {
     self.v8_inspector = Default::default();
     self.handshake.take();
     self.established.clear();
+    self.local.clear();
   }
 
   fn sessions_state(&self) -> SessionsState {
     SessionsState {
-      has_active: !self.established.is_empty() || self.handshake.is_some(),
+      has_active: !self.established.is_empty()
+        || self.handshake.is_some()
+        || !self.local.is_empty(),
       has_blocking: self
         .established
         .iter()
+        .chain(self.local.values())
         .any(|s| matches!(s.kind, InspectorSessionKind::Blocking)),
       has_nonblocking: self
         .established
         .iter()
+        .chain(self.local.values())
         .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking { .. })),
-      has_nonblocking_wait_for_disconnect: self.established.iter().any(|s| {
-        matches!(
-          s.kind,
-          InspectorSessionKind::NonBlocking {
-            wait_for_disconnect: true
-          }
-        )
-      }),
+      has_nonblocking_wait_for_disconnect: self
+        .established
+        .iter()
+        .chain(self.local.values())
+        .any(|s| {
+          matches!(
+            s.kind,
+            InspectorSessionKind::NonBlocking {
+              wait_for_disconnect: true
+            }
+          )
+        }),
     }
   }
 
@@ -589,6 +602,8 @@ impl SessionContainer {
       session_rx: rx,
       handshake: None,
       established: SelectAll::new(),
+      next_local_id: 1,
+      local: HashMap::new(),
     }
   }
 }
@@ -681,7 +696,7 @@ struct InspectorSession {
   v8_channel: v8::inspector::ChannelBase,
   v8_session: v8::UniqueRef<v8::inspector::V8InspectorSession>,
   send: InspectorSessionSend,
-  rx: SessionProxyReceiver,
+  rx: Option<SessionProxyReceiver>,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
@@ -694,7 +709,7 @@ impl InspectorSession {
     v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
     is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
-    rx: SessionProxyReceiver,
+    rx: Option<SessionProxyReceiver>,
     options: InspectorSessionOptions,
   ) -> Box<Self> {
     new_box_with(move |self_ptr| {
@@ -795,7 +810,8 @@ impl Stream for InspectorSession {
     cx: &mut Context,
   ) -> Poll<Option<Self::Item>> {
     let inner = self.get_mut();
-    if let Poll::Ready(maybe_msg) = inner.rx.poll_next_unpin(cx) {
+    let rx = inner.rx.as_mut().unwrap();
+    if let Poll::Ready(maybe_msg) = rx.poll_next_unpin(cx) {
       if let Some(msg) = maybe_msg {
         inner.dispatch_message(msg);
         return Poll::Ready(Some(()));
@@ -838,51 +854,37 @@ impl InspectorPostMessageError {
 
 /// A local inspector session that can be used to send and receive protocol messages directly on
 /// the same thread as an isolate.
+///
+/// Does not provide any abstraction over CDP messages.
 pub struct LocalInspectorSession {
-  v8_session_tx: UnboundedSender<String>,
-  v8_session_rx: UnboundedReceiver<InspectorMsg>,
-  response_tx_map: HashMap<i32, oneshot::Sender<serde_json::Value>>,
-  next_message_id: i32,
-  notification_tx: UnboundedSender<Value>,
-  notification_rx: Option<UnboundedReceiver<Value>>,
+  inspector: Rc<RefCell<JsRuntimeInspector>>,
+  session_id: i32,
 }
 
 impl LocalInspectorSession {
   pub fn new(
-    v8_session_tx: UnboundedSender<String>,
-    v8_session_rx: UnboundedReceiver<InspectorMsg>,
+    session_id: i32,
+    inspector: Rc<RefCell<JsRuntimeInspector>>,
   ) -> Self {
-    let response_tx_map = HashMap::new();
-    let next_message_id = 0;
-
-    let (notification_tx, notification_rx) = mpsc::unbounded::<Value>();
-
     Self {
-      v8_session_tx,
-      v8_session_rx,
-      response_tx_map,
-      next_message_id,
-      notification_tx,
-      notification_rx: Some(notification_rx),
+      inspector,
+      session_id,
     }
   }
 
-  pub fn take_notification_rx(&mut self) -> UnboundedReceiver<Value> {
-    self.notification_rx.take().unwrap()
+  pub fn dispatch(&mut self, msg: String) {
+    self
+      .inspector
+      .borrow_mut()
+      .dispatch_message_from_frontend(self.session_id, msg);
   }
 
-  pub async fn post_message<T: serde::Serialize>(
+  pub fn post_message<T: serde::Serialize>(
     &mut self,
+    id: i32,
     method: &str,
     params: Option<T>,
-  ) -> Result<serde_json::Value, InspectorPostMessageError> {
-    let id = self.next_message_id;
-    self.next_message_id += 1;
-
-    let (response_tx, mut response_rx) =
-      oneshot::channel::<serde_json::Value>();
-    self.response_tx_map.insert(id, response_tx);
-
+  ) {
     let message = json!({
         "id": id,
         "method": method,
@@ -890,69 +892,7 @@ impl LocalInspectorSession {
     });
 
     let stringified_msg = serde_json::to_string(&message).unwrap();
-    self.v8_session_tx.unbounded_send(stringified_msg).unwrap();
-
-    loop {
-      let receive_fut = self.receive_from_v8_session().boxed_local();
-      match select(receive_fut, &mut response_rx).await {
-        Either::Left(_) => continue,
-        Either::Right((result, _)) => {
-          let response =
-            result.map_err(InspectorPostMessageErrorKind::FutureCanceled)?;
-          if let Some(error) = response.get("error") {
-            return Err(
-              InspectorPostMessageErrorKind::JsBox(JsErrorBox::generic(
-                error.to_string(),
-              ))
-              .into_box(),
-            );
-          }
-
-          let result = response.get("result").unwrap().clone();
-          return Ok(result);
-        }
-      }
-    }
-  }
-
-  pub async fn receive_from_v8_session(&mut self) {
-    let inspector_msg = self.v8_session_rx.next().await.unwrap();
-    if let InspectorMsgKind::Message(msg_id) = inspector_msg.kind {
-      let message: serde_json::Value =
-        match serde_json::from_str(&inspector_msg.content) {
-          Ok(v) => v,
-          Err(error) => match error.classify() {
-            serde_json::error::Category::Syntax => json!({
-              "id": msg_id,
-              "result": {
-                "result": {
-                  "type": "error",
-                  "description": "Unterminated string literal",
-                  "value": "Unterminated string literal",
-                },
-                "exceptionDetails": {
-                  "exceptionId": 0,
-                  "text": "Unterminated string literal",
-                  "lineNumber": 0,
-                  "columnNumber": 0
-                },
-              },
-            }),
-            _ => panic!("Could not parse inspector message"),
-          },
-        };
-
-      self
-        .response_tx_map
-        .remove(&msg_id)
-        .unwrap()
-        .send(message)
-        .unwrap();
-    } else {
-      let message = serde_json::from_str(&inspector_msg.content).unwrap();
-      // Ignore if the receiver has been dropped.
-      let _ = self.notification_tx.unbounded_send(message);
-    }
+    self.dispatch(stringified_msg);
   }
 }
 
