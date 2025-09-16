@@ -480,6 +480,7 @@ fn local_inspector_evaluate(
       let _ = tx.send(value["result"].clone());
     }
   });
+
   let mut local_inspector_session = JsRuntimeInspector::create_local_session(
     inspector,
     callback,
