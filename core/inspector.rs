@@ -305,9 +305,10 @@ impl JsRuntimeInspector {
     // However it is can happen that poll_sessions() gets re-entered, e.g.
     // when an interrupt request is honored while the inspector future is polled
     // by the task executor. We let the caller know by returning some error.
-    let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
-      return Err(());
-    };
+    let mut sessions = self.sessions.borrow_mut();
+    // let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
+    //   return Err(());
+    // };
 
     self.waker.update(|w| {
       match w.poll_state {
@@ -416,16 +417,15 @@ impl JsRuntimeInspector {
   /// established a websocket connection.
   pub fn wait_for_session(&mut self) {
     loop {
-      match self.sessions.borrow_mut().established.iter_mut().next() {
-        Some(_session) => {
-          self.flags.get_mut().waiting_for_session = false;
-          break;
-        }
-        None => {
-          self.flags.get_mut().waiting_for_session = true;
-          let _ = self.poll_sessions(None).unwrap();
-        }
-      };
+      if let Some(_session) =
+        self.sessions.borrow_mut().established.iter_mut().next()
+      {
+        self.flags.get_mut().waiting_for_session = false;
+        break;
+      } else {
+        self.flags.get_mut().waiting_for_session = true;
+        let _ = self.poll_sessions(None).unwrap();
+      }
     }
   }
 
@@ -437,13 +437,14 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
-      match self.sessions.borrow_mut().established.iter_mut().next() {
-        Some(session) => break session.break_on_next_statement(),
-        None => {
-          self.flags.get_mut().waiting_for_session = true;
-          let _ = self.poll_sessions(None).unwrap();
-        }
-      };
+      if let Some(session) =
+        self.sessions.borrow_mut().established.iter_mut().next()
+      {
+        break session.break_on_next_statement();
+      } else {
+        self.flags.get_mut().waiting_for_session = true;
+        let _ = self.poll_sessions(None).unwrap();
+      }
     }
   }
 
