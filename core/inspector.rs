@@ -435,13 +435,8 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
-      if let Some(session) = self
-        .state
-        .sessions
-        .borrow_mut()
-        .established
-        .iter_mut()
-        .next()
+      if let Some(session) =
+        self.state.sessions.borrow_mut().established.iter().next()
       {
         break session.break_on_next_statement();
       } else {
@@ -525,10 +520,10 @@ pub struct SessionsState {
 pub struct SessionContainer {
   v8_inspector: Option<Rc<v8::inspector::V8Inspector>>,
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
-  handshake: Option<Box<InspectorSession>>,
-  established: SelectAll<Box<InspectorSession>>,
+  handshake: Option<Rc<InspectorSession>>,
+  established: SelectAll<Rc<InspectorSession>>,
   next_local_id: i32,
-  local: HashMap<i32, Box<InspectorSession>>,
+  local: HashMap<i32, Rc<InspectorSession>>,
 }
 
 impl SessionContainer {
@@ -609,7 +604,7 @@ impl SessionContainer {
     session_id: i32,
     message: String,
   ) {
-    let session = self.local.get_mut(&session_id).unwrap();
+    let session = self.local.get(&session_id).unwrap();
     session.dispatch_message(message);
   }
 }
@@ -751,14 +746,14 @@ impl InspectorSession {
   }
 
   // Dispatch message to V8 session
-  fn dispatch_message(&mut self, msg: String) {
+  fn dispatch_message(&self, msg: String) {
     *self.state.borrow().is_dispatching_message.borrow_mut() = true;
     let msg = v8::inspector::StringView::from(msg.as_bytes());
     self.v8_session.dispatch_protocol_message(msg);
     *self.state.borrow().is_dispatching_message.borrow_mut() = false;
   }
 
-  pub fn break_on_next_statement(&mut self) {
+  pub fn break_on_next_statement(&self) {
     let reason = v8::inspector::StringView::from(&b"debugCommand"[..]);
     let detail = v8::inspector::StringView::empty();
     self
