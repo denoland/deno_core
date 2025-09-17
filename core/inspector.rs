@@ -266,7 +266,7 @@ impl JsRuntimeInspectorState {
             }
             // Register the address of the inspector, which allows the waker
             // to request an interrupt from the isolate.
-            w.inspector_ptr = NonNull::new(self as *const _ as *mut Self);
+            w.inspector_state_ptr = NonNull::new(self as *const _ as *mut Self);
           }
           PollState::Polling if should_block => {
             // Isolate execution has been paused but there are no more
@@ -328,14 +328,6 @@ impl JsRuntimeInspector {
     *state.sessions.borrow_mut() =
       SessionContainer::new(v8_inspector.clone(), new_session_rx);
 
-    // Create JsRuntimeInspector instance.
-    let self_ = Rc::new(Self {
-      v8_inspector,
-      state,
-      new_session_tx,
-      deregister_tx: RefCell::new(None),
-    });
-
     // Tell the inspector about the main realm.
     let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
     // NOTE(bartlomieju): this is what Node.js does and it turns out some
@@ -347,7 +339,7 @@ impl JsRuntimeInspector {
       r#"{"isDefault": false}"#
     };
     let aux_data_view = v8::inspector::StringView::from(aux_data.as_bytes());
-    self_.v8_inspector.context_created(
+    v8_inspector.context_created(
       context,
       Self::CONTEXT_GROUP_ID,
       context_name,
@@ -356,9 +348,14 @@ impl JsRuntimeInspector {
 
     // Poll the session handler so we will get notified whenever there is
     // new incoming debugger activity.
-    let _ = self_.poll_sessions(None).unwrap();
+    let _ = state.poll_sessions(None).unwrap();
 
-    self_
+    Rc::new(Self {
+      v8_inspector,
+      state,
+      new_session_tx,
+      deregister_tx: RefCell::new(None),
+    })
   }
 
   pub fn is_dispatching_message(&self) -> bool {
@@ -405,13 +402,8 @@ impl JsRuntimeInspector {
     self.state.sessions.borrow().sessions_state()
   }
 
-  // TODO: remove
-  #[allow(clippy::result_unit_err)]
-  pub fn poll_sessions(
-    &self,
-    mut invoker_cx: Option<&mut Context>,
-  ) -> Result<Poll<()>, ()> {
-    self.state.poll_sessions(invoker_cx)
+  pub fn poll_sessions_from_event_loop(&self, cx: &mut Context) {
+    let _ = self.state.poll_sessions(Some(cx)).unwrap();
   }
 
   /// This function blocks the thread until at least one inspector client has
@@ -430,7 +422,7 @@ impl JsRuntimeInspector {
         break;
       } else {
         self.state.flags.borrow_mut().waiting_for_session = true;
-        let _ = self.poll_sessions(None).unwrap();
+        let _ = self.state.poll_sessions(None).unwrap();
       }
     }
   }
@@ -454,7 +446,7 @@ impl JsRuntimeInspector {
         break session.break_on_next_statement();
       } else {
         self.state.flags.borrow_mut().waiting_for_session = true;
-        let _ = self.poll_sessions(None).unwrap();
+        let _ = self.state.poll_sessions(None).unwrap();
       }
     }
   }
@@ -626,7 +618,7 @@ struct InspectorWakerInner {
   poll_state: PollState,
   task_waker: Option<task::Waker>,
   parked_thread: Option<thread::Thread>,
-  inspector_ptr: Option<NonNull<JsRuntimeInspectorState>>,
+  inspector_state_ptr: Option<NonNull<JsRuntimeInspectorState>>,
   isolate_handle: v8::IsolateHandle,
 }
 
@@ -641,7 +633,7 @@ impl InspectorWaker {
       poll_state: PollState::Idle,
       task_waker: None,
       parked_thread: None,
-      inspector_ptr: None,
+      inspector_state_ptr: None,
       isolate_handle,
     };
     Arc::new(Self(Mutex::new(inner)))
@@ -668,7 +660,7 @@ impl task::ArcWake for InspectorWaker {
           // Request an interrupt from the isolate if it's running and there's
           // not unhandled interrupt request in flight.
           if let Some(arg) = w
-            .inspector_ptr
+            .inspector_state_ptr
             .take()
             .map(|ptr| ptr.as_ptr() as *mut c_void)
           {
@@ -680,8 +672,9 @@ impl task::ArcWake for InspectorWaker {
           ) {
             // SAFETY: `InspectorWaker` is owned by `JsRuntimeInspector`, so the
             // pointer to the latter is valid as long as waker is alive.
-            let inspector = unsafe { &*(arg as *mut JsRuntimeInspector) };
-            let _ = inspector.poll_sessions(None);
+            let inspector_state =
+              unsafe { &*(arg as *mut JsRuntimeInspectorState) };
+            let _ = inspector_state.poll_sessions(None);
           }
         }
         PollState::Parked => {

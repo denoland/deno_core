@@ -2017,7 +2017,7 @@ impl JsRuntime {
 
     if has_inspector {
       // We poll the inspector first.
-      let _ = self.inspector().poll_sessions(Some(cx)).unwrap();
+      self.inspector().poll_sessions_from_event_loop(cx);
     }
 
     if poll_options.pump_v8_message_loop {
