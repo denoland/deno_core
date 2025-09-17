@@ -85,7 +85,7 @@ pub struct JsRuntimeInspector {
   v8_inspector_client: v8::inspector::V8InspectorClientBase,
   v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
   new_session_tx: UnboundedSender<InspectorSessionProxy>,
-  sessions: RefCell<SessionContainer>,
+  sessions: Rc<RefCell<SessionContainer>>,
   flags: RefCell<InspectorFlags>,
   waker: Arc<InspectorWaker>,
   deregister_tx: Option<oneshot::Sender<()>>,
@@ -194,7 +194,9 @@ impl JsRuntimeInspector {
     let self__ = Rc::new(RefCell::new(Self {
       v8_inspector_client,
       v8_inspector: Default::default(),
-      sessions: RefCell::new(SessionContainer::temporary_placeholder()),
+      sessions: Rc::new(
+        RefCell::new(SessionContainer::temporary_placeholder()),
+      ),
       new_session_tx,
       flags: Default::default(),
       waker,
@@ -207,10 +209,10 @@ impl JsRuntimeInspector {
     self_.v8_inspector = Rc::new(RefCell::new(
       v8::inspector::V8Inspector::create(scope, &mut *self_).into(),
     ));
-    self_.sessions = RefCell::new(SessionContainer::new(
+    self_.sessions = Rc::new(RefCell::new(SessionContainer::new(
       self_.v8_inspector.clone(),
       new_session_rx,
-    ));
+    )));
 
     // Tell the inspector about the main realm.
     let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
@@ -245,16 +247,6 @@ impl JsRuntimeInspector {
 
   pub fn is_dispatching_message(&self) -> bool {
     *self.is_dispatching_message.borrow()
-  }
-
-  pub fn dispatch_message_from_frontend(
-    &self,
-    session_id: i32,
-    message: String,
-  ) {
-    let mut sessions = self.sessions.borrow_mut();
-    let session = sessions.local.get_mut(&session_id).unwrap();
-    session.dispatch_message(message);
   }
 
   pub fn context_destroyed(
@@ -424,16 +416,15 @@ impl JsRuntimeInspector {
   /// established a websocket connection.
   pub fn wait_for_session(&mut self) {
     loop {
-      match self.sessions.get_mut().established.iter_mut().next() {
-        Some(_session) => {
-          self.flags.get_mut().waiting_for_session = false;
-          break;
-        }
-        None => {
-          self.flags.get_mut().waiting_for_session = true;
-          let _ = self.poll_sessions(None).unwrap();
-        }
-      };
+      if let Some(_session) =
+        self.sessions.borrow_mut().established.iter_mut().next()
+      {
+        self.flags.get_mut().waiting_for_session = false;
+        break;
+      } else {
+        self.flags.get_mut().waiting_for_session = true;
+        let _ = self.poll_sessions(None).unwrap();
+      }
     }
   }
 
@@ -445,13 +436,14 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
-      match self.sessions.get_mut().established.iter_mut().next() {
-        Some(session) => break session.break_on_next_statement(),
-        None => {
-          self.flags.get_mut().waiting_for_session = true;
-          let _ = self.poll_sessions(None).unwrap();
-        }
-      };
+      if let Some(session) =
+        self.sessions.borrow_mut().established.iter_mut().next()
+      {
+        break session.break_on_next_statement();
+      } else {
+        self.flags.get_mut().waiting_for_session = true;
+        let _ = self.poll_sessions(None).unwrap();
+      }
     }
   }
 
@@ -478,7 +470,7 @@ impl JsRuntimeInspector {
     callback: InspectorSessionSend,
     options: InspectorSessionOptions,
   ) -> LocalInspectorSession {
-    let session_id = {
+    let (session_id, sessions) = {
       let self_ = inspector.borrow_mut();
 
       let inspector_session = InspectorSession::new(
@@ -498,10 +490,10 @@ impl JsRuntimeInspector {
       };
 
       take(&mut self_.flags.borrow_mut().waiting_for_session);
-      session_id
+      (session_id, self_.sessions.clone())
     };
 
-    LocalInspectorSession::new(session_id, inspector)
+    LocalInspectorSession::new(session_id, sessions)
   }
 }
 
@@ -605,6 +597,15 @@ impl SessionContainer {
       next_local_id: 1,
       local: HashMap::new(),
     }
+  }
+
+  pub fn dispatch_message_from_frontend(
+    &mut self,
+    session_id: i32,
+    message: String,
+  ) {
+    let session = self.local.get_mut(&session_id).unwrap();
+    session.dispatch_message(message);
   }
 }
 
@@ -857,24 +858,21 @@ impl InspectorPostMessageError {
 ///
 /// Does not provide any abstraction over CDP messages.
 pub struct LocalInspectorSession {
-  inspector: Rc<RefCell<JsRuntimeInspector>>,
+  sessions: Rc<RefCell<SessionContainer>>,
   session_id: i32,
 }
 
 impl LocalInspectorSession {
-  pub fn new(
-    session_id: i32,
-    inspector: Rc<RefCell<JsRuntimeInspector>>,
-  ) -> Self {
+  pub fn new(session_id: i32, sessions: Rc<RefCell<SessionContainer>>) -> Self {
     Self {
-      inspector,
+      sessions,
       session_id,
     }
   }
 
   pub fn dispatch(&mut self, msg: String) {
     self
-      .inspector
+      .sessions
       .borrow_mut()
       .dispatch_message_from_frontend(self.session_id, msg);
   }
