@@ -11,7 +11,7 @@ use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
 use crate::futures::channel::oneshot;
 use crate::futures::prelude::*;
-use crate::futures::stream::SelectAll;
+use crate::futures::stream::FuturesUnordered;
 use crate::futures::stream::StreamExt;
 use crate::futures::task;
 use crate::serde_json::json;
@@ -84,13 +84,7 @@ enum PollState {
 pub struct JsRuntimeInspector {
   v8_inspector: Rc<v8::inspector::V8Inspector>,
   new_session_tx: UnboundedSender<InspectorSessionProxy>,
-  // sessions: Rc<RefCell<SessionContainer>>,
-  // flags: RefCell<InspectorFlags>,
-  // waker: Arc<InspectorWaker>,
   deregister_tx: RefCell<Option<oneshot::Sender<()>>>,
-  // is_dispatching_message: Rc<RefCell<bool>>,
-  // isolate_ptr: *mut v8::Isolate,
-  // context: v8::Global<v8::Context>,
   state: JsRuntimeInspectorState,
 }
 
@@ -128,11 +122,6 @@ struct JsRuntimeInspectorState {
   sessions: Rc<RefCell<SessionContainer>>,
   is_dispatching_message: Rc<RefCell<bool>>,
 }
-
-// #[derive(Clone)]
-// struct JsRuntimeInspectorInner {
-//   state: Rc<RefCell<JsRuntimeInspectorState>>,
-// }
 
 impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorState {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
@@ -202,18 +191,10 @@ impl JsRuntimeInspectorState {
       loop {
         // Do one "handshake" with a newly connected session at a time.
         if let Some(mut session) = sessions.handshake.take() {
-          let poll_result = session.poll_next_unpin(cx);
-          match poll_result {
-            Poll::Pending => {
-              sessions.established.push(session);
-              continue;
-            }
-            Poll::Ready(Some(())) => {
-              sessions.established.push(session);
-              continue;
-            }
-            Poll::Ready(None) => {}
-          }
+          let mut fut = pump_inspector_session_messages(session).boxed_local();
+          let _ = fut.poll_unpin(cx);
+          sessions.established.push(fut);
+          continue;
         }
 
         // Accept new connections.
@@ -410,13 +391,8 @@ impl JsRuntimeInspector {
   /// established a websocket connection.
   pub fn wait_for_session(&mut self) {
     loop {
-      if let Some(_session) = self
-        .state
-        .sessions
-        .borrow_mut()
-        .established
-        .iter_mut()
-        .next()
+      if let Some(_session) =
+        self.state.sessions.borrow_mut().local.values().next()
       {
         self.state.flags.borrow_mut().waiting_for_session = false;
         break;
@@ -436,7 +412,7 @@ impl JsRuntimeInspector {
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
       if let Some(session) =
-        self.state.sessions.borrow_mut().established.iter().next()
+        self.state.sessions.borrow_mut().local.values().next()
       {
         break session.break_on_next_statement();
       } else {
@@ -521,7 +497,7 @@ pub struct SessionContainer {
   v8_inspector: Option<Rc<v8::inspector::V8Inspector>>,
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
   handshake: Option<Rc<InspectorSession>>,
-  established: SelectAll<Rc<InspectorSession>>,
+  established: FuturesUnordered<InspectorSessionPumpMessages>,
   next_local_id: i32,
   local: HashMap<i32, Rc<InspectorSession>>,
 }
@@ -535,7 +511,7 @@ impl SessionContainer {
       v8_inspector: Some(v8_inspector),
       session_rx: new_session_rx,
       handshake: None,
-      established: SelectAll::new(),
+      established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
     }
@@ -557,29 +533,23 @@ impl SessionContainer {
       has_active: !self.established.is_empty()
         || self.handshake.is_some()
         || !self.local.is_empty(),
-      has_blocking: self.established.iter().chain(self.local.values()).any(
-        |s| matches!(s.state.borrow().kind, InspectorSessionKind::Blocking),
-      ),
-      has_nonblocking: self.established.iter().chain(self.local.values()).any(
-        |s| {
-          matches!(
-            s.state.borrow().kind,
-            InspectorSessionKind::NonBlocking { .. }
-          )
-        },
-      ),
-      has_nonblocking_wait_for_disconnect: self
-        .established
-        .iter()
-        .chain(self.local.values())
-        .any(|s| {
-          matches!(
-            s.state.borrow().kind,
-            InspectorSessionKind::NonBlocking {
-              wait_for_disconnect: true
-            }
-          )
-        }),
+      has_blocking: self.local.values().any(|s| {
+        matches!(s.state.borrow().kind, InspectorSessionKind::Blocking)
+      }),
+      has_nonblocking: self.local.values().any(|s| {
+        matches!(
+          s.state.borrow().kind,
+          InspectorSessionKind::NonBlocking { .. }
+        )
+      }),
+      has_nonblocking_wait_for_disconnect: self.local.values().any(|s| {
+        matches!(
+          s.state.borrow().kind,
+          InspectorSessionKind::NonBlocking {
+            wait_for_disconnect: true
+          }
+        )
+      }),
     }
   }
 
@@ -593,7 +563,7 @@ impl SessionContainer {
       v8_inspector: Default::default(),
       session_rx: rx,
       handshake: None,
-      established: SelectAll::new(),
+      established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
     }
@@ -721,7 +691,7 @@ impl InspectorSession {
     send: InspectorSessionSend,
     rx: Option<SessionProxyReceiver>,
     options: InspectorSessionOptions,
-  ) -> Box<Self> {
+  ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
       send,
@@ -739,7 +709,7 @@ impl InspectorSession {
       v8::inspector::V8InspectorClientTrustLevel::FullyTrusted,
     );
 
-    Box::new(Self {
+    Rc::new(Self {
       v8_session,
       state: inner.state.clone(),
     })
@@ -795,27 +765,12 @@ impl v8::inspector::ChannelImpl for InspectorSessionInner {
   fn flush_protocol_notifications(&self) {}
 }
 
-impl Stream for InspectorSession {
-  type Item = ();
+type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 
-  fn poll_next(
-    self: Pin<&mut Self>,
-    cx: &mut Context,
-  ) -> Poll<Option<Self::Item>> {
-    let inner = self.get_mut();
-    let mut s = inner.state.borrow_mut();
-    let rx = s.rx.as_mut().unwrap();
-    if let Poll::Ready(maybe_msg) = rx.poll_next_unpin(cx) {
-      if let Some(msg) = maybe_msg {
-        drop(s);
-        inner.dispatch_message(msg);
-        return Poll::Ready(Some(()));
-      } else {
-        return Poll::Ready(None);
-      }
-    }
-
-    Poll::Pending
+async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
+  let mut rx = session.state.borrow_mut().rx.take().unwrap();
+  while let Some(msg) = rx.next().await {
+    session.dispatch_message(msg);
   }
 }
 
