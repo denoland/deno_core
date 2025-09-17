@@ -431,7 +431,7 @@ pub struct JsRuntimeState {
   pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
   waker: Arc<AtomicWaker>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
-  inspector: RefCell<Option<Rc<RefCell<JsRuntimeInspector>>>>,
+  inspector: RefCell<Option<Rc<JsRuntimeInspector>>>,
   has_inspector: Cell<bool>,
   import_assertions_support: ImportAssertionsSupport,
   lazy_extensions: Vec<&'static str>,
@@ -1286,7 +1286,7 @@ impl JsRuntime {
   }
 
   #[inline]
-  pub fn inspector(&self) -> Rc<RefCell<JsRuntimeInspector>> {
+  pub fn inspector(&self) -> Rc<JsRuntimeInspector> {
     self.inner.state.inspector()
   }
 
@@ -2017,7 +2017,7 @@ impl JsRuntime {
 
     if has_inspector {
       // We poll the inspector first.
-      let _ = self.inspector().borrow().poll_sessions(Some(cx)).unwrap();
+      let _ = self.inspector().poll_sessions(Some(cx)).unwrap();
     }
 
     if poll_options.pump_v8_message_loop {
@@ -2050,7 +2050,7 @@ impl JsRuntime {
     if !pending_state.is_pending() {
       if has_inspector {
         let inspector = self.inspector();
-        let sessions_state = inspector.borrow().sessions_state();
+        let sessions_state = inspector.sessions_state();
 
         if poll_options.wait_for_inspector && sessions_state.has_active {
           if sessions_state.has_blocking {
@@ -2059,7 +2059,7 @@ impl JsRuntime {
 
           if sessions_state.has_nonblocking_wait_for_disconnect {
             let context = self.main_context();
-            inspector.borrow_mut().context_destroyed(scope, context);
+            inspector.context_destroyed(scope, context);
             self.wait_for_inspector_disconnect();
             return Poll::Pending;
           }
@@ -2419,7 +2419,7 @@ where
 }
 
 impl JsRuntimeState {
-  pub(crate) fn inspector(&self) -> Rc<RefCell<JsRuntimeInspector>> {
+  pub(crate) fn inspector(&self) -> Rc<JsRuntimeInspector> {
     self.inspector.borrow().as_ref().unwrap().clone()
   }
 
@@ -2443,7 +2443,7 @@ impl JsRuntimeState {
       .inspector
       .borrow()
       .as_ref()
-      .map(|inspector| f(&inspector.borrow()))
+      .map(|inspector| f(inspector))
   }
 }
 

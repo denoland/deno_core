@@ -82,16 +82,16 @@ enum PollState {
 /// provides integration with Chrome Devtools, or an "in-memory session" that
 /// is used for REPL or coverage collection.
 pub struct JsRuntimeInspector {
-  v8_inspector_client: v8::inspector::V8InspectorClientBase,
-  v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+  v8_inspector: Rc<v8::inspector::V8Inspector>,
   new_session_tx: UnboundedSender<InspectorSessionProxy>,
-  sessions: Rc<RefCell<SessionContainer>>,
-  flags: RefCell<InspectorFlags>,
-  waker: Arc<InspectorWaker>,
-  deregister_tx: Option<oneshot::Sender<()>>,
-  is_dispatching_message: Rc<RefCell<bool>>,
-  isolate_ptr: *mut v8::Isolate,
-  context: v8::Global<v8::Context>,
+  // sessions: Rc<RefCell<SessionContainer>>,
+  // flags: RefCell<InspectorFlags>,
+  // waker: Arc<InspectorWaker>,
+  deregister_tx: RefCell<Option<oneshot::Sender<()>>>,
+  // is_dispatching_message: Rc<RefCell<bool>>,
+  // isolate_ptr: *mut v8::Isolate,
+  // context: v8::Global<v8::Context>,
+  state: Rc<RefCell<JsRuntimeInspectorState>>,
 }
 
 impl Drop for JsRuntimeInspector {
@@ -99,69 +99,71 @@ impl Drop for JsRuntimeInspector {
     // Since the waker is cloneable, it might outlive the inspector itself.
     // Set the poll state to 'dropped' so it doesn't attempt to request an
     // interrupt from the isolate.
-    self.waker.update(|w| w.poll_state = PollState::Dropped);
+    self
+      .state
+      .borrow()
+      .waker
+      .update(|w| w.poll_state = PollState::Dropped);
 
     // V8 automatically deletes all sessions when an `V8Inspector` instance is
     // deleted, however InspectorSession also has a drop handler that cleans
     // up after itself. To avoid a double free, make sure the inspector is
     // dropped last.
-    self.sessions.borrow_mut().drop_sessions();
+    self.state.borrow().sessions.borrow_mut().drop_sessions();
 
     // Notify counterparty that this instance is being destroyed. Ignoring
     // result because counterparty waiting for the signal might have already
     // dropped the other end of channel.
-    if let Some(deregister_tx) = self.deregister_tx.take() {
+    if let Some(deregister_tx) = self.deregister_tx.borrow_mut().take() {
       let _ = deregister_tx.send(());
     }
   }
 }
 
-impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
-  fn base(&self) -> &v8::inspector::V8InspectorClientBase {
-    &self.v8_inspector_client
-  }
+struct JsRuntimeInspectorState {
+  isolate_ptr: *mut v8::Isolate,
+  context: v8::Global<v8::Context>,
+  flags: RefCell<InspectorFlags>,
+  waker: Arc<InspectorWaker>,
+  sessions: Rc<RefCell<SessionContainer>>,
+  is_dispatching_message: Rc<RefCell<bool>>,
+}
 
-  unsafe fn base_ptr(
-    this: *const Self,
-  ) -> *const v8::inspector::V8InspectorClientBase
-  where
-    Self: Sized,
-  {
-    // SAFETY: this pointer is valid for the whole lifetime of inspector
-    unsafe { std::ptr::addr_of!((*this).v8_inspector_client) }
-  }
+#[derive(Clone)]
+struct JsRuntimeInspectorInner {
+  state: Rc<RefCell<JsRuntimeInspectorState>>,
+}
 
-  fn base_mut(&mut self) -> &mut v8::inspector::V8InspectorClientBase {
-    &mut self.v8_inspector_client
-  }
-
-  fn run_message_loop_on_pause(&mut self, context_group_id: i32) {
+impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorInner {
+  fn run_message_loop_on_pause(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    self.flags.borrow_mut().on_pause = true;
-    let _ = self.poll_sessions(None);
+    self.state.borrow().flags.borrow_mut().on_pause = true;
+    let _ = self.state.borrow().poll_sessions(None);
   }
 
-  fn quit_message_loop_on_pause(&mut self) {
-    self.flags.borrow_mut().on_pause = false;
+  fn quit_message_loop_on_pause(&self) {
+    self.state.borrow().flags.borrow_mut().on_pause = false;
   }
 
-  fn run_if_waiting_for_debugger(&mut self, context_group_id: i32) {
+  fn run_if_waiting_for_debugger(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    self.flags.borrow_mut().waiting_for_session = false;
+    self.state.borrow().flags.borrow_mut().waiting_for_session = false;
   }
 
   fn ensure_default_context_in_group(
-    &mut self,
+    &self,
     context_group_id: i32,
   ) -> Option<v8::Local<'_, v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    let isolate: &mut v8::Isolate = unsafe { &mut *self.isolate_ptr };
+    let context = self.state.borrow().context.clone();
+    let isolate: &mut v8::Isolate =
+      unsafe { &mut *(self.state.borrow().isolate_ptr) };
     let scope = &mut unsafe { v8::CallbackScope::new(isolate) };
-    Some(v8::Local::new(scope, self.context.clone()))
+    Some(v8::Local::new(scope, context))
   }
 
   fn resource_name_to_url(
-    &mut self,
+    &self,
     resource_name: &v8::inspector::StringView,
   ) -> Option<v8::UniquePtr<v8::inspector::StringBuffer>> {
     let resource_name = resource_name.to_string();
@@ -171,131 +173,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
   }
 }
 
-impl JsRuntimeInspector {
-  /// Currently Deno supports only a single context in `JsRuntime`
-  /// and thus it's id is provided as an associated constant.
-  const CONTEXT_GROUP_ID: i32 = 1;
-
-  pub fn new(
-    isolate_ptr: *mut v8::Isolate,
-    scope: &mut v8::HandleScope,
-    context: v8::Local<v8::Context>,
-    is_main_runtime: bool,
-  ) -> Rc<RefCell<Self>> {
-    let (new_session_tx, new_session_rx) =
-      mpsc::unbounded::<InspectorSessionProxy>();
-
-    let v8_inspector_client =
-      v8::inspector::V8InspectorClientBase::new::<Self>();
-
-    let waker = InspectorWaker::new(scope.thread_safe_handle());
-
-    // Create JsRuntimeInspector instance.
-    let self__ = Rc::new(RefCell::new(Self {
-      v8_inspector_client,
-      v8_inspector: Default::default(),
-      sessions: Rc::new(
-        RefCell::new(SessionContainer::temporary_placeholder()),
-      ),
-      new_session_tx,
-      flags: Default::default(),
-      waker,
-      deregister_tx: None,
-      is_dispatching_message: Default::default(),
-      isolate_ptr,
-      context: v8::Global::new(scope, context),
-    }));
-    let mut self_ = self__.borrow_mut();
-    self_.v8_inspector = Rc::new(RefCell::new(
-      v8::inspector::V8Inspector::create(scope, &mut *self_).into(),
-    ));
-    self_.sessions = Rc::new(RefCell::new(SessionContainer::new(
-      self_.v8_inspector.clone(),
-      new_session_rx,
-    )));
-
-    // Tell the inspector about the main realm.
-    let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
-    // NOTE(bartlomieju): this is what Node.js does and it turns out some
-    // debuggers (like VSCode) rely on this information to disconnect after
-    // program completes
-    let aux_data = if is_main_runtime {
-      r#"{"isDefault": true}"#
-    } else {
-      r#"{"isDefault": false}"#
-    };
-    let aux_data_view = v8::inspector::StringView::from(aux_data.as_bytes());
-    self_
-      .v8_inspector
-      .borrow_mut()
-      .as_mut()
-      .unwrap()
-      .context_created(
-        context,
-        Self::CONTEXT_GROUP_ID,
-        context_name,
-        aux_data_view,
-      );
-
-    // Poll the session handler so we will get notified whenever there is
-    // new incoming debugger activity.
-    let _ = self_.poll_sessions(None).unwrap();
-    drop(self_);
-
-    self__
-  }
-
-  pub fn is_dispatching_message(&self) -> bool {
-    *self.is_dispatching_message.borrow()
-  }
-
-  pub fn context_destroyed(
-    &mut self,
-    scope: &mut HandleScope,
-    context: v8::Global<v8::Context>,
-  ) {
-    let context = v8::Local::new(scope, context);
-    self
-      .v8_inspector
-      .borrow_mut()
-      .as_mut()
-      .unwrap()
-      .context_destroyed(context);
-  }
-
-  pub fn exception_thrown(
-    &self,
-    scope: &mut HandleScope,
-    exception: v8::Local<'_, v8::Value>,
-    in_promise: bool,
-  ) {
-    let context = scope.get_current_context();
-    let message = v8::Exception::create_message(scope, exception);
-    let stack_trace = message.get_stack_trace(scope);
-    let mut v8_inspector_ref = self.v8_inspector.borrow_mut();
-    let v8_inspector = v8_inspector_ref.as_mut().unwrap();
-    let stack_trace = v8_inspector.create_stack_trace(stack_trace);
-    v8_inspector.exception_thrown(
-      context,
-      if in_promise {
-        v8::inspector::StringView::from("Uncaught (in promise)".as_bytes())
-      } else {
-        v8::inspector::StringView::from("Uncaught".as_bytes())
-      },
-      exception,
-      v8::inspector::StringView::from("".as_bytes()),
-      v8::inspector::StringView::from("".as_bytes()),
-      0,
-      0,
-      stack_trace,
-      0,
-    );
-  }
-
-  pub fn sessions_state(&self) -> SessionsState {
-    self.sessions.borrow().sessions_state()
-  }
-
+impl JsRuntimeInspectorState {
   #[allow(clippy::result_unit_err)]
   pub fn poll_sessions(
     &self,
@@ -343,7 +221,7 @@ impl JsRuntimeInspector {
         let poll_result = sessions.session_rx.poll_next_unpin(cx);
         if let Poll::Ready(Some(session_proxy)) = poll_result {
           let session = InspectorSession::new(
-            sessions.v8_inspector.clone(),
+            sessions.v8_inspector.as_ref().unwrap().clone(),
             self.is_dispatching_message.clone(),
             Box::new(move |msg| {
               let _ = session_proxy.tx.unbounded_send(msg);
@@ -365,8 +243,10 @@ impl JsRuntimeInspector {
         };
       }
 
-      let should_block =
-        self.flags.borrow().on_pause || self.flags.borrow().waiting_for_session;
+      let should_block = {
+        let flags = self.flags.borrow();
+        flags.on_pause || flags.waiting_for_session
+      };
 
       let new_state = self.waker.update(|w| {
         match w.poll_state {
@@ -411,18 +291,271 @@ impl JsRuntimeInspector {
 
     Ok(Poll::Pending)
   }
+}
+
+impl JsRuntimeInspector {
+  /// Currently Deno supports only a single context in `JsRuntime`
+  /// and thus it's id is provided as an associated constant.
+  const CONTEXT_GROUP_ID: i32 = 1;
+
+  pub fn new(
+    isolate_ptr: *mut v8::Isolate,
+    scope: &mut v8::HandleScope,
+    context: v8::Local<v8::Context>,
+    is_main_runtime: bool,
+  ) -> Rc<Self> {
+    let (new_session_tx, new_session_rx) =
+      mpsc::unbounded::<InspectorSessionProxy>();
+
+    let waker = InspectorWaker::new(scope.thread_safe_handle());
+
+    let state = Rc::new(RefCell::new(JsRuntimeInspectorState {
+      waker,
+      flags: Default::default(),
+      isolate_ptr,
+      context: v8::Global::new(scope, context),
+      sessions: Rc::new(
+        RefCell::new(SessionContainer::temporary_placeholder()),
+      ),
+      is_dispatching_message: Default::default(),
+    }));
+    let v8_inspector_client = v8::inspector::V8InspectorClient::new(Box::new(
+      JsRuntimeInspectorInner {
+        state: state.clone(),
+      },
+    ));
+    let v8_inspector = Rc::new(v8::inspector::V8Inspector::create(
+      scope,
+      v8_inspector_client,
+    ));
+
+    let sessions = Rc::new(RefCell::new(SessionContainer::new(
+      v8_inspector.clone(),
+      new_session_rx,
+    )));
+    state.borrow_mut().sessions = sessions;
+
+    // Create JsRuntimeInspector instance.
+    let self_ = Rc::new(Self {
+      v8_inspector,
+      state,
+      new_session_tx,
+      deregister_tx: RefCell::new(None),
+    });
+
+    // Tell the inspector about the main realm.
+    let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
+    // NOTE(bartlomieju): this is what Node.js does and it turns out some
+    // debuggers (like VSCode) rely on this information to disconnect after
+    // program completes
+    let aux_data = if is_main_runtime {
+      r#"{"isDefault": true}"#
+    } else {
+      r#"{"isDefault": false}"#
+    };
+    let aux_data_view = v8::inspector::StringView::from(aux_data.as_bytes());
+    self_.v8_inspector.context_created(
+      context,
+      Self::CONTEXT_GROUP_ID,
+      context_name,
+      aux_data_view,
+    );
+
+    // Poll the session handler so we will get notified whenever there is
+    // new incoming debugger activity.
+    let _ = self_.poll_sessions(None).unwrap();
+
+    self_
+  }
+
+  pub fn is_dispatching_message(&self) -> bool {
+    *self.state.borrow().is_dispatching_message.borrow()
+  }
+
+  pub fn context_destroyed(
+    &self,
+    scope: &mut HandleScope,
+    context: v8::Global<v8::Context>,
+  ) {
+    let context = v8::Local::new(scope, context);
+    self.v8_inspector.context_destroyed(context);
+  }
+
+  pub fn exception_thrown(
+    &self,
+    scope: &mut HandleScope,
+    exception: v8::Local<'_, v8::Value>,
+    in_promise: bool,
+  ) {
+    let context = scope.get_current_context();
+    let message = v8::Exception::create_message(scope, exception);
+    let stack_trace = message.get_stack_trace(scope);
+    let stack_trace = self.v8_inspector.create_stack_trace(stack_trace);
+    self.v8_inspector.exception_thrown(
+      context,
+      if in_promise {
+        v8::inspector::StringView::from("Uncaught (in promise)".as_bytes())
+      } else {
+        v8::inspector::StringView::from("Uncaught".as_bytes())
+      },
+      exception,
+      v8::inspector::StringView::from("".as_bytes()),
+      v8::inspector::StringView::from("".as_bytes()),
+      0,
+      0,
+      stack_trace,
+      0,
+    );
+  }
+
+  pub fn sessions_state(&self) -> SessionsState {
+    self.state.borrow().sessions.borrow().sessions_state()
+  }
+
+  #[allow(clippy::result_unit_err)]
+  pub fn poll_sessions(
+    &self,
+    mut invoker_cx: Option<&mut Context>,
+  ) -> Result<Poll<()>, ()> {
+    self.state.borrow().poll_sessions(invoker_cx)
+  }
+
+  // #[allow(clippy::result_unit_err)]
+  // pub fn poll_sessions_(
+  //   &self,
+  //   mut invoker_cx: Option<&mut Context>,
+  // ) -> Result<Poll<()>, ()> {
+  //   // The futures this function uses do not have re-entrant poll() functions.
+  //   // However it is can happen that poll_sessions() gets re-entered, e.g.
+  //   // when an interrupt request is honored while the inspector future is polled
+  //   // by the task executor. We let the caller know by returning some error.
+  //   let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
+  //     return Err(());
+  //   };
+
+  //   self.waker.update(|w| {
+  //     match w.poll_state {
+  //       PollState::Idle | PollState::Woken => w.poll_state = PollState::Polling,
+  //       _ => unreachable!(),
+  //     };
+  //   });
+
+  //   // Create a new Context object that will make downstream futures
+  //   // use the InspectorWaker when they are ready to be polled again.
+  //   let waker_ref = task::waker_ref(&self.waker);
+  //   let cx = &mut Context::from_waker(&waker_ref);
+
+  //   loop {
+  //     loop {
+  //       // Do one "handshake" with a newly connected session at a time.
+  //       if let Some(mut session) = sessions.handshake.take() {
+  //         let poll_result = session.poll_next_unpin(cx);
+  //         match poll_result {
+  //           Poll::Pending => {
+  //             sessions.established.push(session);
+  //             continue;
+  //           }
+  //           Poll::Ready(Some(())) => {
+  //             sessions.established.push(session);
+  //             continue;
+  //           }
+  //           Poll::Ready(None) => {}
+  //         }
+  //       }
+
+  //       // Accept new connections.
+  //       let poll_result = sessions.session_rx.poll_next_unpin(cx);
+  //       if let Poll::Ready(Some(session_proxy)) = poll_result {
+  //         let session = InspectorSession::new(
+  //           sessions.v8_inspector.as_ref().unwrap().clone(),
+  //           self.is_dispatching_message.clone(),
+  //           Box::new(move |msg| {
+  //             let _ = session_proxy.tx.unbounded_send(msg);
+  //           }),
+  //           Some(session_proxy.rx),
+  //           session_proxy.options,
+  //         );
+  //         let prev = sessions.handshake.replace(session);
+  //         assert!(prev.is_none());
+  //       }
+
+  //       // Poll established sessions.
+  //       match sessions.established.poll_next_unpin(cx) {
+  //         Poll::Ready(Some(())) => {
+  //           continue;
+  //         }
+  //         Poll::Ready(None) => break,
+  //         Poll::Pending => break,
+  //       };
+  //     }
+
+  //     let should_block = {
+  //       let s = self.state.borrow();
+  //       let flags = s.flags.borrow();
+  //       flags.on_pause || flags.waiting_for_session
+  //     };
+
+  //     let new_state = self.waker.update(|w| {
+  //       match w.poll_state {
+  //         PollState::Woken => {
+  //           // The inspector was woken while the session handler was being
+  //           // polled, so we poll it another time.
+  //           w.poll_state = PollState::Polling;
+  //         }
+  //         PollState::Polling if !should_block => {
+  //           // The session handler doesn't need to be polled any longer, and
+  //           // there's no reason to block (execution is not paused), so this
+  //           // function is about to return.
+  //           w.poll_state = PollState::Idle;
+  //           // Register the task waker that can be used to wake the parent
+  //           // task that will poll the inspector future.
+  //           if let Some(cx) = invoker_cx.take() {
+  //             w.task_waker.replace(cx.waker().clone());
+  //           }
+  //           // Register the address of the inspector, which allows the waker
+  //           // to request an interrupt from the isolate.
+  //           w.inspector_ptr = NonNull::new(self as *const _ as *mut Self);
+  //         }
+  //         PollState::Polling if should_block => {
+  //           // Isolate execution has been paused but there are no more
+  //           // events to process, so this thread will be parked. Therefore,
+  //           // store the current thread handle in the waker so it knows
+  //           // which thread to unpark when new events arrive.
+  //           w.poll_state = PollState::Parked;
+  //           w.parked_thread.replace(thread::current());
+  //         }
+  //         _ => unreachable!(),
+  //       };
+  //       w.poll_state
+  //     });
+  //     match new_state {
+  //       PollState::Idle => break,            // Yield to task.
+  //       PollState::Polling => continue,      // Poll the session handler again.
+  //       PollState::Parked => thread::park(), // Park the thread.
+  //       _ => unreachable!(),
+  //     };
+  //   }
+
+  //   Ok(Poll::Pending)
+  // }
 
   /// This function blocks the thread until at least one inspector client has
   /// established a websocket connection.
   pub fn wait_for_session(&mut self) {
     loop {
-      if let Some(_session) =
-        self.sessions.borrow_mut().established.iter_mut().next()
+      if let Some(_session) = self
+        .state
+        .borrow()
+        .sessions
+        .borrow_mut()
+        .established
+        .iter_mut()
+        .next()
       {
-        self.flags.get_mut().waiting_for_session = false;
+        self.state.borrow().flags.borrow_mut().waiting_for_session = false;
         break;
       } else {
-        self.flags.get_mut().waiting_for_session = true;
+        self.state.borrow().flags.borrow_mut().waiting_for_session = true;
         let _ = self.poll_sessions(None).unwrap();
       }
     }
@@ -436,12 +569,18 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&mut self) {
     loop {
-      if let Some(session) =
-        self.sessions.borrow_mut().established.iter_mut().next()
+      if let Some(session) = self
+        .state
+        .borrow()
+        .sessions
+        .borrow_mut()
+        .established
+        .iter_mut()
+        .next()
       {
         break session.break_on_next_statement();
       } else {
-        self.flags.get_mut().waiting_for_session = true;
+        self.state.borrow().flags.borrow_mut().waiting_for_session = true;
         let _ = self.poll_sessions(None).unwrap();
       }
     }
@@ -455,9 +594,9 @@ impl JsRuntimeInspector {
   /// Create a channel that notifies the frontend when inspector is dropped.
   ///
   /// NOTE: Only a single handler is currently available.
-  pub fn add_deregister_handler(&mut self) -> oneshot::Receiver<()> {
+  pub fn add_deregister_handler(&self) -> oneshot::Receiver<()> {
     let (tx, rx) = oneshot::channel::<()>();
-    let prev = self.deregister_tx.replace(tx);
+    let prev = self.deregister_tx.borrow_mut().replace(tx);
     assert!(
       prev.is_none(),
       "Only a single deregister handler is allowed"
@@ -466,31 +605,38 @@ impl JsRuntimeInspector {
   }
 
   pub fn create_local_session(
-    inspector: Rc<RefCell<JsRuntimeInspector>>,
+    inspector: Rc<JsRuntimeInspector>,
     callback: InspectorSessionSend,
     options: InspectorSessionOptions,
   ) -> LocalInspectorSession {
     let (session_id, sessions) = {
-      let self_ = inspector.borrow_mut();
+      let sessions = inspector.state.borrow().sessions.clone();
 
       let inspector_session = InspectorSession::new(
-        self_.v8_inspector.clone(),
-        self_.is_dispatching_message.clone(),
+        inspector.v8_inspector.clone(),
+        inspector.state.borrow().is_dispatching_message.clone(),
         callback,
         None,
         options,
       );
 
       let session_id = {
-        let mut s = self_.sessions.borrow_mut();
+        let mut s = sessions.borrow_mut();
         let id = s.next_local_id;
         s.next_local_id += 1;
         assert!(s.local.insert(id, inspector_session).is_none());
         id
       };
 
-      take(&mut self_.flags.borrow_mut().waiting_for_session);
-      (session_id, self_.sessions.clone())
+      take(
+        &mut inspector
+          .state
+          .borrow()
+          .flags
+          .borrow_mut()
+          .waiting_for_session,
+      );
+      (session_id, sessions)
     };
 
     LocalInspectorSession::new(session_id, sessions)
@@ -519,7 +665,7 @@ pub struct SessionsState {
 /// A helper structure that helps coordinate sessions during different
 /// parts of their lifecycle.
 pub struct SessionContainer {
-  v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+  v8_inspector: Option<Rc<v8::inspector::V8Inspector>>,
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
   handshake: Option<Box<InspectorSession>>,
   established: SelectAll<Box<InspectorSession>>,
@@ -529,11 +675,11 @@ pub struct SessionContainer {
 
 impl SessionContainer {
   fn new(
-    v8_inspector: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+    v8_inspector: Rc<v8::inspector::V8Inspector>,
     new_session_rx: UnboundedReceiver<InspectorSessionProxy>,
   ) -> Self {
     Self {
-      v8_inspector,
+      v8_inspector: Some(v8_inspector),
       session_rx: new_session_rx,
       handshake: None,
       established: SelectAll::new(),
@@ -558,23 +704,24 @@ impl SessionContainer {
       has_active: !self.established.is_empty()
         || self.handshake.is_some()
         || !self.local.is_empty(),
-      has_blocking: self
-        .established
-        .iter()
-        .chain(self.local.values())
-        .any(|s| matches!(s.kind, InspectorSessionKind::Blocking)),
-      has_nonblocking: self
-        .established
-        .iter()
-        .chain(self.local.values())
-        .any(|s| matches!(s.kind, InspectorSessionKind::NonBlocking { .. })),
+      has_blocking: self.established.iter().chain(self.local.values()).any(
+        |s| matches!(s.state.borrow().kind, InspectorSessionKind::Blocking),
+      ),
+      has_nonblocking: self.established.iter().chain(self.local.values()).any(
+        |s| {
+          matches!(
+            s.state.borrow().kind,
+            InspectorSessionKind::NonBlocking { .. }
+          )
+        },
+      ),
       has_nonblocking_wait_for_disconnect: self
         .established
         .iter()
         .chain(self.local.values())
         .any(|s| {
           matches!(
-            s.kind,
+            s.state.borrow().kind,
             InspectorSessionKind::NonBlocking {
               wait_for_disconnect: true
             }
@@ -613,7 +760,7 @@ struct InspectorWakerInner {
   poll_state: PollState,
   task_waker: Option<task::Waker>,
   parked_thread: Option<thread::Thread>,
-  inspector_ptr: Option<NonNull<JsRuntimeInspector>>,
+  inspector_ptr: Option<NonNull<JsRuntimeInspectorState>>,
   isolate_handle: v8::IsolateHandle,
 }
 
@@ -690,12 +837,8 @@ pub enum InspectorSessionKind {
   NonBlocking { wait_for_disconnect: bool },
 }
 
-/// An inspector session that proxies messages to concrete "transport layer",
-/// eg. Websocket or another set of channels.
-struct InspectorSession {
+struct InspectorSessionState {
   is_dispatching_message: Rc<RefCell<bool>>,
-  v8_channel: v8::inspector::ChannelBase,
-  v8_session: v8::UniqueRef<v8::inspector::V8InspectorSession>,
   send: InspectorSessionSend,
   rx: Option<SessionProxyReceiver>,
   // Describes if session should keep event loop alive, eg. a local REPL
@@ -703,60 +846,57 @@ struct InspectorSession {
   kind: InspectorSessionKind,
 }
 
+#[derive(Clone)]
+struct InspectorSessionInner {
+  state: Rc<RefCell<InspectorSessionState>>,
+}
+
+/// An inspector session that proxies messages to concrete "transport layer",
+/// eg. Websocket or another set of channels.
+struct InspectorSession {
+  v8_session: v8::inspector::V8InspectorSession,
+  state: Rc<RefCell<InspectorSessionState>>,
+}
+
 impl InspectorSession {
   const CONTEXT_GROUP_ID: i32 = 1;
 
   pub fn new(
-    v8_inspector_rc: Rc<RefCell<v8::UniquePtr<v8::inspector::V8Inspector>>>,
+    v8_inspector: Rc<v8::inspector::V8Inspector>,
     is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
     rx: Option<SessionProxyReceiver>,
     options: InspectorSessionOptions,
   ) -> Box<Self> {
-    new_box_with(move |self_ptr| {
-      let v8_channel = v8::inspector::ChannelBase::new::<Self>();
-      let mut v8_inspector = v8_inspector_rc.borrow_mut();
-      let v8_inspector_ptr = v8_inspector.as_mut().unwrap();
-      // TODO(piscisaureus): safety comment
-      #[allow(clippy::undocumented_unsafe_blocks)]
-      let v8_session = v8_inspector_ptr.connect(
-        Self::CONTEXT_GROUP_ID,
-        // Todo(piscisaureus): V8Inspector::connect() should require that
-        // the 'v8_channel' argument cannot move.
-        unsafe { &mut *self_ptr },
-        v8::inspector::StringView::empty(),
-        v8::inspector::V8InspectorClientTrustLevel::FullyTrusted,
-      );
+    let state = InspectorSessionState {
+      is_dispatching_message,
+      send,
+      rx,
+      kind: options.kind,
+    };
+    let inner = InspectorSessionInner {
+      state: Rc::new(RefCell::new(state)),
+    };
 
-      Self {
-        is_dispatching_message,
-        v8_channel,
-        v8_session,
-        send,
-        rx,
-        kind: options.kind,
-      }
+    let v8_session = v8_inspector.connect(
+      Self::CONTEXT_GROUP_ID,
+      v8::inspector::Channel::new(Box::new(inner.clone())),
+      v8::inspector::StringView::empty(),
+      v8::inspector::V8InspectorClientTrustLevel::FullyTrusted,
+    );
+
+    Box::new(Self {
+      v8_session,
+      state: inner.state.clone(),
     })
   }
 
   // Dispatch message to V8 session
   fn dispatch_message(&mut self, msg: String) {
-    *self.is_dispatching_message.borrow_mut() = true;
+    *self.state.borrow().is_dispatching_message.borrow_mut() = true;
     let msg = v8::inspector::StringView::from(msg.as_bytes());
     self.v8_session.dispatch_protocol_message(msg);
-    *self.is_dispatching_message.borrow_mut() = false;
-  }
-
-  fn send_message(
-    &self,
-    msg_kind: InspectorMsgKind,
-    msg: v8::UniquePtr<v8::inspector::StringBuffer>,
-  ) {
-    let msg = msg.unwrap().string().to_string();
-    (self.send)(InspectorMsg {
-      kind: msg_kind,
-      content: msg,
-    });
+    *self.state.borrow().is_dispatching_message.borrow_mut() = false;
   }
 
   pub fn break_on_next_statement(&mut self) {
@@ -768,25 +908,23 @@ impl InspectorSession {
   }
 }
 
-impl v8::inspector::ChannelImpl for InspectorSession {
-  fn base(&self) -> &v8::inspector::ChannelBase {
-    &self.v8_channel
+impl InspectorSessionInner {
+  fn send_message(
+    &self,
+    msg_kind: InspectorMsgKind,
+    msg: v8::UniquePtr<v8::inspector::StringBuffer>,
+  ) {
+    let msg = msg.unwrap().string().to_string();
+    (self.state.borrow().send)(InspectorMsg {
+      kind: msg_kind,
+      content: msg,
+    });
   }
+}
 
-  unsafe fn base_ptr(this: *const Self) -> *const v8::inspector::ChannelBase
-  where
-    Self: Sized,
-  {
-    // SAFETY: this pointer is valid for the whole lifetime of inspector
-    unsafe { std::ptr::addr_of!((*this).v8_channel) }
-  }
-
-  fn base_mut(&mut self) -> &mut v8::inspector::ChannelBase {
-    &mut self.v8_channel
-  }
-
+impl v8::inspector::ChannelImpl for InspectorSessionInner {
   fn send_response(
-    &mut self,
+    &self,
     call_id: i32,
     message: v8::UniquePtr<v8::inspector::StringBuffer>,
   ) {
@@ -794,13 +932,13 @@ impl v8::inspector::ChannelImpl for InspectorSession {
   }
 
   fn send_notification(
-    &mut self,
+    &self,
     message: v8::UniquePtr<v8::inspector::StringBuffer>,
   ) {
     self.send_message(InspectorMsgKind::Notification, message);
   }
 
-  fn flush_protocol_notifications(&mut self) {}
+  fn flush_protocol_notifications(&self) {}
 }
 
 impl Stream for InspectorSession {
@@ -811,9 +949,11 @@ impl Stream for InspectorSession {
     cx: &mut Context,
   ) -> Poll<Option<Self::Item>> {
     let inner = self.get_mut();
-    let rx = inner.rx.as_mut().unwrap();
+    let mut s = inner.state.borrow_mut();
+    let rx = s.rx.as_mut().unwrap();
     if let Poll::Ready(maybe_msg) = rx.poll_next_unpin(cx) {
       if let Some(msg) = maybe_msg {
+        drop(s);
         inner.dispatch_message(msg);
         return Poll::Ready(Some(()));
       } else {
@@ -891,15 +1031,5 @@ impl LocalInspectorSession {
 
     let stringified_msg = serde_json::to_string(&message).unwrap();
     self.dispatch(stringified_msg);
-  }
-}
-
-fn new_box_with<T>(new_fn: impl FnOnce(*mut T) -> T) -> Box<T> {
-  let b = Box::new(MaybeUninit::<T>::uninit());
-  let p = Box::into_raw(b) as *mut T;
-  // SAFETY: memory layout for `T` is ensured on first line of this function
-  unsafe {
-    ptr::write(p, new_fn(p));
-    Box::from_raw(p)
   }
 }
