@@ -22,10 +22,8 @@ use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
-use std::mem::MaybeUninit;
 use std::mem::take;
 use std::pin::Pin;
-use std::ptr;
 use std::ptr::NonNull;
 use std::rc::Rc;
 use std::sync::Arc;
@@ -190,10 +188,14 @@ impl JsRuntimeInspectorState {
     loop {
       loop {
         // Do one "handshake" with a newly connected session at a time.
-        if let Some(mut session) = sessions.handshake.take() {
-          let mut fut = pump_inspector_session_messages(session).boxed_local();
+        if let Some(session) = sessions.handshake.take() {
+          let mut fut =
+            pump_inspector_session_messages(session.clone()).boxed_local();
           let _ = fut.poll_unpin(cx);
           sessions.established.push(fut);
+          let id = sessions.next_local_id;
+          sessions.next_local_id += 1;
+          sessions.local.insert(id, session);
           continue;
         }
 
@@ -533,18 +535,16 @@ impl SessionContainer {
       has_active: !self.established.is_empty()
         || self.handshake.is_some()
         || !self.local.is_empty(),
-      has_blocking: self.local.values().any(|s| {
-        matches!(s.state.borrow().kind, InspectorSessionKind::Blocking)
-      }),
+      has_blocking: self
+        .local
+        .values()
+        .any(|s| matches!(s.state.kind, InspectorSessionKind::Blocking)),
       has_nonblocking: self.local.values().any(|s| {
-        matches!(
-          s.state.borrow().kind,
-          InspectorSessionKind::NonBlocking { .. }
-        )
+        matches!(s.state.kind, InspectorSessionKind::NonBlocking { .. })
       }),
       has_nonblocking_wait_for_disconnect: self.local.values().any(|s| {
         matches!(
-          s.state.borrow().kind,
+          s.state.kind,
           InspectorSessionKind::NonBlocking {
             wait_for_disconnect: true
           }
@@ -655,31 +655,27 @@ impl task::ArcWake for InspectorWaker {
   }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Copy, Debug)]
 pub enum InspectorSessionKind {
   Blocking,
   NonBlocking { wait_for_disconnect: bool },
 }
 
+#[derive(Clone)]
 struct InspectorSessionState {
   is_dispatching_message: Rc<RefCell<bool>>,
-  send: InspectorSessionSend,
-  rx: Option<SessionProxyReceiver>,
+  send: Rc<InspectorSessionSend>,
+  rx: Rc<RefCell<Option<SessionProxyReceiver>>>,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
-}
-
-#[derive(Clone)]
-struct InspectorSessionInner {
-  state: Rc<RefCell<InspectorSessionState>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
 /// eg. Websocket or another set of channels.
 struct InspectorSession {
   v8_session: v8::inspector::V8InspectorSession,
-  state: Rc<RefCell<InspectorSessionState>>,
+  state: InspectorSessionState,
 }
 
 impl InspectorSession {
@@ -694,33 +690,27 @@ impl InspectorSession {
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
-      send,
-      rx,
+      send: Rc::new(send),
+      rx: Rc::new(RefCell::new(rx)),
       kind: options.kind,
-    };
-    let inner = InspectorSessionInner {
-      state: Rc::new(RefCell::new(state)),
     };
 
     let v8_session = v8_inspector.connect(
       Self::CONTEXT_GROUP_ID,
-      v8::inspector::Channel::new(Box::new(inner.clone())),
+      v8::inspector::Channel::new(Box::new(state.clone())),
       v8::inspector::StringView::empty(),
       v8::inspector::V8InspectorClientTrustLevel::FullyTrusted,
     );
 
-    Rc::new(Self {
-      v8_session,
-      state: inner.state.clone(),
-    })
+    Rc::new(Self { v8_session, state })
   }
 
   // Dispatch message to V8 session
   fn dispatch_message(&self, msg: String) {
-    *self.state.borrow().is_dispatching_message.borrow_mut() = true;
+    *self.state.is_dispatching_message.borrow_mut() = true;
     let msg = v8::inspector::StringView::from(msg.as_bytes());
     self.v8_session.dispatch_protocol_message(msg);
-    *self.state.borrow().is_dispatching_message.borrow_mut() = false;
+    *self.state.is_dispatching_message.borrow_mut() = false;
   }
 
   pub fn break_on_next_statement(&self) {
@@ -732,21 +722,21 @@ impl InspectorSession {
   }
 }
 
-impl InspectorSessionInner {
+impl InspectorSessionState {
   fn send_message(
     &self,
     msg_kind: InspectorMsgKind,
     msg: v8::UniquePtr<v8::inspector::StringBuffer>,
   ) {
     let msg = msg.unwrap().string().to_string();
-    (self.state.borrow().send)(InspectorMsg {
+    (self.send)(InspectorMsg {
       kind: msg_kind,
       content: msg,
     });
   }
 }
 
-impl v8::inspector::ChannelImpl for InspectorSessionInner {
+impl v8::inspector::ChannelImpl for InspectorSessionState {
   fn send_response(
     &self,
     call_id: i32,
@@ -768,7 +758,7 @@ impl v8::inspector::ChannelImpl for InspectorSessionInner {
 type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
-  let mut rx = session.state.borrow_mut().rx.take().unwrap();
+  let mut rx = session.state.rx.borrow_mut().take().unwrap();
   while let Some(msg) = rx.next().await {
     session.dispatch_message(msg);
   }
