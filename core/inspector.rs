@@ -225,10 +225,8 @@ impl JsRuntimeInspectorState {
         };
       }
 
-      let should_block = {
-        let flags = self.flags.borrow();
-        flags.on_pause || flags.waiting_for_session
-      };
+      let should_block =
+        self.flags.borrow().on_pause || self.flags.borrow().waiting_for_session;
 
       let new_state = self.waker.update(|w| {
         match w.poll_state {
@@ -249,7 +247,7 @@ impl JsRuntimeInspectorState {
             }
             // Register the address of the inspector, which allows the waker
             // to request an interrupt from the isolate.
-            w.inspector_state_ptr = NonNull::new(self as *const _ as *mut Self);
+            w.state_ptr = NonNull::new(self as *const _ as *mut Self);
           }
           PollState::Polling if should_block => {
             // Isolate execution has been paused but there are no more
@@ -447,28 +445,25 @@ impl JsRuntimeInspector {
     callback: InspectorSessionSend,
     options: InspectorSessionOptions,
   ) -> LocalInspectorSession {
-    let (session_id, sessions) = {
-      let sessions = inspector.state.sessions.clone();
+    let sessions = inspector.state.sessions.clone();
 
-      let inspector_session = InspectorSession::new(
-        inspector.v8_inspector.clone(),
-        inspector.state.is_dispatching_message.clone(),
-        callback,
-        None,
-        options,
-      );
+    let inspector_session = InspectorSession::new(
+      inspector.v8_inspector.clone(),
+      inspector.state.is_dispatching_message.clone(),
+      callback,
+      None,
+      options,
+    );
 
-      let session_id = {
-        let mut s = sessions.borrow_mut();
-        let id = s.next_local_id;
-        s.next_local_id += 1;
-        assert!(s.local.insert(id, inspector_session).is_none());
-        id
-      };
-
-      take(&mut inspector.state.flags.borrow_mut().waiting_for_session);
-      (session_id, sessions)
+    let session_id = {
+      let mut s = sessions.borrow_mut();
+      let id = s.next_local_id;
+      s.next_local_id += 1;
+      assert!(s.local.insert(id, inspector_session).is_none());
+      id
     };
+
+    take(&mut inspector.state.flags.borrow_mut().waiting_for_session);
 
     LocalInspectorSession::new(session_id, sessions)
   }
@@ -583,7 +578,7 @@ struct InspectorWakerInner {
   poll_state: PollState,
   task_waker: Option<task::Waker>,
   parked_thread: Option<thread::Thread>,
-  inspector_state_ptr: Option<NonNull<JsRuntimeInspectorState>>,
+  state_ptr: Option<NonNull<JsRuntimeInspectorState>>,
   isolate_handle: v8::IsolateHandle,
 }
 
@@ -598,7 +593,7 @@ impl InspectorWaker {
       poll_state: PollState::Idle,
       task_waker: None,
       parked_thread: None,
-      inspector_state_ptr: None,
+      state_ptr: None,
       isolate_handle,
     };
     Arc::new(Self(Mutex::new(inner)))
@@ -624,10 +619,8 @@ impl task::ArcWake for InspectorWaker {
           }
           // Request an interrupt from the isolate if it's running and there's
           // not unhandled interrupt request in flight.
-          if let Some(arg) = w
-            .inspector_state_ptr
-            .take()
-            .map(|ptr| ptr.as_ptr() as *mut c_void)
+          if let Some(arg) =
+            w.state_ptr.take().map(|ptr| ptr.as_ptr() as *mut c_void)
           {
             w.isolate_handle.request_interrupt(handle_interrupt, arg);
           }
