@@ -391,7 +391,7 @@ impl JsRuntimeInspector {
 
   /// This function blocks the thread until at least one inspector client has
   /// established a websocket connection.
-  pub fn wait_for_session(&mut self) {
+  pub fn wait_for_session(&self) {
     loop {
       if let Some(_session) =
         self.state.sessions.borrow_mut().local.values().next()
@@ -411,7 +411,7 @@ impl JsRuntimeInspector {
   /// After that, it instructs V8 to pause at the next statement.
   /// Frontend must send "Runtime.runIfWaitingForDebugger" message to resume
   /// execution.
-  pub fn wait_for_session_and_break_on_next_statement(&mut self) {
+  pub fn wait_for_session_and_break_on_next_statement(&self) {
     loop {
       if let Some(session) =
         self.state.sessions.borrow_mut().local.values().next()
