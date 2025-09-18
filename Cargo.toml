@@ -28,7 +28,7 @@ deno_error = { version = "0.7.0", features = ["serde_json", "serde", "url", "tok
 deno_ops = { version = "0.234.0", path = "./ops" }
 deno_unsync = "0.4.2"
 serde_v8 = { version = "0.267.0", path = "./serde_v8" }
-v8 = { version = "140.0.0", default-features = false }
+v8 = { version = "140.1.0", default-features = false }
 
 anyhow = "1"
 bencher = "0.1"
@@ -95,6 +95,3 @@ codegen-units = 1
 incremental = true
 lto = true
 opt-level = 'z' # Optimize for size
-
-[patch.crates-io]
-v8 = { path = "../rusty_v8" }
