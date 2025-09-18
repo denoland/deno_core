@@ -1,11 +1,3 @@
-error[E0433]: failed to resolve: use of unresolved module or unlinked crate `v8`
- --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
-  |
-  |   fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
-  |                                  ^^ use of unresolved module or unlinked crate `v8`
-  |
-  = help: if you wanted to use a crate named `v8`, use `cargo add v8` to add it to your `Cargo.toml`
-
 error[E0716]: temporary value dropped while borrowed
  --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
   |
