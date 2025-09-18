@@ -173,12 +173,14 @@ impl JsRuntimeInspectorState {
       return Err(());
     };
 
+    // current_state -> PollState::Idle
     self.waker.update(|w| {
       match w.poll_state {
         PollState::Idle | PollState::Woken => w.poll_state = PollState::Polling,
         _ => unreachable!(),
       };
     });
+    // current_state -> PollState::Polling
 
     // Create a new Context object that will make downstream futures
     // use the InspectorWaker when they are ready to be polled again.
@@ -186,11 +188,22 @@ impl JsRuntimeInspectorState {
     let cx = &mut Context::from_waker(&waker_ref);
 
     loop {
+      // current_state -> PollState::Polling
+      // handshake is empty
+      // starts polling for session_rx -> must be non-ready
+      // self.established is empty - must be pending/poll::ready(None)
       sessions.pump_messages_for_remote_sessions(cx);
 
+      // current_state -> PollState::Polling
+      // both flags are false
       let should_block =
         self.flags.borrow().on_pause || self.flags.borrow().waiting_for_session;
 
+      // current_state -> PollState::Polling and should_block = false
+      // going to idle, registers the waker context if any - and it's `None` because it's on creation
+      // stores the state_ptr
+      // when the waker wakes from the outside, the `state_ptr` is used to poll remote sessions
+      // and make progress
       let new_state = self.waker.update(|w| {
         match w.poll_state {
           PollState::Woken => {
