@@ -186,44 +186,7 @@ impl JsRuntimeInspectorState {
     let cx = &mut Context::from_waker(&waker_ref);
 
     loop {
-      loop {
-        // Do one "handshake" with a newly connected session at a time.
-        if let Some(session) = sessions.handshake.take() {
-          let mut fut =
-            pump_inspector_session_messages(session.clone()).boxed_local();
-          let _ = fut.poll_unpin(cx);
-          sessions.established.push(fut);
-          let id = sessions.next_local_id;
-          sessions.next_local_id += 1;
-          sessions.local.insert(id, session);
-          continue;
-        }
-
-        // Accept new connections.
-        let poll_result = sessions.session_rx.poll_next_unpin(cx);
-        if let Poll::Ready(Some(session_proxy)) = poll_result {
-          let session = InspectorSession::new(
-            sessions.v8_inspector.as_ref().unwrap().clone(),
-            self.is_dispatching_message.clone(),
-            Box::new(move |msg| {
-              let _ = session_proxy.tx.unbounded_send(msg);
-            }),
-            Some(session_proxy.rx),
-            session_proxy.options,
-          );
-          let prev = sessions.handshake.replace(session);
-          assert!(prev.is_none());
-        }
-
-        // Poll established sessions.
-        match sessions.established.poll_next_unpin(cx) {
-          Poll::Ready(Some(())) => {
-            continue;
-          }
-          Poll::Ready(None) => break,
-          Poll::Pending => break,
-        };
-      }
+      sessions.pump_messages_for_remote_sessions(cx);
 
       let should_block =
         self.flags.borrow().on_pause || self.flags.borrow().waiting_for_session;
@@ -306,8 +269,11 @@ impl JsRuntimeInspector {
       v8_inspector_client,
     ));
 
-    *state.sessions.borrow_mut() =
-      SessionContainer::new(v8_inspector.clone(), new_session_rx);
+    *state.sessions.borrow_mut() = SessionContainer::new(
+      v8_inspector.clone(),
+      new_session_rx,
+      state.is_dispatching_message.clone(),
+    );
 
     // Tell the inspector about the main realm.
     let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
@@ -493,6 +459,7 @@ pub struct SessionsState {
 pub struct SessionContainer {
   v8_inspector: Option<Rc<v8::inspector::V8Inspector>>,
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
+  is_dispatching_message: Rc<RefCell<bool>>,
   handshake: Option<Rc<InspectorSession>>,
   established: FuturesUnordered<InspectorSessionPumpMessages>,
   next_local_id: i32,
@@ -503,6 +470,7 @@ impl SessionContainer {
   fn new(
     v8_inspector: Rc<v8::inspector::V8Inspector>,
     new_session_rx: UnboundedReceiver<InspectorSessionProxy>,
+    is_dispatching_message: Rc<RefCell<bool>>,
   ) -> Self {
     Self {
       v8_inspector: Some(v8_inspector),
@@ -511,6 +479,7 @@ impl SessionContainer {
       established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
+      is_dispatching_message,
     }
   }
 
@@ -561,6 +530,7 @@ impl SessionContainer {
       established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
+      is_dispatching_message: Default::default(),
     }
   }
 
@@ -571,6 +541,47 @@ impl SessionContainer {
   ) {
     let session = self.local.get(&session_id).unwrap();
     session.dispatch_message(message);
+  }
+
+  fn pump_messages_for_remote_sessions(&mut self, cx: &mut Context) {
+    loop {
+      // Do one "handshake" with a newly connected session at a time.
+      if let Some(session) = self.handshake.take() {
+        let mut fut =
+          pump_inspector_session_messages(session.clone()).boxed_local();
+        let _ = fut.poll_unpin(cx);
+        self.established.push(fut);
+        let id = self.next_local_id;
+        self.next_local_id += 1;
+        self.local.insert(id, session);
+        continue;
+      }
+
+      // Accept new connections.
+      let poll_result = self.session_rx.poll_next_unpin(cx);
+      if let Poll::Ready(Some(session_proxy)) = poll_result {
+        let session = InspectorSession::new(
+          self.v8_inspector.as_ref().unwrap().clone(),
+          self.is_dispatching_message.clone(),
+          Box::new(move |msg| {
+            let _ = session_proxy.tx.unbounded_send(msg);
+          }),
+          Some(session_proxy.rx),
+          session_proxy.options,
+        );
+        let prev = self.handshake.replace(session);
+        assert!(prev.is_none());
+      }
+
+      // Poll established sessions.
+      match self.established.poll_next_unpin(cx) {
+        Poll::Ready(Some(())) => {
+          continue;
+        }
+        Poll::Ready(None) => break,
+        Poll::Pending => break,
+      };
+    }
   }
 }
 
