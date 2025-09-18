@@ -189,6 +189,7 @@ impl JsRuntimeInspectorState {
       loop {
         // Do one "handshake" with a newly connected session at a time.
         if let Some(session) = sessions.handshake.take() {
+          eprintln!("starting pumping future!");
           let mut fut =
             pump_inspector_session_messages(session.clone()).boxed_local();
           let _ = fut.poll_unpin(cx);
@@ -202,6 +203,7 @@ impl JsRuntimeInspectorState {
         // Accept new connections.
         let poll_result = sessions.session_rx.poll_next_unpin(cx);
         if let Poll::Ready(Some(session_proxy)) = poll_result {
+          eprintln!("session receive");
           let session = InspectorSession::new(
             sessions.v8_inspector.as_ref().unwrap().clone(),
             self.is_dispatching_message.clone(),
@@ -213,15 +215,24 @@ impl JsRuntimeInspectorState {
           );
           let prev = sessions.handshake.replace(session);
           assert!(prev.is_none());
+          eprintln!("put into handshake +1");
         }
 
+        // eprintln!("polling established");
         // Poll established sessions.
         match sessions.established.poll_next_unpin(cx) {
           Poll::Ready(Some(())) => {
+            // eprintln!("polling established 1");
             continue;
           }
-          Poll::Ready(None) => break,
-          Poll::Pending => break,
+          Poll::Ready(None) => {
+            // eprintln!("polling established 2");
+            break;
+          }
+          Poll::Pending => {
+            // eprintln!("polling established 3");
+            break;
+          }
         };
       }
 
@@ -729,6 +740,7 @@ impl InspectorSessionState {
     msg: v8::UniquePtr<v8::inspector::StringBuffer>,
   ) {
     let msg = msg.unwrap().string().to_string();
+    eprintln!("send messaage {} from inspector", msg);
     (self.send)(InspectorMsg {
       kind: msg_kind,
       content: msg,
@@ -760,8 +772,12 @@ type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
   while let Some(msg) = rx.next().await {
+    eprintln!("dispatching message {}", msg);
     session.dispatch_message(msg);
   }
+  eprintln!(
+    "receiver returned None - exiting `pump_inspector_session_messages"
+  );
 }
 
 #[derive(Debug, Boxed)]
