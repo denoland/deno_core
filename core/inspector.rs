@@ -291,6 +291,34 @@ impl JsRuntimeInspector {
       state.is_dispatching_message.clone(),
     );
 
+    let inspector = Rc::new(Self {
+      v8_inspector,
+      state,
+      new_session_tx,
+      deregister_tx: RefCell::new(None),
+    });
+
+    inspector.context_created(context, is_main_runtime);
+    // TODO(bartlomieju): we need to only poll `session_rx` once - just
+    // to register the task context, at this point it's guaranteed there are
+    // senders, so no need to call the complicated `poll_sessions`.
+
+    // Poll the session handler so we will get notified whenever there is
+    // new incoming debugger activity.
+    let _ = inspector.state.poll_sessions(None).unwrap();
+
+    inspector
+  }
+
+  pub(crate) fn is_dispatching_message(&self) -> bool {
+    *self.state.is_dispatching_message.borrow()
+  }
+
+  pub fn context_created(
+    &self,
+    context: v8::Local<v8::Context>,
+    is_main_runtime: bool,
+  ) {
     // Tell the inspector about the main realm.
     let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
     // NOTE(bartlomieju): this is what Node.js does and it turns out some
@@ -302,27 +330,12 @@ impl JsRuntimeInspector {
       r#"{"isDefault": false}"#
     };
     let aux_data_view = v8::inspector::StringView::from(aux_data.as_bytes());
-    v8_inspector.context_created(
+    self.v8_inspector.context_created(
       context,
       Self::CONTEXT_GROUP_ID,
       context_name,
       aux_data_view,
     );
-
-    // Poll the session handler so we will get notified whenever there is
-    // new incoming debugger activity.
-    let _ = state.poll_sessions(None).unwrap();
-
-    Rc::new(Self {
-      v8_inspector,
-      state,
-      new_session_tx,
-      deregister_tx: RefCell::new(None),
-    })
-  }
-
-  pub fn is_dispatching_message(&self) -> bool {
-    *self.state.is_dispatching_message.borrow()
   }
 
   pub fn context_destroyed(
@@ -361,11 +374,11 @@ impl JsRuntimeInspector {
     );
   }
 
-  pub fn sessions_state(&self) -> SessionsState {
+  pub(crate) fn sessions_state(&self) -> SessionsState {
     self.state.sessions.borrow().sessions_state()
   }
 
-  pub fn poll_sessions_from_event_loop(&self, cx: &mut Context) {
+  pub(crate) fn poll_sessions_from_event_loop(&self, cx: &mut Context) {
     let _ = self.state.poll_sessions(Some(cx)).unwrap();
   }
 
