@@ -191,7 +191,6 @@ impl JsRuntimeInspectorState {
 
     loop {
       // current_state -> PollState::Polling
-      // handshake is empty
       // starts polling for session_rx -> must be non-ready
       // self.established is empty - must be pending/poll::ready(None)
       sessions.pump_messages_for_remote_sessions(cx);
@@ -477,7 +476,6 @@ pub struct SessionContainer {
   v8_inspector: Option<Rc<v8::inspector::V8Inspector>>,
   session_rx: UnboundedReceiver<InspectorSessionProxy>,
   is_dispatching_message: Rc<RefCell<bool>>,
-  handshake: Option<Rc<InspectorSession>>,
   established: FuturesUnordered<InspectorSessionPumpMessages>,
   next_local_id: i32,
   local: HashMap<i32, Rc<InspectorSession>>,
@@ -492,7 +490,6 @@ impl SessionContainer {
     Self {
       v8_inspector: Some(v8_inspector),
       session_rx: new_session_rx,
-      handshake: None,
       established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
@@ -506,16 +503,13 @@ impl SessionContainer {
   /// all sessions before dropping the inspector instance.
   fn drop_sessions(&mut self) {
     self.v8_inspector = Default::default();
-    self.handshake.take();
     self.established.clear();
     self.local.clear();
   }
 
   fn sessions_state(&self) -> SessionsState {
     SessionsState {
-      has_active: !self.established.is_empty()
-        || self.handshake.is_some()
-        || !self.local.is_empty(),
+      has_active: !self.established.is_empty() || !self.local.is_empty(),
       has_blocking: self
         .local
         .values()
@@ -543,7 +537,6 @@ impl SessionContainer {
     Self {
       v8_inspector: Default::default(),
       session_rx: rx,
-      handshake: None,
       established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
@@ -556,24 +549,14 @@ impl SessionContainer {
     session_id: i32,
     message: String,
   ) {
-    let session = self.local.get(&session_id).unwrap();
-    session.dispatch_message(message);
+    if let Some(session) = self.local.get(&session_id) {
+      session.dispatch_message(message);
+    }
   }
 
+  // TODO(bartlomieju): keep simplifying this function
   fn pump_messages_for_remote_sessions(&mut self, cx: &mut Context) {
     loop {
-      // Do one "handshake" with a newly connected session at a time.
-      if let Some(session) = self.handshake.take() {
-        let mut fut =
-          pump_inspector_session_messages(session.clone()).boxed_local();
-        let _ = fut.poll_unpin(cx);
-        self.established.push(fut);
-        let id = self.next_local_id;
-        self.next_local_id += 1;
-        self.local.insert(id, session);
-        continue;
-      }
-
       // Accept new connections.
       let poll_result = self.session_rx.poll_next_unpin(cx);
       if let Poll::Ready(Some(session_proxy)) = poll_result {
@@ -586,8 +569,16 @@ impl SessionContainer {
           Some(session_proxy.rx),
           session_proxy.options,
         );
-        let prev = self.handshake.replace(session);
-        assert!(prev.is_none());
+        let mut fut =
+          pump_inspector_session_messages(session.clone()).boxed_local();
+        let _ = fut.poll_unpin(cx);
+        self.established.push(fut);
+        let id = self.next_local_id;
+        self.next_local_id += 1;
+        self.local.insert(id, session);
+        // TODO(bartlomieju): decide on this - should we drain the `session_rx` queue fully
+        // before polling `established` sessions?
+        continue;
       }
 
       // Poll established sessions.
