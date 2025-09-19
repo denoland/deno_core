@@ -586,7 +586,7 @@ impl SessionContainer {
           Some(session_proxy.rx),
           session_proxy.options,
         );
-        let prev = sessions.handshake.replace(session);
+        let prev = self.handshake.replace(session);
         assert!(prev.is_none());
       }
 
