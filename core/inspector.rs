@@ -83,7 +83,7 @@ pub struct JsRuntimeInspector {
   v8_inspector: Rc<v8::inspector::V8Inspector>,
   new_session_tx: UnboundedSender<InspectorSessionProxy>,
   deregister_tx: RefCell<Option<oneshot::Sender<()>>>,
-  state: JsRuntimeInspectorState,
+  state: Rc<JsRuntimeInspectorState>,
 }
 
 impl Drop for JsRuntimeInspector {
@@ -121,20 +121,22 @@ struct JsRuntimeInspectorState {
   is_dispatching_message: Rc<RefCell<bool>>,
 }
 
-impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorState {
+struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
+
+impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    self.flags.borrow_mut().on_pause = true;
-    let _ = self.poll_sessions(None);
+    self.0.flags.borrow_mut().on_pause = true;
+    let _ = self.0.poll_sessions(None);
   }
 
   fn quit_message_loop_on_pause(&self) {
-    self.flags.borrow_mut().on_pause = false;
+    self.0.flags.borrow_mut().on_pause = false;
   }
 
   fn run_if_waiting_for_debugger(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    self.flags.borrow_mut().waiting_for_session = false;
+    self.0.flags.borrow_mut().waiting_for_session = false;
   }
 
   fn ensure_default_context_in_group(
@@ -142,8 +144,8 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorState {
     context_group_id: i32,
   ) -> Option<v8::Local<'_, v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    let context = self.context.clone();
-    let isolate: &mut v8::Isolate = unsafe { &mut *(self.isolate_ptr) };
+    let context = self.0.context.clone();
+    let isolate: &mut v8::Isolate = unsafe { &mut *(self.0.isolate_ptr) };
     let scope = &mut unsafe { v8::CallbackScope::new(isolate) };
     Some(v8::Local::new(scope, context))
   }
@@ -196,8 +198,10 @@ impl JsRuntimeInspectorState {
 
       // current_state -> PollState::Polling
       // both flags are false
-      let should_block =
-        self.flags.borrow().on_pause || self.flags.borrow().waiting_for_session;
+      let should_block = {
+        let flags = self.flags.borrow();
+        flags.on_pause || flags.waiting_for_session
+      };
 
       // current_state -> PollState::Polling and should_block = false
       // going to idle, registers the waker context if any - and it's `None` because it's on creation
@@ -265,7 +269,7 @@ impl JsRuntimeInspector {
 
     let waker = InspectorWaker::new(scope.thread_safe_handle());
 
-    let state = JsRuntimeInspectorState {
+    let state = Rc::new(JsRuntimeInspectorState {
       waker,
       flags: Default::default(),
       isolate_ptr,
@@ -274,9 +278,9 @@ impl JsRuntimeInspector {
         RefCell::new(SessionContainer::temporary_placeholder()),
       ),
       is_dispatching_message: Default::default(),
-    };
-    let v8_inspector_client =
-      v8::inspector::V8InspectorClient::new(Box::new(state.clone()));
+    });
+    let client = Box::new(JsRuntimeInspectorClient(state.clone()));
+    let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
     let v8_inspector = Rc::new(v8::inspector::V8Inspector::create(
       scope,
       v8_inspector_client,
@@ -582,7 +586,7 @@ impl SessionContainer {
           Some(session_proxy.rx),
           session_proxy.options,
         );
-        let prev = self.handshake.replace(session);
+        let prev = sessions.handshake.replace(session);
         assert!(prev.is_none());
       }
 
@@ -591,8 +595,12 @@ impl SessionContainer {
         Poll::Ready(Some(())) => {
           continue;
         }
-        Poll::Ready(None) => break,
-        Poll::Pending => break,
+        Poll::Ready(None) => {
+          break;
+        }
+        Poll::Pending => {
+          break;
+        }
       };
     }
   }
