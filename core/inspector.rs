@@ -83,7 +83,7 @@ pub struct JsRuntimeInspector {
   v8_inspector: Rc<v8::inspector::V8Inspector>,
   new_session_tx: UnboundedSender<InspectorSessionProxy>,
   deregister_tx: RefCell<Option<oneshot::Sender<()>>>,
-  state: JsRuntimeInspectorState,
+  state: Rc<JsRuntimeInspectorState>,
 }
 
 impl Drop for JsRuntimeInspector {
@@ -121,20 +121,22 @@ struct JsRuntimeInspectorState {
   is_dispatching_message: Rc<RefCell<bool>>,
 }
 
-impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorState {
+struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
+
+impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    self.flags.borrow_mut().on_pause = true;
-    let _ = self.poll_sessions(None);
+    self.0.flags.borrow_mut().on_pause = true;
+    let _ = self.0.poll_sessions(None);
   }
 
   fn quit_message_loop_on_pause(&self) {
-    self.flags.borrow_mut().on_pause = false;
+    self.0.flags.borrow_mut().on_pause = false;
   }
 
   fn run_if_waiting_for_debugger(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    self.flags.borrow_mut().waiting_for_session = false;
+    self.0.flags.borrow_mut().waiting_for_session = false;
   }
 
   fn ensure_default_context_in_group(
@@ -142,8 +144,8 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorState {
     context_group_id: i32,
   ) -> Option<v8::Local<'_, v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
-    let context = self.context.clone();
-    let isolate: &mut v8::Isolate = unsafe { &mut *(self.isolate_ptr) };
+    let context = self.0.context.clone();
+    let isolate: &mut v8::Isolate = unsafe { &mut *(self.0.isolate_ptr) };
     let scope = &mut unsafe { v8::CallbackScope::new(isolate) };
     Some(v8::Local::new(scope, context))
   }
@@ -189,7 +191,6 @@ impl JsRuntimeInspectorState {
       loop {
         // Do one "handshake" with a newly connected session at a time.
         if let Some(session) = sessions.handshake.take() {
-          eprintln!("starting pumping future!");
           let mut fut =
             pump_inspector_session_messages(session.clone()).boxed_local();
           let _ = fut.poll_unpin(cx);
@@ -203,7 +204,6 @@ impl JsRuntimeInspectorState {
         // Accept new connections.
         let poll_result = sessions.session_rx.poll_next_unpin(cx);
         if let Poll::Ready(Some(session_proxy)) = poll_result {
-          eprintln!("session receive");
           let session = InspectorSession::new(
             sessions.v8_inspector.as_ref().unwrap().clone(),
             self.is_dispatching_message.clone(),
@@ -215,22 +215,17 @@ impl JsRuntimeInspectorState {
           );
           let prev = sessions.handshake.replace(session);
           assert!(prev.is_none());
-          eprintln!("put into handshake +1");
         }
 
-        // eprintln!("polling established");
         // Poll established sessions.
         match sessions.established.poll_next_unpin(cx) {
           Poll::Ready(Some(())) => {
-            // eprintln!("polling established 1");
             continue;
           }
           Poll::Ready(None) => {
-            // eprintln!("polling established 2");
             break;
           }
           Poll::Pending => {
-            // eprintln!("polling established 3");
             break;
           }
         };
@@ -302,7 +297,7 @@ impl JsRuntimeInspector {
 
     let waker = InspectorWaker::new(scope.thread_safe_handle());
 
-    let state = JsRuntimeInspectorState {
+    let state = Rc::new(JsRuntimeInspectorState {
       waker,
       flags: Default::default(),
       isolate_ptr,
@@ -311,9 +306,9 @@ impl JsRuntimeInspector {
         RefCell::new(SessionContainer::temporary_placeholder()),
       ),
       is_dispatching_message: Default::default(),
-    };
-    let v8_inspector_client =
-      v8::inspector::V8InspectorClient::new(Box::new(state.clone()));
+    });
+    let client = Box::new(JsRuntimeInspectorClient(state.clone()));
+    let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
     let v8_inspector = Rc::new(v8::inspector::V8Inspector::create(
       scope,
       v8_inspector_client,
@@ -740,7 +735,6 @@ impl InspectorSessionState {
     msg: v8::UniquePtr<v8::inspector::StringBuffer>,
   ) {
     let msg = msg.unwrap().string().to_string();
-    eprintln!("send messaage {} from inspector", msg);
     (self.send)(InspectorMsg {
       kind: msg_kind,
       content: msg,
@@ -772,12 +766,8 @@ type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
   while let Some(msg) = rx.next().await {
-    eprintln!("dispatching message {}", msg);
     session.dispatch_message(msg);
   }
-  eprintln!(
-    "receiver returned None - exiting `pump_inspector_session_messages"
-  );
 }
 
 #[derive(Debug, Boxed)]
