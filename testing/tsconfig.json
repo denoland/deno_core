@@ -13,8 +13,7 @@
       "checkin:timers": ["checkin/runtime/timers.ts"],
       "checkin:worker": ["checkin/runtime/worker.ts"],
       "checkin:object": ["checkin/runtime/object.ts"],
-      "checkin:callsite": ["checkin/runtime/callsite.ts"],
-      "checkin:primordials": ["checkin/runtime/primordials.ts"]
+      "checkin:callsite": ["checkin/runtime/callsite.ts"]
     },
     "lib": ["ESNext", "DOM", "ES2023.Array"],
     "module": "ESNext",
