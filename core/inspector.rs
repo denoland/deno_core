@@ -408,15 +408,13 @@ impl JsRuntimeInspector {
   /// io_session_futures a websocket connection.
   pub fn wait_for_session(&self) {
     loop {
-      if let Some(_session) =
-        self.state.sessions.borrow_mut().local.values().next()
-      {
+      if !self.state.sessions.borrow_mut().local.is_empty() {
         self.state.flags.borrow_mut().waiting_for_session = false;
         break;
-      } else {
-        self.state.flags.borrow_mut().waiting_for_session = true;
-        let _ = self.state.poll_sessions(None).unwrap();
       }
+
+      self.state.flags.borrow_mut().waiting_for_session = true;
+      let _ = self.state.poll_sessions(None).unwrap();
     }
   }
 
@@ -428,13 +426,15 @@ impl JsRuntimeInspector {
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&self) {
     loop {
+      // TODO(bartlomieju): why the first random session?
       if let Some(session) = self.state.sessions.borrow().local.values().next()
       {
-        break session.break_on_next_statement();
-      } else {
-        self.state.flags.borrow_mut().waiting_for_session = true;
-        let _ = self.state.poll_sessions(None).unwrap();
+        session.break_on_next_statement();
+        break;
       }
+
+      self.state.flags.borrow_mut().waiting_for_session = true;
+      let _ = self.state.poll_sessions(None).unwrap();
     }
   }
 
@@ -480,7 +480,6 @@ struct InspectorFlags {
 pub struct SessionsState {
   pub has_active: bool,
   pub has_blocking: bool,
-  pub has_nonblocking: bool,
   pub has_nonblocking_wait_for_disconnect: bool,
 }
 
@@ -533,9 +532,6 @@ impl SessionContainer {
         .local
         .values()
         .any(|s| matches!(s.state.kind, InspectorSessionKind::Blocking)),
-      has_nonblocking: self.local.values().any(|s| {
-        matches!(s.state.kind, InspectorSessionKind::NonBlocking { .. })
-      }),
       has_nonblocking_wait_for_disconnect: self.local.values().any(|s| {
         matches!(
           s.state.kind,
@@ -811,34 +807,6 @@ async fn pump_inspector_session_messages(
 ) {
   while let Some(msg) = rx.next().await {
     session.dispatch_message(msg);
-  }
-}
-
-#[derive(Debug, Boxed)]
-pub struct InspectorPostMessageError(pub Box<InspectorPostMessageErrorKind>);
-
-#[derive(Debug, Error)]
-pub enum InspectorPostMessageErrorKind {
-  #[error(transparent)]
-  JsBox(#[from] JsErrorBox),
-  #[error(transparent)]
-  FutureCanceled(futures::channel::oneshot::Canceled),
-}
-
-impl From<InspectorPostMessageError> for CoreError {
-  fn from(value: InspectorPostMessageError) -> Self {
-    CoreErrorKind::JsBox(value.into_js_error_box()).into_box()
-  }
-}
-
-impl InspectorPostMessageError {
-  pub fn into_js_error_box(self) -> JsErrorBox {
-    match self.into_kind() {
-      InspectorPostMessageErrorKind::JsBox(e) => e,
-      InspectorPostMessageErrorKind::FutureCanceled(e) => {
-        JsErrorBox::generic(e.to_string())
-      }
-    }
   }
 }
 
