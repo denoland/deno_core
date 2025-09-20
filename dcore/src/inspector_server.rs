@@ -13,7 +13,6 @@ use deno_core::futures::channel::mpsc::UnboundedReceiver;
 use deno_core::futures::channel::mpsc::UnboundedSender;
 use deno_core::futures::channel::oneshot;
 use deno_core::futures::prelude::*;
-use deno_core::futures::select;
 use deno_core::futures::stream::StreamExt;
 use deno_core::serde_json::Value;
 use deno_core::serde_json::json;
@@ -195,7 +194,7 @@ fn handle_ws_request(
     let (inbound_tx, inbound_rx) = mpsc::unbounded();
 
     let inspector_session_proxy = InspectorSessionProxy {
-      tx: outbound_tx,
+      tx: outbound_tx.clone(),
       rx: inbound_rx,
       options: InspectorSessionOptions {
         kind: InspectorSessionKind::NonBlocking {
@@ -206,7 +205,24 @@ fn handle_ws_request(
 
     eprintln!("Debugger session started.");
     let _ = new_session_tx.unbounded_send(inspector_session_proxy);
+    // spawn(async move {
+    //   tokio::time::sleep(Duration::from_secs(5)).await;
+    //   let r = outbound_tx.unbounded_send(InspectorMsg {
+    //     kind: deno_core::InspectorMsgKind::Message(1099),
+    //     content: serde_json::to_string(&serde_json::json!({
+    //       "targetId": "deno-worker-1",
+    //       "title": "deno_core-worker-1",
+    //       "type": "node_worker",
+    //       "url": "ws://localhost:9329/asdf/sdf",
+    //       "attached": false,
+    //       "canAccessOpener": true
+    //     }))
+    //     .unwrap(),
+    //   });
+    //   eprintln!("sent target inspect message");
+    // });
     pump_websocket_messages(websocket, inbound_tx, outbound_rx).await;
+    // TODO(bartlomieju): does this deregister inspector from `JsRuntime` correctly?
   });
 
   Ok(resp)
@@ -252,34 +268,18 @@ async fn server(
     Rc::new(RefCell::new(HashMap::<Uuid, InspectorInfo>::new()));
 
   let inspector_map = Rc::clone(&inspector_map_);
-  let mut register_inspector_handler = pin!(
-    register_inspector_rx
-      .map(|info| {
-        eprintln!(
-          "Debugger listening on {}",
-          info.get_websocket_debugger_url(&info.host.to_string())
-        );
-        eprintln!("Visit chrome://inspect to connect to the debugger.");
-        if info.wait_for_session {
-          eprintln!("Deno is waiting for debugger to connect.");
-        }
-        if inspector_map.borrow_mut().insert(info.uuid, info).is_some() {
-          panic!("Inspector UUID already in map");
-        }
-      })
-      .collect::<()>()
-  );
+  let register_inspector_handler =
+    listen_for_new_inspectors(register_inspector_rx, inspector_map.clone())
+      .boxed_local();
 
   let inspector_map = Rc::clone(&inspector_map_);
-  let mut deregister_inspector_handler = pin!(
-    future::poll_fn(|cx| {
-      inspector_map
-        .borrow_mut()
-        .retain(|_, info| info.deregister_rx.poll_unpin(cx) == Poll::Pending);
-      Poll::<Never>::Pending
-    })
-    .fuse()
-  );
+  let deregister_inspector_handler = future::poll_fn(|cx| {
+    inspector_map
+      .borrow_mut()
+      .retain(|_, info| info.deregister_rx.poll_unpin(cx) == Poll::Pending);
+    Poll::<Never>::Pending
+  })
+  .boxed_local();
 
   let json_version_response = json!({
     "Browser": name,
@@ -296,99 +296,116 @@ async fn server(
     }
   };
 
-  let mut server_handler = pin!(
-    deno_core::unsync::spawn(async move {
-      loop {
-        let mut rx = shutdown_server_rx.resubscribe();
-        let mut shutdown_rx = pin!(rx.recv());
-        let mut accept = pin!(listener.accept());
+  let server_handler = async move {
+    loop {
+      let mut rx = shutdown_server_rx.resubscribe();
+      let mut shutdown_rx = pin!(rx.recv());
+      let mut accept = pin!(listener.accept());
 
-        let stream = tokio::select! {
-          accept_result = &mut accept => {
-            match accept_result {
-              Ok((s, _)) => s,
-              Err(err) => {
-                eprintln!("Failed to accept inspector connection: {:?}", err);
-                continue;
+      let stream = tokio::select! {
+        accept_result = &mut accept => {
+          match accept_result {
+            Ok((s, _)) => s,
+            Err(err) => {
+              eprintln!("Failed to accept inspector connection: {:?}", err);
+              continue;
+            }
+          }
+        },
+
+        _ = &mut shutdown_rx => {
+          break;
+        }
+      };
+      let io = TokioIo::new(stream);
+
+      let inspector_map = Rc::clone(&inspector_map_);
+      let json_version_response = json_version_response.clone();
+      let mut shutdown_server_rx = shutdown_server_rx.resubscribe();
+
+      let service = hyper::service::service_fn(
+        move |req: http::Request<hyper::body::Incoming>| {
+          future::ready({
+            // If the host header can make a valid URL, use it
+            let host = req
+              .headers()
+              .get("host")
+              .and_then(|host| host.to_str().ok())
+              .and_then(|host| Url::parse(&format!("http://{host}")).ok())
+              .and_then(|url| match (url.host(), url.port()) {
+                (Some(host), Some(port)) => Some(format!("{host}:{port}")),
+                (Some(host), None) => Some(format!("{host}")),
+                _ => None,
+              });
+            match (req.method(), req.uri().path()) {
+              (&http::Method::GET, path) if path.starts_with("/ws/") => {
+                handle_ws_request(req, Rc::clone(&inspector_map))
               }
+              (&http::Method::GET, "/json/version") => {
+                handle_json_version_request(json_version_response.clone())
+              }
+              (&http::Method::GET, "/json") => {
+                handle_json_request(Rc::clone(&inspector_map), host)
+              }
+              (&http::Method::GET, "/json/list") => {
+                handle_json_request(Rc::clone(&inspector_map), host)
+              }
+              _ => http::Response::builder()
+                .status(http::StatusCode::NOT_FOUND)
+                .body(Box::new(http_body_util::Full::new(Bytes::from(
+                  "Not Found",
+                )))),
+            }
+          })
+        },
+      );
+
+      deno_core::unsync::spawn(async move {
+        let server = hyper::server::conn::http1::Builder::new();
+
+        let mut conn =
+          pin!(server.serve_connection(io, service).with_upgrades());
+        let mut shutdown_rx = pin!(shutdown_server_rx.recv());
+
+        tokio::select! {
+          result = conn.as_mut() => {
+            if let Err(err) = result {
+              eprintln!("Failed to serve connection: {:?}", err);
             }
           },
-
           _ = &mut shutdown_rx => {
-            break;
+            conn.as_mut().graceful_shutdown();
+            let _ = conn.await;
           }
-        };
-        let io = TokioIo::new(stream);
+        }
+      });
+    }
+  }
+  .boxed_local();
 
-        let inspector_map = Rc::clone(&inspector_map_);
-        let json_version_response = json_version_response.clone();
-        let mut shutdown_server_rx = shutdown_server_rx.resubscribe();
-
-        let service = hyper::service::service_fn(
-          move |req: http::Request<hyper::body::Incoming>| {
-            future::ready({
-              // If the host header can make a valid URL, use it
-              let host = req
-                .headers()
-                .get("host")
-                .and_then(|host| host.to_str().ok())
-                .and_then(|host| Url::parse(&format!("http://{host}")).ok())
-                .and_then(|url| match (url.host(), url.port()) {
-                  (Some(host), Some(port)) => Some(format!("{host}:{port}")),
-                  (Some(host), None) => Some(format!("{host}")),
-                  _ => None,
-                });
-              match (req.method(), req.uri().path()) {
-                (&http::Method::GET, path) if path.starts_with("/ws/") => {
-                  handle_ws_request(req, Rc::clone(&inspector_map))
-                }
-                (&http::Method::GET, "/json/version") => {
-                  handle_json_version_request(json_version_response.clone())
-                }
-                (&http::Method::GET, "/json") => {
-                  handle_json_request(Rc::clone(&inspector_map), host)
-                }
-                (&http::Method::GET, "/json/list") => {
-                  handle_json_request(Rc::clone(&inspector_map), host)
-                }
-                _ => http::Response::builder()
-                  .status(http::StatusCode::NOT_FOUND)
-                  .body(Box::new(http_body_util::Full::new(Bytes::from(
-                    "Not Found",
-                  )))),
-              }
-            })
-          },
-        );
-
-        deno_core::unsync::spawn(async move {
-          let server = hyper::server::conn::http1::Builder::new();
-
-          let mut conn =
-            pin!(server.serve_connection(io, service).with_upgrades());
-          let mut shutdown_rx = pin!(shutdown_server_rx.recv());
-
-          tokio::select! {
-            result = conn.as_mut() => {
-              if let Err(err) = result {
-                eprintln!("Failed to serve connection: {:?}", err);
-              }
-            },
-            _ = &mut shutdown_rx => {
-              conn.as_mut().graceful_shutdown();
-              let _ = conn.await;
-            }
-          }
-        });
-      }
-    })
-    .fuse()
-  );
-
-  select! {
+  tokio::select! {
     _ = register_inspector_handler => {},
     _ = deregister_inspector_handler => unreachable!(),
     _ = server_handler => {},
+  }
+}
+
+async fn listen_for_new_inspectors(
+  mut register_inspector_rx: UnboundedReceiver<InspectorInfo>,
+  inspector_map: Rc<RefCell<HashMap<Uuid, InspectorInfo>>>,
+) {
+  while let Some(info) = register_inspector_rx.next().await {
+    eprintln!(
+      "Debugger listening on {}",
+      info.get_websocket_debugger_url(&info.host.to_string())
+    );
+    eprintln!("Visit chrome://inspect to connect to the debugger.");
+    if info.wait_for_session {
+      eprintln!("Deno is waiting for debugger to connect.");
+    }
+    if inspector_map.borrow_mut().insert(info.uuid, info).is_some() {
+      panic!("Inspector UUID already in map");
+    }
   }
 }
 

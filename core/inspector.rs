@@ -644,6 +644,13 @@ impl InspectorWaker {
   }
 }
 
+extern "C" fn handle_interrupt(_isolate: &mut v8::Isolate, arg: *mut c_void) {
+  // SAFETY: `InspectorWaker` is owned by `JsRuntimeInspector`, so the
+  // pointer to the latter is valid as long as waker is alive.
+  let inspector_state = unsafe { &*(arg as *mut JsRuntimeInspectorState) };
+  let _ = inspector_state.poll_sessions(None);
+}
+
 impl task::ArcWake for InspectorWaker {
   fn wake_by_ref(arc_self: &Arc<Self>) {
     arc_self.update(|w| {
@@ -659,16 +666,6 @@ impl task::ArcWake for InspectorWaker {
             w.state_ptr.take().map(|ptr| ptr.as_ptr() as *mut c_void)
           {
             w.isolate_handle.request_interrupt(handle_interrupt, arg);
-          }
-          extern "C" fn handle_interrupt(
-            _isolate: &mut v8::Isolate,
-            arg: *mut c_void,
-          ) {
-            // SAFETY: `InspectorWaker` is owned by `JsRuntimeInspector`, so the
-            // pointer to the latter is valid as long as waker is alive.
-            let inspector_state =
-              unsafe { &*(arg as *mut JsRuntimeInspectorState) };
-            let _ = inspector_state.poll_sessions(None);
           }
         }
         PollState::Parked => {
