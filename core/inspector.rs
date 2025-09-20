@@ -4,8 +4,6 @@
 //! <https://chromedevtools.github.io/devtools-protocol/>
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
-use crate::error::CoreError;
-use crate::error::CoreErrorKind;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
@@ -16,8 +14,6 @@ use crate::futures::stream::StreamExt;
 use crate::futures::task;
 use crate::serde_json::json;
 
-use boxed_error::Boxed;
-use deno_error::JsErrorBox;
 use futures::channel::oneshot::Canceled;
 use parking_lot::Mutex;
 use std::cell::RefCell;
@@ -31,7 +27,6 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::thread;
-use thiserror::Error;
 use v8::HandleScope;
 
 #[derive(Debug)]
@@ -526,15 +521,23 @@ impl SessionContainer {
   }
 
   fn sessions_state(&self) -> SessionsState {
+    if self.local.is_empty() {
+      return SessionsState {
+        has_active: false,
+        has_blocking: false,
+        has_nonblocking_wait_for_disconnect: false,
+      };
+    }
+
     SessionsState {
-      has_active: !self.io_session_futures.is_empty() || !self.local.is_empty(),
+      has_active: true,
       has_blocking: self
         .local
         .values()
-        .any(|s| matches!(s.state.kind, InspectorSessionKind::Blocking)),
+        .any(|s| matches!(s.kind, InspectorSessionKind::Blocking)),
       has_nonblocking_wait_for_disconnect: self.local.values().any(|s| {
         matches!(
-          s.state.kind,
+          s.kind,
           InspectorSessionKind::NonBlocking {
             wait_for_disconnect: true
           }
@@ -706,9 +709,6 @@ pub enum InspectorSessionKind {
 struct InspectorSessionState {
   is_dispatching_message: Rc<RefCell<bool>>,
   send: Rc<InspectorSessionSend>,
-  // Describes if session should keep event loop alive, eg. a local REPL
-  // session should keep event loop alive, but a Websocket session shouldn't.
-  kind: InspectorSessionKind,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -717,6 +717,9 @@ struct InspectorSession {
   pub id: i32,
   v8_session: v8::inspector::V8InspectorSession,
   state: InspectorSessionState,
+  // Describes if session should keep event loop alive, eg. a local REPL
+  // session should keep event loop alive, but a Websocket session shouldn't.
+  kind: InspectorSessionKind,
 }
 
 impl InspectorSession {
@@ -732,7 +735,6 @@ impl InspectorSession {
     let state = InspectorSessionState {
       is_dispatching_message,
       send: Rc::new(send),
-      kind,
     };
 
     let v8_session = v8_inspector.connect(
@@ -746,6 +748,7 @@ impl InspectorSession {
       id,
       v8_session,
       state,
+      kind,
     })
   }
 
