@@ -7,11 +7,13 @@ import * as worker from "checkin:worker";
 import * as throw_ from "checkin:throw";
 import * as object from "checkin:object";
 import * as callsite from "checkin:callsite";
+import * as primordials from "checkin:primordials";
 async;
 error;
 throw_;
 object;
 callsite;
+primordials;
 
 globalThis.console = console.console;
 globalThis.setTimeout = timers.setTimeout;

@@ -69,6 +69,7 @@ deno_core::extension!(
     "checkin:worker" = "worker.ts",
     "checkin:throw" = "throw.ts",
     "checkin:callsite" = "callsite.ts",
+    "checkin:primordials" = "primordials.ts",
   ],
   state = |state| {
     state.put(TestData::default());
