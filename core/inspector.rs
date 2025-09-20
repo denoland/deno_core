@@ -213,8 +213,8 @@ impl JsRuntimeInspectorState {
 
     loop {
       // current_state -> PollState::Polling
-      // starts polling for session_rx -> must be non-ready
-      // self.established is empty - must be pending/poll::ready(None)
+      // starts polling for new_io_session_rx -> must be non-ready
+      // self.io_session_futures is empty - must be pending/poll::ready(None)
       sessions.pump_messages_for_remote_sessions(cx);
 
       // current_state -> PollState::Polling
@@ -285,7 +285,8 @@ impl JsRuntimeInspector {
     context: v8::Local<v8::Context>,
     is_main_runtime: bool,
   ) -> Rc<Self> {
-    let (new_session_tx, new_session_rx) = mpsc::unbounded::<NewSessionTxMsg>();
+    let (new_session_tx, new_new_io_session_rx) =
+      mpsc::unbounded::<NewSessionTxMsg>();
 
     let waker = InspectorWaker::new(scope.thread_safe_handle());
 
@@ -308,7 +309,7 @@ impl JsRuntimeInspector {
 
     *state.sessions.borrow_mut() = SessionContainer::new(
       v8_inspector.clone(),
-      new_session_rx,
+      new_new_io_session_rx,
       state.is_dispatching_message.clone(),
     );
 
@@ -320,7 +321,7 @@ impl JsRuntimeInspector {
     });
 
     inspector.context_created(context, is_main_runtime);
-    // TODO(bartlomieju): we need to only poll `session_rx` once - just
+    // TODO(bartlomieju): we need to only poll `new_io_session_rx` once - just
     // to register the task context, at this point it's guaranteed there are
     // senders, so no need to call the complicated `poll_sessions`.
 
@@ -404,7 +405,7 @@ impl JsRuntimeInspector {
   }
 
   /// This function blocks the thread until at least one inspector client has
-  /// established a websocket connection.
+  /// io_session_futures a websocket connection.
   pub fn wait_for_session(&self) {
     loop {
       if let Some(_session) =
@@ -420,15 +421,14 @@ impl JsRuntimeInspector {
   }
 
   /// This function blocks the thread until at least one inspector client has
-  /// established a websocket connection.
+  /// io_session_futures a websocket connection.
   ///
   /// After that, it instructs V8 to pause at the next statement.
   /// Frontend must send "Runtime.runIfWaitingForDebugger" message to resume
   /// execution.
   pub fn wait_for_session_and_break_on_next_statement(&self) {
     loop {
-      if let Some(session) =
-        self.state.sessions.borrow_mut().local.values().next()
+      if let Some(session) = self.state.sessions.borrow().local.values().next()
       {
         break session.break_on_next_statement();
       } else {
@@ -488,9 +488,14 @@ pub struct SessionsState {
 /// parts of their lifecycle.
 pub struct SessionContainer {
   v8_inspector: Option<Rc<v8::inspector::V8Inspector>>,
-  session_rx: UnboundedReceiver<NewSessionTxMsg>,
+
   is_dispatching_message: Rc<RefCell<bool>>,
-  established: FuturesUnordered<InspectorSessionPumpMessages>,
+
+  // These two are purely remote/IO sessions related
+  new_io_session_rx: UnboundedReceiver<NewSessionTxMsg>,
+  io_session_futures: FuturesUnordered<InspectorSessionPumpMessages>,
+
+  // These two are actually sessions
   next_local_id: i32,
   local: HashMap<i32, Rc<InspectorSession>>,
 }
@@ -498,13 +503,13 @@ pub struct SessionContainer {
 impl SessionContainer {
   fn new(
     v8_inspector: Rc<v8::inspector::V8Inspector>,
-    new_session_rx: UnboundedReceiver<NewSessionTxMsg>,
+    new_new_io_session_rx: UnboundedReceiver<NewSessionTxMsg>,
     is_dispatching_message: Rc<RefCell<bool>>,
   ) -> Self {
     Self {
       v8_inspector: Some(v8_inspector),
-      session_rx: new_session_rx,
-      established: FuturesUnordered::new(),
+      new_io_session_rx: new_new_io_session_rx,
+      io_session_futures: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
       is_dispatching_message,
@@ -517,13 +522,13 @@ impl SessionContainer {
   /// all sessions before dropping the inspector instance.
   fn drop_sessions(&mut self) {
     self.v8_inspector = Default::default();
-    self.established.clear();
+    self.io_session_futures.clear();
     self.local.clear();
   }
 
   fn sessions_state(&self) -> SessionsState {
     SessionsState {
-      has_active: !self.established.is_empty() || !self.local.is_empty(),
+      has_active: !self.io_session_futures.is_empty() || !self.local.is_empty(),
       has_blocking: self
         .local
         .values()
@@ -550,8 +555,8 @@ impl SessionContainer {
     let (_tx, rx) = mpsc::unbounded::<NewSessionTxMsg>();
     Self {
       v8_inspector: Default::default(),
-      session_rx: rx,
-      established: FuturesUnordered::new(),
+      new_io_session_rx: rx,
+      io_session_futures: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
       is_dispatching_message: Default::default(),
@@ -592,7 +597,7 @@ impl SessionContainer {
   fn pump_messages_for_remote_sessions(&mut self, cx: &mut Context) {
     loop {
       // Accept new connections.
-      let poll_result = self.session_rx.poll_next_unpin(cx);
+      let poll_result = self.new_io_session_rx.poll_next_unpin(cx);
       if let Poll::Ready(Some(new_session_msg)) = poll_result {
         let (callback, rx, kind) = new_session_msg;
         let session = self.create_new_session(callback, kind);
@@ -600,15 +605,15 @@ impl SessionContainer {
         let mut fut =
           pump_inspector_session_messages(session, rx).boxed_local();
         let _ = fut.poll_unpin(cx);
-        self.established.push(fut);
+        self.io_session_futures.push(fut);
 
-        // TODO(bartlomieju): decide on this - should we drain the `session_rx` queue fully
-        // before polling `established` sessions?
+        // TODO(bartlomieju): decide on this - should we drain the `new_io_session_rx` queue fully
+        // before polling `io_session_futures` sessions?
         continue;
       }
 
-      // Poll established sessions.
-      match self.established.poll_next_unpin(cx) {
+      // Poll io_session_futures sessions.
+      match self.io_session_futures.poll_next_unpin(cx) {
         Poll::Ready(Some(())) => {
           continue;
         }
