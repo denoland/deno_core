@@ -18,6 +18,7 @@ use crate::serde_json::json;
 
 use boxed_error::Boxed;
 use deno_error::JsErrorBox;
+use futures::channel::oneshot::Canceled;
 use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -46,19 +47,13 @@ pub struct InspectorMsg {
 }
 
 // TODO(bartlomieju): remove this
-pub type SessionProxySender = UnboundedSender<InspectorMsg>;
-// TODO(bartlomieju): remove this
-pub type SessionProxyReceiver = UnboundedReceiver<String>;
+type NewSessionTxMsg = (
+  InspectorSessionSend,
+  UnboundedReceiver<String>,
+  InspectorSessionKind,
+);
 
-/// Encapsulates an UnboundedSender/UnboundedReceiver pair that together form
-/// a duplex channel for sending/receiving messages in V8 session.
-pub struct InspectorSessionProxy {
-  pub tx: SessionProxySender,
-  pub rx: SessionProxyReceiver,
-  pub options: InspectorSessionOptions,
-}
-
-pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
+pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg) + Send>;
 
 #[derive(Clone, Copy, Debug)]
 enum PollState {
@@ -67,6 +62,33 @@ enum PollState {
   Polling,
   Parked,
   Dropped,
+}
+
+pub struct InspectorIoDelegate {
+  pub new_session_tx: UnboundedSender<NewSessionTxMsg>,
+  pub deregister_rx: Mutex<oneshot::Receiver<()>>,
+}
+
+impl InspectorIoDelegate {
+  pub fn new_remote_session(
+    &self,
+    callback: InspectorSessionSend,
+    // TODO(bartlomieju): renamec
+    rx: UnboundedReceiver<String>,
+    kind: InspectorSessionKind,
+  ) {
+    let _ = self.new_session_tx.unbounded_send((callback, rx, kind));
+  }
+
+  // TODO(bartlomieju): this is an antipattern - it should be implemented in drop
+  // or something like this...
+  pub fn poll_deregister_rx(
+    &self,
+    cx: &mut Context,
+  ) -> Poll<Result<(), Canceled>> {
+    let mut rx = self.deregister_rx.lock();
+    rx.poll_unpin(cx)
+  }
 }
 
 /// This structure is used responsible for providing inspector interface
@@ -81,7 +103,7 @@ enum PollState {
 /// is used for REPL or coverage collection.
 pub struct JsRuntimeInspector {
   v8_inspector: Rc<v8::inspector::V8Inspector>,
-  new_session_tx: UnboundedSender<InspectorSessionProxy>,
+  new_session_tx: UnboundedSender<NewSessionTxMsg>,
   deregister_tx: RefCell<Option<oneshot::Sender<()>>>,
   state: Rc<JsRuntimeInspectorState>,
 }
@@ -263,8 +285,7 @@ impl JsRuntimeInspector {
     context: v8::Local<v8::Context>,
     is_main_runtime: bool,
   ) -> Rc<Self> {
-    let (new_session_tx, new_session_rx) =
-      mpsc::unbounded::<InspectorSessionProxy>();
+    let (new_session_tx, new_session_rx) = mpsc::unbounded::<NewSessionTxMsg>();
 
     let waker = InspectorWaker::new(scope.thread_safe_handle());
 
@@ -417,56 +438,36 @@ impl JsRuntimeInspector {
     }
   }
 
-  /// Obtain a sender for proxy channels.
-  pub fn get_session_sender(&self) -> UnboundedSender<InspectorSessionProxy> {
-    self.new_session_tx.clone()
-  }
-
-  /// Create a channel that notifies the frontend when inspector is dropped.
-  ///
-  /// NOTE: Only a single handler is currently available.
-  pub fn add_deregister_handler(&self) -> oneshot::Receiver<()> {
+  pub fn create_io_delegate(&self) -> Arc<InspectorIoDelegate> {
     let (tx, rx) = oneshot::channel::<()>();
     let prev = self.deregister_tx.borrow_mut().replace(tx);
     assert!(
       prev.is_none(),
-      "Only a single deregister handler is allowed"
+      "Only a single IO delegate allowed per inspector"
     );
-    rx
+
+    Arc::new(InspectorIoDelegate {
+      new_session_tx: self.new_session_tx.clone(),
+      deregister_rx: Mutex::new(rx),
+    })
   }
 
   pub fn create_local_session(
     inspector: Rc<JsRuntimeInspector>,
     callback: InspectorSessionSend,
-    options: InspectorSessionOptions,
+    kind: InspectorSessionKind,
   ) -> LocalInspectorSession {
     let sessions = inspector.state.sessions.clone();
 
-    let inspector_session = InspectorSession::new(
-      inspector.v8_inspector.clone(),
-      inspector.state.is_dispatching_message.clone(),
-      callback,
-      None,
-      options,
-    );
-
-    let session_id = {
+    let session = {
       let mut s = sessions.borrow_mut();
-      let id = s.next_local_id;
-      s.next_local_id += 1;
-      assert!(s.local.insert(id, inspector_session).is_none());
-      id
+      s.create_new_session(callback, kind)
     };
 
     take(&mut inspector.state.flags.borrow_mut().waiting_for_session);
 
-    LocalInspectorSession::new(session_id, sessions)
+    LocalInspectorSession::new(session.id, sessions)
   }
-}
-
-#[derive(Debug)]
-pub struct InspectorSessionOptions {
-  pub kind: InspectorSessionKind,
 }
 
 #[derive(Default)]
@@ -487,7 +488,7 @@ pub struct SessionsState {
 /// parts of their lifecycle.
 pub struct SessionContainer {
   v8_inspector: Option<Rc<v8::inspector::V8Inspector>>,
-  session_rx: UnboundedReceiver<InspectorSessionProxy>,
+  session_rx: UnboundedReceiver<NewSessionTxMsg>,
   is_dispatching_message: Rc<RefCell<bool>>,
   established: FuturesUnordered<InspectorSessionPumpMessages>,
   next_local_id: i32,
@@ -497,7 +498,7 @@ pub struct SessionContainer {
 impl SessionContainer {
   fn new(
     v8_inspector: Rc<v8::inspector::V8Inspector>,
-    new_session_rx: UnboundedReceiver<InspectorSessionProxy>,
+    new_session_rx: UnboundedReceiver<NewSessionTxMsg>,
     is_dispatching_message: Rc<RefCell<bool>>,
   ) -> Self {
     Self {
@@ -546,7 +547,7 @@ impl SessionContainer {
   /// of `Default` implementation to signal that it's not meant
   /// for actual use.
   fn temporary_placeholder() -> Self {
-    let (_tx, rx) = mpsc::unbounded::<InspectorSessionProxy>();
+    let (_tx, rx) = mpsc::unbounded::<NewSessionTxMsg>();
     Self {
       v8_inspector: Default::default(),
       session_rx: rx,
@@ -567,28 +568,40 @@ impl SessionContainer {
     }
   }
 
+  fn create_new_session(
+    &mut self,
+    callback: InspectorSessionSend,
+    kind: InspectorSessionKind,
+  ) -> Rc<InspectorSession> {
+    let id = self.next_local_id;
+    self.next_local_id += 1;
+
+    let session = InspectorSession::new(
+      id,
+      self.v8_inspector.as_ref().unwrap().clone(),
+      self.is_dispatching_message.clone(),
+      callback,
+      kind,
+    );
+
+    assert!(self.local.insert(id, session.clone()).is_none());
+    session
+  }
+
   // TODO(bartlomieju): keep simplifying this function
   fn pump_messages_for_remote_sessions(&mut self, cx: &mut Context) {
     loop {
       // Accept new connections.
       let poll_result = self.session_rx.poll_next_unpin(cx);
-      if let Poll::Ready(Some(session_proxy)) = poll_result {
-        let session = InspectorSession::new(
-          self.v8_inspector.as_ref().unwrap().clone(),
-          self.is_dispatching_message.clone(),
-          Box::new(move |msg| {
-            let _ = session_proxy.tx.unbounded_send(msg);
-          }),
-          Some(session_proxy.rx),
-          session_proxy.options,
-        );
+      if let Poll::Ready(Some(new_session_msg)) = poll_result {
+        let (callback, rx, kind) = new_session_msg;
+        let session = self.create_new_session(callback, kind);
+
         let mut fut =
-          pump_inspector_session_messages(session.clone()).boxed_local();
+          pump_inspector_session_messages(session, rx).boxed_local();
         let _ = fut.poll_unpin(cx);
         self.established.push(fut);
-        let id = self.next_local_id;
-        self.next_local_id += 1;
-        self.local.insert(id, session);
+
         // TODO(bartlomieju): decide on this - should we drain the `session_rx` queue fully
         // before polling `established` sessions?
         continue;
@@ -691,7 +704,6 @@ pub enum InspectorSessionKind {
 struct InspectorSessionState {
   is_dispatching_message: Rc<RefCell<bool>>,
   send: Rc<InspectorSessionSend>,
-  rx: Rc<RefCell<Option<SessionProxyReceiver>>>,
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
@@ -700,6 +712,7 @@ struct InspectorSessionState {
 /// An inspector session that proxies messages to concrete "transport layer",
 /// eg. Websocket or another set of channels.
 struct InspectorSession {
+  pub id: i32,
   v8_session: v8::inspector::V8InspectorSession,
   state: InspectorSessionState,
 }
@@ -708,17 +721,16 @@ impl InspectorSession {
   const CONTEXT_GROUP_ID: i32 = 1;
 
   pub fn new(
+    id: i32,
     v8_inspector: Rc<v8::inspector::V8Inspector>,
     is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
-    rx: Option<SessionProxyReceiver>,
-    options: InspectorSessionOptions,
+    kind: InspectorSessionKind,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
       send: Rc::new(send),
-      rx: Rc::new(RefCell::new(rx)),
-      kind: options.kind,
+      kind,
     };
 
     let v8_session = v8_inspector.connect(
@@ -728,7 +740,11 @@ impl InspectorSession {
       v8::inspector::V8InspectorClientTrustLevel::FullyTrusted,
     );
 
-    Rc::new(Self { v8_session, state })
+    Rc::new(Self {
+      id,
+      v8_session,
+      state,
+    })
   }
 
   // Dispatch message to V8 session
@@ -783,8 +799,10 @@ impl v8::inspector::ChannelImpl for InspectorSessionState {
 
 type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 
-async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
-  let mut rx = session.state.rx.borrow_mut().take().unwrap();
+async fn pump_inspector_session_messages(
+  session: Rc<InspectorSession>,
+  mut rx: UnboundedReceiver<String>,
+) {
   while let Some(msg) = rx.next().await {
     session.dispatch_message(msg);
   }

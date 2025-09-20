@@ -2,16 +2,14 @@
 
 // Alias for the future `!` type.
 use core::convert::Infallible as Never;
+use deno_core::InspectorIoDelegate;
 use deno_core::InspectorMsg;
 use deno_core::InspectorSessionKind;
-use deno_core::InspectorSessionOptions;
-use deno_core::InspectorSessionProxy;
-use deno_core::JsRuntime;
+use deno_core::JsRuntimeInspector;
 use deno_core::anyhow::Context;
 use deno_core::futures::channel::mpsc;
 use deno_core::futures::channel::mpsc::UnboundedReceiver;
 use deno_core::futures::channel::mpsc::UnboundedSender;
-use deno_core::futures::channel::oneshot;
 use deno_core::futures::prelude::*;
 use deno_core::futures::stream::StreamExt;
 use deno_core::serde_json::Value;
@@ -29,6 +27,7 @@ use std::net::SocketAddr;
 use std::pin::pin;
 use std::process;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Poll;
 use std::thread;
 use tokio::net::TcpListener;
@@ -88,20 +87,13 @@ impl InspectorServer {
   pub fn register_inspector(
     &self,
     module_url: String,
-    js_runtime: &mut JsRuntime,
+    inspector: Rc<JsRuntimeInspector>,
     wait_for_session: bool,
   ) {
-    let inspector = js_runtime.inspector();
-    let session_sender = inspector.get_session_sender();
-    let deregister_rx = inspector.add_deregister_handler();
+    let io_delegate = inspector.create_io_delegate();
 
-    let info = InspectorInfo::new(
-      self.host,
-      session_sender,
-      deregister_rx,
-      module_url,
-      wait_for_session,
-    );
+    let info =
+      InspectorInfo::new(self.host, io_delegate, module_url, wait_for_session);
     self.register_inspector_tx.unbounded_send(info).unwrap();
   }
 }
@@ -140,7 +132,7 @@ fn handle_ws_request(
   }
 
   // run in a block to not hold borrow to `inspector_map` for too long
-  let new_session_tx = {
+  let io_delegate = {
     let inspector_map = inspector_map_rc.borrow();
     let maybe_inspector_info = inspector_map.get(&maybe_uuid.unwrap());
 
@@ -151,7 +143,7 @@ fn handle_ws_request(
     }
 
     let info = maybe_inspector_info.unwrap();
-    info.new_session_tx.clone()
+    info.io_delegate.clone()
   };
   let (parts, _) = req.into_parts();
   let mut req = http::Request::from_parts(parts, body);
@@ -193,34 +185,17 @@ fn handle_ws_request(
     // The 'inbound' channel carries messages received from the websocket.
     let (inbound_tx, inbound_rx) = mpsc::unbounded();
 
-    let inspector_session_proxy = InspectorSessionProxy {
-      tx: outbound_tx.clone(),
-      rx: inbound_rx,
-      options: InspectorSessionOptions {
-        kind: InspectorSessionKind::NonBlocking {
-          wait_for_disconnect: true,
-        },
-      },
-    };
-
+    let session_cb = Box::new(move |msg| {
+      let _ = outbound_tx.unbounded_send(msg);
+    });
     eprintln!("Debugger session started.");
-    let _ = new_session_tx.unbounded_send(inspector_session_proxy);
-    // spawn(async move {
-    //   tokio::time::sleep(Duration::from_secs(5)).await;
-    //   let r = outbound_tx.unbounded_send(InspectorMsg {
-    //     kind: deno_core::InspectorMsgKind::Message(1099),
-    //     content: serde_json::to_string(&serde_json::json!({
-    //       "targetId": "deno-worker-1",
-    //       "title": "deno_core-worker-1",
-    //       "type": "node_worker",
-    //       "url": "ws://localhost:9329/asdf/sdf",
-    //       "attached": false,
-    //       "canAccessOpener": true
-    //     }))
-    //     .unwrap(),
-    //   });
-    //   eprintln!("sent target inspect message");
-    // });
+    io_delegate.new_remote_session(
+      session_cb,
+      inbound_rx,
+      InspectorSessionKind::NonBlocking {
+        wait_for_disconnect: true,
+      },
+    );
     pump_websocket_messages(websocket, inbound_tx, outbound_rx).await;
     // TODO(bartlomieju): does this deregister inspector from `JsRuntime` correctly?
   });
@@ -274,9 +249,10 @@ async fn server(
 
   let inspector_map = Rc::clone(&inspector_map_);
   let deregister_inspector_handler = future::poll_fn(|cx| {
-    inspector_map
-      .borrow_mut()
-      .retain(|_, info| info.deregister_rx.poll_unpin(cx) == Poll::Pending);
+    // TODO(bartlomieju): this should be simplified
+    inspector_map.borrow_mut().retain(|_, info| {
+      info.io_delegate.poll_deregister_rx(cx) == Poll::Pending
+    });
     Poll::<Never>::Pending
   })
   .boxed_local();
@@ -463,8 +439,7 @@ pub struct InspectorInfo {
   pub host: SocketAddr,
   pub uuid: Uuid,
   pub thread_name: Option<String>,
-  pub new_session_tx: UnboundedSender<InspectorSessionProxy>,
-  pub deregister_rx: oneshot::Receiver<()>,
+  pub io_delegate: Arc<InspectorIoDelegate>,
   pub url: String,
   pub wait_for_session: bool,
 }
@@ -472,8 +447,7 @@ pub struct InspectorInfo {
 impl InspectorInfo {
   pub fn new(
     host: SocketAddr,
-    new_session_tx: mpsc::UnboundedSender<InspectorSessionProxy>,
-    deregister_rx: oneshot::Receiver<()>,
+    io_delegate: Arc<InspectorIoDelegate>,
     url: String,
     wait_for_session: bool,
   ) -> Self {
@@ -481,8 +455,7 @@ impl InspectorInfo {
       host,
       uuid: Uuid::new_v4(),
       thread_name: thread::current().name().map(|n| n.to_owned()),
-      new_session_tx,
-      deregister_rx,
+      io_delegate,
       url,
       wait_for_session,
     }

@@ -465,10 +465,8 @@ fn local_inspector_evaluate(
   runtime: &mut JsRuntime,
   expression: &str,
 ) -> Value {
-  let session_options = inspector::InspectorSessionOptions {
-    kind: inspector::InspectorSessionKind::NonBlocking {
-      wait_for_disconnect: false,
-    },
+  let kind = inspector::InspectorSessionKind::NonBlocking {
+    wait_for_disconnect: false,
   };
 
   let inspector = runtime.inspector();
@@ -480,11 +478,8 @@ fn local_inspector_evaluate(
       let _ = tx.send(value["result"].clone());
     }
   });
-  let mut local_inspector_session = JsRuntimeInspector::create_local_session(
-    inspector,
-    callback,
-    session_options,
-  );
+  let mut local_inspector_session =
+    JsRuntimeInspector::create_local_session(inspector, callback, kind);
 
   local_inspector_session.post_message(
     1,
