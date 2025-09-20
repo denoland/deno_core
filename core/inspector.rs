@@ -678,11 +678,12 @@ impl task::ArcWake for InspectorWaker {
           if let Some(waker) = w.task_waker.take() {
             waker.wake()
           }
+          // TODO(bartlomieju): this comment has a lot of wisdom related to `poll_sessions`
+          // interaction - figure it out
           // Request an interrupt from the isolate if it's running and there's
           // not unhandled interrupt request in flight.
-          if let Some(arg) =
-            w.state_ptr.take().map(|ptr| ptr.as_ptr() as *mut c_void)
-          {
+          if let Some(state_ptr) = w.state_ptr.take() {
+            let arg = state_ptr.as_ptr() as *mut c_void;
             w.isolate_handle.request_interrupt(handle_interrupt, arg);
           }
         }
