@@ -197,12 +197,10 @@ impl JsRuntimeInspectorState {
     sessions: &mut SessionContainer,
     mut invoker_cx: Option<&mut Context>,
   ) {
-    // current_state -> PollState::Idle
     self.waker.update(|w| {
       assert!(matches!(w.poll_state, PollState::Idle | PollState::Woken));
       w.poll_state = PollState::Polling;
     });
-    // current_state -> PollState::Polling
 
     // Create a new Context object that will make downstream futures
     // use the InspectorWaker when they are ready to be polled again.
@@ -210,23 +208,13 @@ impl JsRuntimeInspectorState {
     let cx = &mut Context::from_waker(&waker_ref);
 
     loop {
-      // current_state -> PollState::Polling
-      // starts polling for new_io_session_rx -> must be non-ready
-      // self.io_session_futures is empty - must be pending/poll::ready(None)
       sessions.pump_messages_for_remote_sessions(cx);
 
-      // current_state -> PollState::Polling
-      // both flags are false
       let should_block = {
         let flags = self.flags.borrow();
         flags.on_pause || flags.waiting_for_session
       };
 
-      // current_state -> PollState::Polling and should_block = false
-      // going to idle, registers the waker context if any - and it's `None` because it's on creation
-      // stores the state_ptr
-      // when the waker wakes from the outside, the `state_ptr` is used to poll remote sessions
-      // and make progress
       let new_state = self.waker.update(|w| {
         match w.poll_state {
           PollState::Woken => {
@@ -315,13 +303,8 @@ impl JsRuntimeInspector {
     });
 
     inspector.context_created(context, is_main_runtime);
-    // TODO(bartlomieju): we need to only poll `new_io_session_rx` once - just
-    // to register the task context, at this point it's guaranteed there are
-    // senders, so no need to call the complicated `poll_sessions`.
-    // let _ = inspector.state.poll_sessions(None).unwrap();
 
-    // Poll the session handler so we will get notified whenever there is
-    // new incoming debugger activity.
+    // TODO(bartlomieju): feels like this could be abstracted awat
     {
       let state = inspector.state.clone();
       let mut sessions = state.sessions.borrow_mut();
