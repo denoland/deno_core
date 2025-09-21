@@ -319,10 +319,22 @@ impl JsRuntimeInspector {
     // TODO(bartlomieju): we need to only poll `new_io_session_rx` once - just
     // to register the task context, at this point it's guaranteed there are
     // senders, so no need to call the complicated `poll_sessions`.
+    // let _ = inspector.state.poll_sessions(None).unwrap();
 
     // Poll the session handler so we will get notified whenever there is
     // new incoming debugger activity.
-    let _ = inspector.state.poll_sessions(None).unwrap();
+    {
+      let state = inspector.state.clone();
+      let mut sessions = state.sessions.borrow_mut();
+      let waker_ref = task::waker_ref(&state.waker);
+      let cx = &mut Context::from_waker(&waker_ref);
+      sessions.pump_messages_for_remote_sessions(cx);
+      state.waker.update(|w| {
+        w.state_ptr =
+          NonNull::new(&state as *const _ as *mut JsRuntimeInspectorState);
+        w.poll_state
+      });
+    }
 
     inspector
   }
