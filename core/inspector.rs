@@ -811,6 +811,8 @@ async fn pump_inspector_session_messages(
   while let Some(msg) = rx.next().await {
     session.dispatch_message(msg);
   }
+  // TODO(bartlomieju): notify that the IO has disconnected
+  // and the session should be dropped
 }
 
 /// A local inspector session that can be used to send and receive protocol messages directly on
