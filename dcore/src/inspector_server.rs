@@ -125,16 +125,16 @@ fn handle_ws_request(
     .strip_prefix("/ws/")
     .and_then(|s| Uuid::parse_str(s).ok());
 
-  if maybe_uuid.is_none() {
+  let Some(uuid) = maybe_uuid else {
     return http::Response::builder()
       .status(http::StatusCode::BAD_REQUEST)
       .body(Box::new(Bytes::from("Malformed inspector UUID").into()));
-  }
+  };
 
   // run in a block to not hold borrow to `inspector_map` for too long
   let io_delegate = {
     let inspector_map = inspector_map_rc.borrow();
-    let maybe_inspector_info = inspector_map.get(&maybe_uuid.unwrap());
+    let maybe_inspector_info = inspector_map.get(&uuid);
 
     if maybe_inspector_info.is_none() {
       return http::Response::builder()
@@ -148,28 +148,19 @@ fn handle_ws_request(
   let (parts, _) = req.into_parts();
   let mut req = http::Request::from_parts(parts, body);
 
-  let (resp, fut) = match fastwebsockets::upgrade::upgrade(&mut req) {
-    Ok((resp, fut)) => {
-      let (parts, _body) = resp.into_parts();
-      let resp = http::Response::from_parts(
-        parts,
-        Box::new(http_body_util::Full::new(Bytes::new())),
-      );
-      (resp, fut)
-    }
-    _ => {
-      return http::Response::builder()
-        .status(http::StatusCode::BAD_REQUEST)
-        .body(Box::new(
-          Bytes::from("Not a valid Websocket Request").into(),
-        ));
-    }
+  let Ok((resp, upgrade_fut)) = fastwebsockets::upgrade::upgrade(&mut req)
+  else {
+    return http::Response::builder()
+      .status(http::StatusCode::BAD_REQUEST)
+      .body(Box::new(
+        Bytes::from("Not a valid Websocket Request").into(),
+      ));
   };
 
   // spawn a task that will wait for websocket connection and then pump messages between
   // the socket and inspector proxy
   spawn(async move {
-    let websocket = match fut.await {
+    let websocket = match upgrade_fut.await {
       Ok(w) => w,
       Err(err) => {
         eprintln!(
@@ -200,6 +191,11 @@ fn handle_ws_request(
     // TODO(bartlomieju): does this deregister inspector from `JsRuntime` correctly?
   });
 
+  let (parts, _body) = resp.into_parts();
+  let resp = http::Response::from_parts(
+    parts,
+    Box::new(http_body_util::Full::new(Bytes::new())),
+  );
   Ok(resp)
 }
 
@@ -275,11 +271,11 @@ async fn server(
   let server_handler = async move {
     loop {
       let mut rx = shutdown_server_rx.resubscribe();
-      let mut shutdown_rx = pin!(rx.recv());
-      let mut accept = pin!(listener.accept());
+      let shutdown_rx_fut = &mut rx.recv().boxed_local();
+      let accept_fut = &mut listener.accept().boxed_local();
 
       let stream = tokio::select! {
-        accept_result = &mut accept => {
+        accept_result = accept_fut => {
           match accept_result {
             Ok((s, _)) => s,
             Err(err) => {
@@ -289,7 +285,7 @@ async fn server(
           }
         },
 
-        _ = &mut shutdown_rx => {
+        _ = shutdown_rx_fut => {
           break;
         }
       };
@@ -315,16 +311,16 @@ async fn server(
               });
             match (req.method(), req.uri().path()) {
               (&http::Method::GET, path) if path.starts_with("/ws/") => {
-                handle_ws_request(req, Rc::clone(&inspector_map))
+                handle_ws_request(req, inspector_map.clone())
               }
               (&http::Method::GET, "/json/version") => {
                 handle_json_version_request(json_version_response.clone())
               }
               (&http::Method::GET, "/json") => {
-                handle_json_request(Rc::clone(&inspector_map), host)
+                handle_json_request(inspector_map.clone(), host)
               }
               (&http::Method::GET, "/json/list") => {
-                handle_json_request(Rc::clone(&inspector_map), host)
+                handle_json_request(inspector_map.clone(), host)
               }
               _ => http::Response::builder()
                 .status(http::StatusCode::NOT_FOUND)
