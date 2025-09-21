@@ -144,7 +144,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.0.flags.borrow_mut().on_pause = true;
-    let _ = self.0.poll_sessions(None);
+    self.0.try_poll_sessions();
   }
 
   fn quit_message_loop_on_pause(&self) {
@@ -179,25 +179,28 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
 }
 
 impl JsRuntimeInspectorState {
-  #[allow(clippy::result_unit_err)]
-  pub fn poll_sessions(
-    &self,
-    mut invoker_cx: Option<&mut Context>,
-  ) -> Result<Poll<()>, ()> {
-    // The futures this function uses do not have re-entrant poll() functions.
-    // However it is can happen that poll_sessions() gets re-entered, e.g.
-    // when an interrupt request is honored while the inspector future is polled
-    // by the task executor. We let the caller know by returning some error.
+  pub fn try_poll_sessions(&self) {
     let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
-      return Err(());
+      return;
     };
+    self.poll_sessions_inner(&mut sessions, None);
+  }
 
+  // TODO(bartlomieju): consider splitting further to avoid `Option<Context>`
+  pub fn must_poll_sessions(&self, invoker_cx: Option<&mut Context>) {
+    let mut sessions = self.sessions.borrow_mut();
+    self.poll_sessions_inner(&mut sessions, invoker_cx);
+  }
+
+  pub fn poll_sessions_inner(
+    &self,
+    sessions: &mut SessionContainer,
+    mut invoker_cx: Option<&mut Context>,
+  ) {
     // current_state -> PollState::Idle
     self.waker.update(|w| {
-      match w.poll_state {
-        PollState::Idle | PollState::Woken => w.poll_state = PollState::Polling,
-        _ => unreachable!(),
-      };
+      assert!(matches!(w.poll_state, PollState::Idle | PollState::Woken));
+      w.poll_state = PollState::Polling;
     });
     // current_state -> PollState::Polling
 
@@ -227,8 +230,7 @@ impl JsRuntimeInspectorState {
       let new_state = self.waker.update(|w| {
         match w.poll_state {
           PollState::Woken => {
-            // The inspector was woken while the session handler was being
-            // polled, so we poll it another time.
+            // The inspector was woken after the thread has been parked to wait for IO.
             w.poll_state = PollState::Polling;
           }
           PollState::Polling if !should_block => {
@@ -247,9 +249,8 @@ impl JsRuntimeInspectorState {
           }
           PollState::Polling if should_block => {
             // Isolate execution has been paused but there are no more
-            // events to process, so this thread will be parked. Therefore,
-            // store the current thread handle in the waker so it knows
-            // which thread to unpark when new events arrive.
+            // events to process, or we are waiting for IO sessions to make progress.
+            // So this thread will be parked be to woken up by the `self.waker`.
             w.poll_state = PollState::Parked;
             w.parked_thread.replace(thread::current());
           }
@@ -264,8 +265,6 @@ impl JsRuntimeInspectorState {
         _ => unreachable!(),
       };
     }
-
-    Ok(Poll::Pending)
   }
 }
 
@@ -329,10 +328,9 @@ impl JsRuntimeInspector {
       let waker_ref = task::waker_ref(&state.waker);
       let cx = &mut Context::from_waker(&waker_ref);
       sessions.pump_messages_for_remote_sessions(cx);
+      let state_ptr = &state as *const _ as *mut JsRuntimeInspectorState;
       state.waker.update(|w| {
-        w.state_ptr =
-          NonNull::new(&state as *const _ as *mut JsRuntimeInspectorState);
-        w.poll_state
+        w.state_ptr = NonNull::new(state_ptr);
       });
     }
 
@@ -408,7 +406,7 @@ impl JsRuntimeInspector {
   }
 
   pub(crate) fn poll_sessions_from_event_loop(&self, cx: &mut Context) {
-    let _ = self.state.poll_sessions(Some(cx)).unwrap();
+    self.state.must_poll_sessions(Some(cx));
   }
 
   /// This function blocks the thread until at least one inspector client has
@@ -421,7 +419,7 @@ impl JsRuntimeInspector {
       }
 
       self.state.flags.borrow_mut().waiting_for_session = true;
-      let _ = self.state.poll_sessions(None).unwrap();
+      self.state.must_poll_sessions(None);
     }
   }
 
@@ -441,7 +439,7 @@ impl JsRuntimeInspector {
       }
 
       self.state.flags.borrow_mut().waiting_for_session = true;
-      let _ = self.state.poll_sessions(None).unwrap();
+      self.state.must_poll_sessions(None);
     }
   }
 
@@ -623,18 +621,12 @@ impl SessionContainer {
         continue;
       }
 
-      // Poll io_session_futures sessions.
-      match self.io_session_futures.poll_next_unpin(cx) {
-        Poll::Ready(Some(())) => {
-          continue;
-        }
-        Poll::Ready(None) => {
-          break;
-        }
-        Poll::Pending => {
-          break;
-        }
-      };
+      if let Poll::Ready(Some(())) = self.io_session_futures.poll_next_unpin(cx)
+      {
+        continue;
+      }
+
+      break;
     }
   }
 }
@@ -677,36 +669,39 @@ extern "C" fn handle_interrupt(_isolate: &mut v8::Isolate, arg: *mut c_void) {
   // SAFETY: `InspectorWaker` is owned by `JsRuntimeInspector`, so the
   // pointer to the latter is valid as long as waker is alive.
   let inspector_state = unsafe { &*(arg as *mut JsRuntimeInspectorState) };
-  let _ = inspector_state.poll_sessions(None);
+  inspector_state.try_poll_sessions();
 }
 
 impl task::ArcWake for InspectorWaker {
   fn wake_by_ref(arc_self: &Arc<Self>) {
     arc_self.update(|w| {
-      match w.poll_state {
-        PollState::Idle => {
-          // Wake the task, if any, that has polled the Inspector future last.
-          if let Some(waker) = w.task_waker.take() {
-            waker.wake()
-          }
-          // TODO(bartlomieju): this comment has a lot of wisdom related to `poll_sessions`
-          // interaction - figure it out
-          // Request an interrupt from the isolate if it's running and there's
-          // not unhandled interrupt request in flight.
-          if let Some(state_ptr) = w.state_ptr.take() {
-            let arg = state_ptr.as_ptr() as *mut c_void;
-            w.isolate_handle.request_interrupt(handle_interrupt, arg);
-          }
-        }
-        PollState::Parked => {
-          // Unpark the isolate thread.
-          let parked_thread = w.parked_thread.take().unwrap();
-          assert_ne!(parked_thread.id(), thread::current().id());
-          parked_thread.unpark();
-        }
-        _ => {}
-      };
+      let poll_state = w.poll_state;
       w.poll_state = PollState::Woken;
+
+      if matches!(poll_state, PollState::Parked) {
+        // Unpark the isolate thread.
+        let parked_thread = w.parked_thread.take().unwrap();
+        assert_ne!(parked_thread.id(), thread::current().id());
+        parked_thread.unpark();
+        return;
+      }
+
+      if !matches!(poll_state, PollState::Idle) {
+        return;
+      }
+
+      // Wake the task, if any, that has polled the Inspector future last.
+      if let Some(waker) = w.task_waker.take() {
+        waker.wake()
+      }
+      // TODO(bartlomieju): this comment has a lot of wisdom related to `poll_sessions`
+      // interaction - figure it out
+      // Request an interrupt from the isolate if it's running and there's
+      // not unhandled interrupt request in flight.
+      if let Some(state_ptr) = w.state_ptr.take() {
+        let arg = state_ptr.as_ptr() as *mut c_void;
+        w.isolate_handle.request_interrupt(handle_interrupt, arg);
+      }
     });
   }
 }
