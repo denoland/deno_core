@@ -17,7 +17,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::poll_fn;
-use std::pin::pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -455,9 +454,7 @@ async fn test_preserve_float_precision_from_local_inspector_evaluate(
     ..Default::default()
   });
 
-  let result = local_inspector_evaluate(&mut runtime, &format!("{}", input))
-    .await
-    .unwrap();
+  let result = local_inspector_evaluate(&mut runtime, &format!("{}", input));
 
   assert_eq!(
     result["result"]["value"],
@@ -465,40 +462,40 @@ async fn test_preserve_float_precision_from_local_inspector_evaluate(
   );
 }
 
-async fn local_inspector_evaluate(
+fn local_inspector_evaluate(
   runtime: &mut JsRuntime,
   expression: &str,
-) -> Result<Value, deno_core::InspectorPostMessageError> {
+) -> Value {
   let session_options = inspector::InspectorSessionOptions {
     kind: inspector::InspectorSessionKind::NonBlocking {
-      wait_for_disconnect: true,
+      wait_for_disconnect: false,
     },
   };
 
-  let mut local_inspector_session = runtime
-    .inspector()
-    .borrow()
-    .create_local_session(session_options);
+  let inspector = runtime.inspector();
+  let (tx, rx) = std::sync::mpsc::channel();
+  let callback = Box::new(move |msg: InspectorMsg| {
+    if matches!(msg.kind, InspectorMsgKind::Message(1)) {
+      let value: serde_json::Value =
+        serde_json::from_str(&msg.content).unwrap();
+      let _ = tx.send(value["result"].clone());
+    }
+  });
+  let mut local_inspector_session = JsRuntimeInspector::create_local_session(
+    inspector,
+    callback,
+    session_options,
+  );
 
-  let post_message_future = pin!(local_inspector_session.post_message(
+  local_inspector_session.post_message(
+    1,
     "Runtime.evaluate",
     Some(json!({
       "expression": expression,
     })),
-  ));
+  );
 
-  // https://chromedevtools.github.io/devtools-protocol/tot/Runtime/#type-RemoteObject
-  let remote_object_result = runtime
-    .with_event_loop_future(
-      post_message_future,
-      PollEventLoopOptions {
-        pump_v8_message_loop: false,
-        ..Default::default()
-      },
-    )
-    .await?;
-
-  Ok(remote_object_result)
+  rx.try_recv().unwrap()
 }
 
 #[test]

@@ -92,10 +92,10 @@ impl InspectorServer {
     js_runtime: &mut JsRuntime,
     wait_for_session: bool,
   ) {
-    let inspector_rc = js_runtime.inspector();
-    let mut inspector = inspector_rc.borrow_mut();
+    let inspector = js_runtime.inspector();
     let session_sender = inspector.get_session_sender();
     let deregister_rx = inspector.add_deregister_handler();
+
     let info = InspectorInfo::new(
       self.host,
       session_sender,
@@ -411,31 +411,31 @@ async fn pump_websocket_messages(
 ) {
   'pump: loop {
     tokio::select! {
-        Some(msg) = outbound_rx.next() => {
-            let msg = Frame::text(msg.content.into_bytes().into());
-            let _ = websocket.write_frame(msg).await;
-        }
-        Ok(msg) = websocket.read_frame() => {
-            match msg.opcode {
-                OpCode::Text => {
-                    if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
-                      let _ = inbound_tx.unbounded_send(s);
-                    }
-                }
-                OpCode::Close => {
-                    // Users don't care if there was an error coming from debugger,
-                    // just about the fact that debugger did disconnect.
-                    eprintln!("Debugger session ended");
-                    break 'pump;
-                }
-                _ => {
-                    // Ignore other messages.
-                }
+      Some(msg) = outbound_rx.next() => {
+        let msg = Frame::text(msg.content.into_bytes().into());
+        let _ = websocket.write_frame(msg).await;
+      }
+      Ok(msg) = websocket.read_frame() => {
+        match msg.opcode {
+          OpCode::Text => {
+            if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
+              let _ = inbound_tx.unbounded_send(s);
             }
+          }
+          OpCode::Close => {
+            // Users don't care if there was an error coming from debugger,
+            // just about the fact that debugger did disconnect.
+            eprintln!("Debugger session ended");
+            break 'pump;
+          }
+          _ => {
+              // Ignore other messages.
+          }
         }
-        else => {
-          break 'pump;
-        }
+      }
+      else => {
+        break 'pump;
+      }
     }
   }
 }
