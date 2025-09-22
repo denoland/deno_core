@@ -1017,11 +1017,7 @@ impl JsRuntime {
     };
 
     let main_realm = {
-      v8::scope_with_context!(
-        context_scope,
-        &mut isolate,
-        &main_context
-      );
+      v8::scope_with_context!(context_scope, &mut isolate, &main_context);
       let scope = context_scope;
       let context = v8::Local::new(scope, &main_context);
 
@@ -1914,7 +1910,7 @@ impl JsRuntime {
   }
 
   /// Given a promise, returns a future that resolves when it does.
-  fn resolve_promise_inner<'a, 's, 'i>(
+  fn resolve_promise_inner<'s, 'i>(
     scope: &mut v8::PinScope<'s, 'i>,
     promise: v8::Local<'s, v8::Promise>,
   ) -> RcPromiseFuture {

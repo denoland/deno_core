@@ -144,7 +144,8 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   ) -> Option<v8::Local<'_, v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     let context = self.0.context.clone();
-    let mut isolate = unsafe { v8::Isolate::from_raw_isolate_ptr(self.0.isolate_ptr) };
+    let mut isolate =
+      unsafe { v8::Isolate::from_raw_isolate_ptr(self.0.isolate_ptr) };
     let isolate = &mut isolate;
     v8::callback_scope!(unsafe scope, isolate);
     let local = v8::Local::new(scope, context);

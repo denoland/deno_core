@@ -428,15 +428,15 @@ impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
   }
 
   fn serialize_i32(self, v: i32) -> JsResult<'a> {
-    Ok(v8::Integer::new(&mut self.scope.borrow_mut(), v).into())
+    Ok(v8::Integer::new(&self.scope.borrow(), v).into())
   }
 
   fn serialize_u32(self, v: u32) -> JsResult<'a> {
-    Ok(v8::Integer::new_from_unsigned(&mut self.scope.borrow_mut(), v).into())
+    Ok(v8::Integer::new_from_unsigned(&self.scope.borrow(), v).into())
   }
 
   fn serialize_i64(self, v: i64) -> JsResult<'a> {
-    let s = &mut self.scope.borrow_mut();
+    let s = &self.scope.borrow();
     // If i64 can fit in max safe integer bounds then serialize as v8::Number
     // otherwise serialize as v8::BigInt
     if (MIN_SAFE_INTEGER..=MAX_SAFE_INTEGER).contains(&v) {
@@ -447,7 +447,7 @@ impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
   }
 
   fn serialize_u64(self, v: u64) -> JsResult<'a> {
-    let s = &mut self.scope.borrow_mut();
+    let s = &self.scope.borrow();
     // If u64 can fit in max safe integer bounds then serialize as v8::Number
     // otherwise serialize as v8::BigInt
     if v <= (MAX_SAFE_INTEGER as u64) {
@@ -458,12 +458,12 @@ impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
   }
 
   fn serialize_f64(self, v: f64) -> JsResult<'a> {
-    let scope = &mut self.scope.borrow_mut();
-    Ok(v8::Number::new(scope.deref_mut(), v).into())
+    let scope = &*self.scope.borrow();
+    Ok(v8::Number::new(scope, v).into())
   }
 
   fn serialize_bool(self, v: bool) -> JsResult<'a> {
-    Ok(v8::Boolean::new(&mut *self.scope.borrow_mut(), v).into())
+    Ok(v8::Boolean::new(&*self.scope.borrow(), v).into())
   }
 
   fn serialize_char(self, v: char) -> JsResult<'a> {
@@ -471,7 +471,7 @@ impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
   }
 
   fn serialize_str(self, v: &str) -> JsResult<'a> {
-    let maybe_str = v8::String::new(&mut self.scope.borrow_mut(), v);
+    let maybe_str = v8::String::new(*self.scope.borrow(), v);
 
     // v8 string can return 'None' if buffer length > kMaxLength.
     if let Some(str) = maybe_str {
@@ -488,7 +488,7 @@ impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
   }
 
   fn serialize_none(self) -> JsResult<'a> {
-    Ok(v8::null(&mut *self.scope.borrow_mut()).into())
+    Ok(v8::null(&*self.scope.borrow()).into())
   }
 
   fn serialize_some<T: ?Sized + Serialize>(self, value: &T) -> JsResult<'a> {
@@ -496,11 +496,11 @@ impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
   }
 
   fn serialize_unit(self) -> JsResult<'a> {
-    Ok(v8::null(&mut *self.scope.borrow_mut()).into())
+    Ok(v8::null(&*self.scope.borrow()).into())
   }
 
   fn serialize_unit_struct(self, _name: &'static str) -> JsResult<'a> {
-    Ok(v8::null(&mut *self.scope.borrow_mut()).into())
+    Ok(v8::null(&*self.scope.borrow()).into())
   }
 
   /// For compatibility with serde-json, serialises unit variants as "Variant" strings.
@@ -510,7 +510,7 @@ impl<'a, 'b, 'c, 'i> ser::Serializer for Serializer<'a, 'b, 'c, 'i> {
     _variant_index: u32,
     variant: &'static str,
   ) -> JsResult<'a> {
-    Ok(v8_struct_key(&mut self.scope.borrow_mut(), variant).into())
+    Ok(v8_struct_key(&self.scope.borrow(), variant).into())
   }
 
   fn serialize_newtype_struct<T: ?Sized + Serialize>(

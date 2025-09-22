@@ -48,7 +48,7 @@ pub trait RustToV8NoScope<'a> {
 
 /// Places a value in a `v8::ReturnValue`, non-allocating.
 pub trait RustToV8RetVal<'a>: RustToV8<'a> {
-  fn to_v8_rv<'i>(self, rv: &mut v8::ReturnValue<'a>);
+  fn to_v8_rv(self, rv: &mut v8::ReturnValue<'a>);
 }
 
 /// Convert a value to a `v8::Local`, potentially allocating or failing.

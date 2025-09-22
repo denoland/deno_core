@@ -695,7 +695,7 @@ pub fn op_serialize<'s, 'i>(
 }
 
 #[op2]
-pub fn op_deserialize<'a, 's, 'i>(
+pub fn op_deserialize<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
   #[buffer] zero_copy: JsBuffer,
   host_objects: Option<v8::Local<'s, v8::Value>>,
