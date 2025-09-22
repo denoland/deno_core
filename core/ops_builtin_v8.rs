@@ -269,8 +269,7 @@ pub fn op_eval_context<'s, 'i>(
 ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
   let out = v8::Array::new(scope, 2);
   let state = JsRuntime::state_from(scope);
-  let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-  let tc_scope = &mut tc_scope.init();
+  v8::tc_scope!(let tc_scope, scope);
 
   let source = v8::Local::<v8::String>::try_from(source)
     .map_err(|_| JsErrorBox::type_error("Invalid source"))?;
@@ -443,8 +442,7 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
     message: v8::Local<'s, v8::String>,
   ) {
     if let Some(cb) = self.error_callback {
-      let scope = std::pin::pin!(v8::TryCatch::new(scope));
-      let scope = &mut scope.init();
+      v8::tc_scope!(let scope, scope);
 
       let undefined = v8::undefined(scope).into();
       cb.call(scope, undefined, &[message.into()]);
@@ -681,8 +679,7 @@ pub fn op_serialize<'s, 'i>(
     }
   }
 
-  let scope = std::pin::pin!(v8::TryCatch::new(scope));
-  let scope = &mut scope.init();
+  v8::tc_scope!(let scope, scope);
 
   let ret = value_serializer.write_value(scope.get_current_context(), value);
   if scope.has_caught() || scope.has_terminated() {
@@ -793,8 +790,7 @@ pub fn op_structured_clone<'s, 'i>(
   let value_serializer = v8::ValueSerializer::new(scope, serialize_deserialize);
   value_serializer.write_header();
 
-  let scope = std::pin::pin!(v8::TryCatch::new(scope));
-  let scope = &mut scope.init();
+  v8::tc_scope!(let scope, scope);
 
   let ret = value_serializer.write_value(scope.get_current_context(), value);
   if scope.has_caught() || scope.has_terminated() {

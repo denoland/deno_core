@@ -617,8 +617,7 @@ impl ModuleMap {
       .get_host_defined_options(scope, name.as_str());
     let origin = script_origin(scope, name_str, true, host_defined_options);
 
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let (maybe_module, try_store_code_cache) = code_cache_info
       .as_ref()
@@ -809,8 +808,7 @@ impl ModuleMap {
       v8::NewStringType::Normal,
     )
     .unwrap();
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let parsed_json = match v8::json::parse(tc_scope, source_str) {
       Some(parsed_json) => parsed_json,
@@ -883,8 +881,7 @@ impl ModuleMap {
     scope: &mut v8::PinScope<'s, 'i>,
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let module = self
       .get_handle(id)
@@ -1309,8 +1306,7 @@ impl ModuleMap {
     scope: &mut v8::PinScope,
     id: ModuleId,
   ) -> Result<(), CoreError> {
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let module = self
       .get_handle(id)
@@ -1401,8 +1397,7 @@ impl ModuleMap {
     // For more details see:
     // https://github.com/denoland/deno/issues/4908
     // https://v8.dev/features/top-level-await#module-execution-order
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     {
       let cped = self

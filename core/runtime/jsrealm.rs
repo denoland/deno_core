@@ -194,8 +194,7 @@ impl JsRealmInner {
     let raw_ptr = self.state().isolate.unwrap();
     // SAFETY: We know the isolate outlives the realm
     let mut isolate = unsafe { v8::Isolate::from_raw_isolate_ptr(raw_ptr) };
-    let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
-    let scope = &mut scope.init();
+    v8::scope!(let scope, &mut isolate);
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
@@ -328,8 +327,7 @@ impl JsRealm {
     let name = name.into_module_name().v8_string(scope).unwrap();
     let origin = script_origin(scope, name, false, None);
 
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let script = match v8::Script::compile(tc_scope, source, Some(&origin)) {
       Some(script) => script,
@@ -377,8 +375,7 @@ impl JsRealm {
     let name = name.into_module_name().v8_string(scope).unwrap();
     let source = source.v8_string(scope).unwrap();
     let origin = script_origin(scope, name, false, None);
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let (maybe_script, maybe_code_cache_hash) =
       if let Some(data) = &code_cache.data {

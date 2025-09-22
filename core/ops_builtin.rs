@@ -645,8 +645,7 @@ fn op_import_sync<'s, 'i>(
 
   let namespace = module.get_module_namespace().cast::<v8::Object>();
 
-  let scope = std::pin::pin!(v8::TryCatch::new(scope));
-  let scope = &mut scope.init();
+  v8::tc_scope!(let scope, scope);
 
   let default = v8_static_strings::DEFAULT.v8_string(scope).unwrap();
   let es_module = v8_static_strings::ESMODULE.v8_string(scope).unwrap();

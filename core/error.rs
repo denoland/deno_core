@@ -22,7 +22,6 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-use std::pin::pin;
 use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
@@ -259,8 +258,7 @@ pub fn to_v8_error<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
   error: &dyn JsErrorClass,
 ) -> v8::Local<'s, v8::Value> {
-  let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-  let tc_scope = &mut tc_scope.init();
+  v8::tc_scope!(let tc_scope, scope);
 
   let cb = JsRealm::exception_state_from_scope(tc_scope)
     .js_build_custom_error_cb
@@ -734,8 +732,7 @@ impl JsError {
   ) -> Box<Self> {
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
-    let scope = pin!(v8::HandleScope::new(scope));
-    let scope = &mut scope.init();
+    v8::scope!(let scope, scope);
 
     let exception_message = msg.get(scope).to_rust_string_lossy(scope);
 
@@ -783,8 +780,7 @@ impl JsError {
   ) -> Self {
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
-    let scope = std::pin::pin!(v8::HandleScope::new(scope));
-    let scope = &mut scope.init();
+    v8::scope!(let scope, scope);
 
     let msg = v8::Exception::create_message(scope, exception);
 
@@ -858,8 +854,7 @@ impl JsError {
           let mut buf = Vec::with_capacity(frames_v8.length() as usize);
           for i in 0..frames_v8.length() {
             let callsite = frames_v8.get_index(scope, i).unwrap().cast();
-            let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-            let tc_scope = &mut tc_scope.init();
+            v8::tc_scope!(let tc_scope, scope);
 
             let Some(stack_frame) =
               JsStackFrame::from_callsite_object(tc_scope, callsite)
@@ -1770,8 +1765,7 @@ pub fn format_stack_trace<'s, 'i>(
   // format each stack frame
   for i in 0..callsites.length() {
     let callsite = callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let Some(frame) = JsStackFrame::from_callsite_object(tc_scope, callsite)
     else {

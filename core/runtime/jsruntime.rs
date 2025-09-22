@@ -589,8 +589,7 @@ extern "C" fn isolate_message_listener(
   _exception: v8::Local<v8::Value>,
 ) {
   v8::callback_scope!(unsafe scope, message);
-  let scope = std::pin::pin!(v8::HandleScope::new(scope));
-  let scope = &mut scope.init();
+  v8::scope!(let scope, scope);
 
   let message_v8_str = message.get(scope);
   let message_str = message_v8_str.to_rust_string_lossy(scope);
@@ -992,8 +991,7 @@ impl JsRuntime {
     // ...and with `ContextState` available we can set up V8 context...
     let mut snapshotted_data = None;
     let main_context = {
-      let scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
-      let scope = &mut scope.init();
+      v8::scope!(let scope, &mut isolate);
 
       let cppgc_template = crate::cppgc::make_cppgc_template(scope);
       state_rc
@@ -1527,8 +1525,7 @@ impl JsRuntime {
   where
     v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Value>, Error = v8::DataError>,
   {
-    let scope = std::pin::pin!(v8::EscapableHandleScope::new(scope));
-    let scope = &mut scope.init();
+    v8::escapable_handle_scope!(let scope, scope);
     let source = v8::String::new(scope, code).unwrap();
     let script = v8::Script::compile(scope, source, None).unwrap();
     let v = script.run(scope)?;
@@ -1710,8 +1707,7 @@ impl JsRuntime {
     args: &[v8::Global<v8::Value>],
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    let scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let scope = &mut scope.init();
+    v8::tc_scope!(let scope, scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
     let promise = if args.is_empty() {
@@ -1837,8 +1833,7 @@ impl JsRuntime {
       // do nothing
     }
 
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     tc_scope.perform_microtask_checkpoint();
     match tc_scope.exception() {
@@ -2023,8 +2018,7 @@ impl JsRuntime {
     // SAFETY: We know this isolate is valid and non-null at this time
     let mut isolate =
       unsafe { v8::Isolate::from_raw_isolate_ptr(self.v8_isolate_ptr()) };
-    let isolate_scope = std::pin::pin!(v8::HandleScope::new(&mut isolate));
-    let isolate_scope = &mut isolate_scope.init();
+    v8::scope!(let isolate_scope, &mut isolate);
     let context =
       v8::Local::new(isolate_scope, self.inner.main_realm.context());
     let mut scope = v8::ContextScope::new(isolate_scope, context);
@@ -2796,8 +2790,7 @@ impl JsRuntime {
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
     args.push(has_tick_scheduled.into());
 
-    let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-    let tc_scope = &mut tc_scope.init();
+    v8::tc_scope!(let tc_scope, scope);
 
     let js_event_loop_tick_cb = context_state.js_event_loop_tick_cb.borrow();
     let js_event_loop_tick_cb =

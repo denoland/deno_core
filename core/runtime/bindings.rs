@@ -699,8 +699,7 @@ pub fn host_import_module_dynamically_callback<'s, 'i>(
     ImportAttributesKind::DynamicImport,
   );
 
-  let tc_scope = std::pin::pin!(v8::TryCatch::new(scope));
-  let tc_scope = &mut tc_scope.init();
+  v8::tc_scope!(let tc_scope, scope);
 
   {
     {
