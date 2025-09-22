@@ -31,7 +31,6 @@ use std::task::Context;
 use std::task::Poll;
 use std::thread;
 use thiserror::Error;
-use v8::HandleScope;
 
 #[derive(Debug)]
 pub enum InspectorMsgKind {
@@ -149,7 +148,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
     let isolate = &mut isolate;
     v8::callback_scope!(unsafe scope, isolate);
     let local = v8::Local::new(scope, context);
-    Some(unsafe { std::mem::transmute(local) })
+    Some(unsafe { local.extend_lifetime_unchecked() })
   }
 
   fn resource_name_to_url(
