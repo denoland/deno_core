@@ -443,7 +443,7 @@ fn test_mods() {
   let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b) = {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let mod_a = module_map
       .new_es_module(
         scope,
@@ -552,7 +552,7 @@ fn test_json_text_bytes_modules() {
   let module_map = runtime.module_map().clone();
 
   let (mod_b, mod_c, mod_d, mod_e) = {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let specifier_b = ascii_str!("file:///b.js");
 
     let mod_b = module_map
@@ -654,7 +654,7 @@ fn test_validate_import_attributes_default() {
   });
 
   let module_map_rc = runtime.module_map().clone();
-  deno_core::jsruntime_make_handle_scope!(scope, runtime);
+  deno_core::jsruntime_scope!(scope, runtime);
   module_map_rc
     .new_es_module(
       scope,
@@ -717,7 +717,7 @@ fn test_validate_import_attributes_callback() {
   let module_map_rc = runtime.module_map().clone();
 
   {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -742,7 +742,7 @@ fn test_validate_import_attributes_callback() {
   }
 
   {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -788,7 +788,7 @@ fn test_validate_import_attributes_callback2() {
   let module_map = runtime.module_map().clone();
 
   {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let module_err = module_map
       .new_es_module(
         scope,
@@ -821,7 +821,7 @@ fn test_custom_module_type_default() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -886,7 +886,7 @@ fn test_custom_module_type_callback_synthetic() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -912,7 +912,7 @@ fn test_custom_module_type_callback_synthetic() {
   };
 
   {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
@@ -983,7 +983,7 @@ export const foo = bytes;
   let module_map = runtime.module_map().clone();
 
   let mod_id = {
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(

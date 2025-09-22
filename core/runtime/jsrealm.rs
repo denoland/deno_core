@@ -245,7 +245,7 @@ unsafe fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
 }
 macro_rules! handle_scope {
   ($scope: ident, $self: expr, $isolate: expr) => {
-    v8::make_handle_scope!($scope, $isolate);
+    v8::scope!($scope, $isolate);
     let context = v8::Local::new($scope, $self.context());
     let $scope = &mut v8::ContextScope::new($scope, context);
   };

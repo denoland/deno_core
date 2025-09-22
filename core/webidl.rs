@@ -894,7 +894,7 @@ mod tests {
   #[test]
   fn integers() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     macro_rules! test_integer {
       ($t:ty: $($val:expr_2021 => $expected:literal$(, $opts:expr_2021)?);+;) => {
@@ -1013,7 +1013,7 @@ mod tests {
   #[test]
   fn float() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = f32::convert(
@@ -1049,7 +1049,7 @@ mod tests {
   #[test]
   fn unrestricted_float() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = UnrestrictedFloat::convert(
@@ -1096,7 +1096,7 @@ mod tests {
   #[test]
   fn double() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = f64::convert(
@@ -1132,7 +1132,7 @@ mod tests {
   #[test]
   fn unrestricted_double() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = UnrestrictedDouble::convert(
@@ -1179,7 +1179,7 @@ mod tests {
   #[test]
   fn string() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::String::new(scope, "foo").unwrap();
     let converted = String::convert(
@@ -1259,7 +1259,7 @@ mod tests {
   #[test]
   fn byte_string() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::String::new(scope, "foo").unwrap();
     let converted = ByteString::convert(
@@ -1339,7 +1339,7 @@ mod tests {
   #[test]
   fn any() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::Object::new(scope);
     let converted = v8::Local::<Value>::convert(
@@ -1355,7 +1355,7 @@ mod tests {
   #[test]
   fn sequence() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let a = v8::Number::new(scope, 1.0);
     let b = v8::String::new(scope, "2").unwrap();
@@ -1373,7 +1373,7 @@ mod tests {
   #[test]
   fn nullable() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::undefined(scope);
     let converted = Nullable::<u8>::convert(
@@ -1399,7 +1399,7 @@ mod tests {
   #[test]
   fn record() {
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let obj = v8::Object::new(scope);
     let key = v8::String::new(scope, "foo").unwrap();
@@ -1445,7 +1445,7 @@ mod tests {
       )
       .unwrap();
 
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
     let val = Local::new(scope, val);
 
     let converted = Dict::convert(
@@ -1481,7 +1481,7 @@ mod tests {
     }
 
     let mut runtime = JsRuntime::new(Default::default());
-    deno_core::jsruntime_make_handle_scope!(scope, runtime);
+    deno_core::jsruntime_scope!(scope, runtime);
 
     let val = v8::String::new(scope, "foo-bar").unwrap();
     let converted = Enumeration::convert(

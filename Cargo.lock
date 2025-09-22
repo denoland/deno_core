@@ -3406,7 +3406,7 @@ dependencies = [
 
 [[package]]
 name = "v8"
-version = "140.0.0"
+version = "140.1.1"
 dependencies = [
  "bindgen",
  "bitflags",

@@ -580,7 +580,7 @@ fn wrap_module<'s, 'i>(
     _: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     // SAFETY: It is safe to open a CallbackScope from a context in this callback.
-    v8::make_callback_scope!(unsafe scope, context);
+    v8::callback_scope!(unsafe scope, context);
     debug_assert_eq!(specifier.to_rust_string_lossy(scope), "original");
     let module = scope.remove_slot::<v8::Global<v8::Module>>().unwrap();
     Some(v8::Local::new(scope, module))

@@ -923,7 +923,7 @@ impl ModuleMap {
     referrer: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-    v8::make_callback_scope!(unsafe scope, context);
+    v8::callback_scope!(unsafe scope, context);
 
     let module_map =
       // SAFETY: We retrieve the pointer from the slot, having just set it a few stack frames up
@@ -1135,7 +1135,7 @@ impl ModuleMap {
     scope: &mut v8::PinScope<'s, 'i>,
     id: ModuleId,
   ) -> impl Future<Output = Result<(), CoreError>> + use<> {
-    v8::make_try_catch!(tc_scope, scope);
+    v8::tc_scope!(tc_scope, scope);
 
     let module = self
       .get_handle(id)
@@ -2022,8 +2022,8 @@ pub(crate) fn synthetic_module_evaluation_steps<'s>(
   module: v8::Local<'s, v8::Module>,
 ) -> Option<v8::Local<'s, v8::Value>> {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  v8::make_callback_scope!(unsafe scope, context);
-  v8::make_try_catch!(tc_scope, scope);
+  v8::callback_scope!(unsafe scope, context);
+  v8::tc_scope!(tc_scope, scope);
 
   let module_map = JsRealm::module_map_from(tc_scope);
 

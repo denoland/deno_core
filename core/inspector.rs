@@ -159,7 +159,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspector {
     let isolate: &mut v8::Isolate = unsafe {
       std::mem::transmute::<&mut v8::Isolate, &'a mut v8::Isolate>(&mut isolate)
     };
-    v8::make_callback_scope!(unsafe scope, isolate);
+    v8::callback_scope!(unsafe scope, isolate);
     Some(v8::Local::new(scope, self.context.clone()))
   }
 

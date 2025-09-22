@@ -1948,7 +1948,7 @@ pub fn throw_error_one_byte_info(
   info: &v8::FunctionCallbackInfo,
   message: &str,
 ) {
-  v8::make_callback_scope!(unsafe scope, info);
+  v8::callback_scope!(unsafe scope, info);
   throw_error_one_byte(scope, message);
 }
 

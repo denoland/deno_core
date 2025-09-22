@@ -588,7 +588,7 @@ extern "C" fn isolate_message_listener(
   message: v8::Local<v8::Message>,
   _exception: v8::Local<v8::Value>,
 ) {
-  v8::make_callback_scope!(unsafe scope, message);
+  v8::callback_scope!(unsafe scope, message);
   let scope = std::pin::pin!(v8::HandleScope::new(scope));
   let scope = &mut scope.init();
 
@@ -689,13 +689,13 @@ pub struct CreateRealmOptions {
 }
 
 #[macro_export]
-macro_rules! jsruntime_make_handle_scope {
+macro_rules! jsruntime_scope {
   ($scope: ident, $self: expr) => {
     // let isolate = &mut self.inner.v8_isolate;
     // self.inner.main_realm.handle_scope(isolate)
     let context = $self.main_context();
     let isolate = &mut *$self.v8_isolate();
-    $crate::v8::make_handle_scope!($scope, isolate);
+    $crate::v8::scope!($scope, isolate);
     let context = $crate::v8::Local::new($scope, context);
     let $scope = &mut $crate::v8::ContextScope::new($scope, context);
   };
@@ -1019,7 +1019,7 @@ impl JsRuntime {
     };
 
     let main_realm = {
-      v8::make_handle_scope_with_context!(
+      v8::scope_with_context!(
         context_scope,
         &mut isolate,
         &main_context
@@ -1346,7 +1346,7 @@ impl JsRuntime {
     context_global: &v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
   ) {
-    jsruntime_make_handle_scope!(scope, self);
+    jsruntime_scope!(scope, self);
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
@@ -1378,7 +1378,7 @@ impl JsRuntime {
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), CoreError> {
-    jsruntime_make_handle_scope!(scope, self);
+    jsruntime_scope!(scope, self);
 
     for source_file in &BUILTIN_SOURCES {
       let name = source_file.specifier.v8_string(scope).unwrap();
@@ -1539,7 +1539,7 @@ impl JsRuntime {
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
-      jsruntime_make_handle_scope!(scope, self);
+      jsruntime_scope!(scope, self);
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
@@ -1693,7 +1693,7 @@ impl JsRuntime {
     args: &[v8::Global<v8::Value>],
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    jsruntime_make_handle_scope!(scope, self);
+    jsruntime_scope!(scope, self);
     Self::scoped_call_with_args(scope, function, args)
   }
 
@@ -1857,7 +1857,7 @@ impl JsRuntime {
 
     let context = self.main_context();
     let isolate_ptr = unsafe { self.inner.v8_isolate.as_raw_isolate_ptr() };
-    v8::make_handle_scope_with_context!(
+    v8::scope_with_context!(
       scope,
       self.inner.v8_isolate.as_mut(),
       context.clone(),
@@ -1882,7 +1882,7 @@ impl JsRuntime {
     promise: v8::Global<v8::Value>,
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    jsruntime_make_handle_scope!(scope, self);
+    jsruntime_scope!(scope, self);
     Self::scoped_resolve(scope, promise)
   }
 

@@ -653,7 +653,7 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
   success: v8::WasmAsyncSuccess,
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  v8::make_callback_scope!(unsafe scope, context);
+  v8::callback_scope!(unsafe scope, context);
   if success == v8::WasmAsyncSuccess::Success {
     resolver.resolve(scope, compilation_result).unwrap();
   } else {
@@ -759,7 +759,7 @@ pub extern "C" fn host_initialize_import_meta_object_callback(
   meta: v8::Local<v8::Object>,
 ) {
   // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
-  v8::make_callback_scope!(unsafe scope, context);
+  v8::callback_scope!(unsafe scope, context);
   let module_map = JsRealm::module_map_from(scope);
   let state = JsRealm::state_from_scope(scope);
 
@@ -969,7 +969,7 @@ fn catch_dynamic_import_promise_error<'s, 'i>(
 
 pub extern "C" fn promise_reject_callback(message: v8::PromiseRejectMessage) {
   // SAFETY: `CallbackScope` can be safely constructed from `&PromiseRejectMessage`
-  v8::make_callback_scope!(unsafe scope, &message);
+  v8::callback_scope!(unsafe scope, &message);
 
   let exception_state = JsRealm::exception_state_from_scope(scope);
   exception_state.track_promise_rejection(

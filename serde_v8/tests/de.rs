@@ -40,7 +40,7 @@ where
 {
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    v8::make_handle_scope!(handle_scope, isolate);
+    v8::scope!(handle_scope, isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let v = js_exec(scope, code);
