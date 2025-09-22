@@ -1146,9 +1146,8 @@ pub fn op_current_user_call_site(
       Some(name) => {
         let file_name = name.to_rust_string_lossy(scope);
         // TODO: this condition should be configurable. It's a CLI assumption.
-        if (file_name.starts_with("ext:")
-          || file_name.starts_with("node:")
-          || file_name.starts_with("checkin:"))
+        if (!file_name.starts_with("file:")
+          || file_name.contains("/node_modules/"))
           && i != frame_count - 1
         {
           continue;
