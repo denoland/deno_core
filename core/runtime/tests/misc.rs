@@ -1142,10 +1142,9 @@ async fn generic_in_extension_middleware() {
     "Goodbye!".to_string()
   }
 
-  deno_core::extension!(welcome_ext, parameters= [W: WelcomeWorld], ops = [say_greeting, say_goodbye],
+  deno_core::extension!(welcome_ext, parameters = [W: WelcomeWorld], ops = [say_greeting<W>, say_goodbye],
     middleware = |op| {
         match op.name {
-            // "op_net_listen_tcp" => op_freestyle_net_listen_tcp::<PA, PR>(),
             "say_goodbye" => say_greeting::<W>(),
             _ => op,
         }
