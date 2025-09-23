@@ -10,7 +10,7 @@ struct Foo;
 impl<'a> FromV8<'a> for Foo {
   type Error = std::convert::Infallible;
   fn from_v8(
-    _scope: &mut v8::HandleScope<'a>,
+    _scope: &mut v8::PinScope<'a, '_>,
     _value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     Ok(Foo)

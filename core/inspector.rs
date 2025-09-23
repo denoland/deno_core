@@ -27,7 +27,6 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::thread;
-use v8::HandleScope;
 
 #[derive(Debug)]
 pub enum InspectorMsgKind {
@@ -130,7 +129,7 @@ impl Drop for JsRuntimeInspector {
 
 #[derive(Clone)]
 struct JsRuntimeInspectorState {
-  isolate_ptr: *mut v8::Isolate,
+  isolate_ptr: v8::UnsafeRawIsolatePtr,
   context: v8::Global<v8::Context>,
   flags: Rc<RefCell<InspectorFlags>>,
   waker: Arc<InspectorWaker>,
@@ -162,9 +161,12 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   ) -> Option<v8::Local<'_, v8::Context>> {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     let context = self.0.context.clone();
-    let isolate: &mut v8::Isolate = unsafe { &mut *(self.0.isolate_ptr) };
-    let scope = &mut unsafe { v8::CallbackScope::new(isolate) };
-    Some(v8::Local::new(scope, context))
+    let mut isolate =
+      unsafe { v8::Isolate::from_raw_isolate_ptr(self.0.isolate_ptr) };
+    let isolate = &mut isolate;
+    v8::callback_scope!(unsafe scope, isolate);
+    let local = v8::Local::new(scope, context);
+    Some(unsafe { local.extend_lifetime_unchecked() })
   }
 
   fn resource_name_to_url(
@@ -262,8 +264,8 @@ impl JsRuntimeInspector {
   const CONTEXT_GROUP_ID: i32 = 1;
 
   pub fn new(
-    isolate_ptr: *mut v8::Isolate,
-    scope: &mut v8::HandleScope,
+    isolate_ptr: v8::UnsafeRawIsolatePtr,
+    scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
     is_main_runtime: bool,
   ) -> Rc<Self> {
@@ -350,7 +352,7 @@ impl JsRuntimeInspector {
 
   pub fn context_destroyed(
     &self,
-    scope: &mut HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     context: v8::Global<v8::Context>,
   ) {
     let context = v8::Local::new(scope, context);
@@ -359,7 +361,7 @@ impl JsRuntimeInspector {
 
   pub fn exception_thrown(
     &self,
-    scope: &mut HandleScope,
+    scope: &mut v8::PinScope<'_, '_>,
     exception: v8::Local<'_, v8::Value>,
     in_promise: bool,
   ) {

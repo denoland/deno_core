@@ -212,7 +212,7 @@ impl RecursiveModuleLoad {
 
   pub(crate) fn register_and_recurse(
     &mut self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     module_request: &ModuleRequest,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {

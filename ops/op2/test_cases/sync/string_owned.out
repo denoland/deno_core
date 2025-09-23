@@ -119,7 +119,10 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
                 >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            let mut scope = unsafe { &mut *opctx.isolate };
+            let mut scope = unsafe {
+                deno_core::v8::Isolate::from_raw_isolate_ptr(opctx.isolate)
+            };
+            let mut scope = &mut scope;
             let result = {
                 let arg0 = args.get(0usize as i32);
                 let arg0 = deno_core::_ops::to_string(&mut scope, &arg0);

@@ -63,9 +63,9 @@ impl DerefMut for JsBuffer {
 }
 
 impl FromV8 for JsBuffer {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope<'scope, 'i>,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     Ok(Self(V8Slice::from_v8(scope, value)?))
   }
@@ -103,10 +103,10 @@ impl From<Vec<u8>> for ToJsBuffer {
 }
 
 impl ToV8 for ToJsBuffer {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     let buf: Box<[u8]> =
       self.0.borrow_mut().take().expect("RustToV8Buf was empty");
 

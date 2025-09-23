@@ -102,7 +102,10 @@ pub fn op_string_option_u32(#[string] s: &str) -> Option<u32> {
 pub fn op_local(_s: v8::Local<v8::String>) {}
 
 #[op2(fast)]
-pub fn op_local_scope(_scope: &mut v8::HandleScope, _s: v8::Local<v8::String>) {
+pub fn op_local_scope<'s>(
+  _scope: &mut v8::PinScope<'s, '_>,
+  _s: v8::Local<'s, v8::String>,
+) {
 }
 
 #[op2(nofast)]
@@ -113,16 +116,16 @@ pub fn op_global(#[global] _s: v8::Global<v8::String>) {}
 
 #[op2]
 pub fn op_global_scope(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   #[global] _s: v8::Global<v8::String>,
 ) {
 }
 
 #[op2(fast)]
-pub fn op_scope(_scope: &mut v8::HandleScope) {}
+pub fn op_scope(_scope: &mut v8::PinScope) {}
 
 #[op2(nofast)]
-pub fn op_isolate_nofast(_isolate: *mut v8::Isolate) {}
+pub fn op_isolate_nofast(_isolate: &mut v8::Isolate) {}
 
 #[op2(fast)]
 pub fn op_make_external() -> *const c_void {
@@ -212,15 +215,15 @@ fn bench_op(
     .map_err(err_mapper)
     .unwrap();
   let bench = runtime.execute_script("", ascii_str!("bench")).unwrap();
-  let mut scope = runtime.handle_scope();
+  deno_core::scope!(scope, &mut runtime);
   #[allow(clippy::unnecessary_fallible_conversions)]
   let bench: v8::Local<v8::Function> =
-    v8::Local::<v8::Value>::new(&mut scope, bench)
+    v8::Local::<v8::Value>::new(scope, bench)
       .try_into()
       .unwrap();
   b.iter(|| {
-    let recv = v8::undefined(&mut scope).into();
-    bench.call(&mut scope, recv, &[]);
+    let recv = v8::undefined(scope).into();
+    bench.call(scope, recv, &[]);
   });
 }
 

@@ -83,7 +83,7 @@ unsafe impl GarbageCollected for TestObjectWrap {
 }
 
 fn int(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   value: v8::Local<v8::Value>,
 ) -> Result<(), JsErrorBox> {
   if value.is_int32() {
@@ -94,7 +94,7 @@ fn int(
 }
 
 fn int_op(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   args: &v8::FunctionCallbackArguments,
 ) -> Result<(), JsErrorBox> {
   if args.length() != 1 {
@@ -122,7 +122,7 @@ impl TestObjectWrap {
   }
 
   #[fast]
-  fn with_scope_fast(&self, _scope: &mut v8::HandleScope) {}
+  fn with_scope_fast(&self, _scope: &mut v8::PinScope) {}
 
   #[fast]
   #[undefined]
@@ -173,11 +173,11 @@ unsafe impl GarbageCollected for DOMPoint {
 
 impl DOMPointReadOnly {
   fn from_point_inner(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     fn get(
-      scope: &mut v8::HandleScope,
+      scope: &mut v8::PinScope,
       other: v8::Local<v8::Object>,
       key: &str,
     ) -> Option<f64> {
@@ -258,7 +258,7 @@ impl DOMPoint {
   #[static_method]
   #[cppgc]
   fn from_point(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     DOMPointReadOnly::from_point_inner(scope, other)
@@ -268,7 +268,7 @@ impl DOMPoint {
   #[cppgc]
   fn from_point(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     DOMPointReadOnly::from_point_inner(scope, other)

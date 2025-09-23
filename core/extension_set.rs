@@ -160,7 +160,7 @@ pub fn create_op_ctxs(
 
     OpCtx::new(
       index as _,
-      std::ptr::null_mut(),
+      v8::UnsafeRawIsolatePtr::null(),
       op_driver.clone(),
       decl,
       op_state.clone(),
