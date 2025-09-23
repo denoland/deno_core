@@ -157,7 +157,7 @@ fn es_snapshot() {
   // The module was evaluated ahead of time
   {
     let global_test = runtime.execute_script("", "globalThis.TEST").unwrap();
-    deno_core::jsruntime_scope!(scope, runtime);
+    deno_core::scope!(scope, runtime);
     let global_test = v8::Local::new(scope, global_test);
     assert!(global_test.is_string());
     assert_eq!(global_test.to_rust_string_lossy(scope).as_str(), "foo");
@@ -173,7 +173,7 @@ fn es_snapshot() {
       futures::executor::block_on(runtime.resolve_value(test_export_promise))
         .unwrap();
 
-    deno_core::jsruntime_scope!(scope, runtime);
+    deno_core::scope!(scope, runtime);
     let test_export = v8::Local::new(scope, test_export);
     assert!(test_export.is_string());
     assert_eq!(test_export.to_rust_string_lossy(scope).as_str(), "bar");

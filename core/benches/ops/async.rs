@@ -147,7 +147,7 @@ fn bench_op(
   #[allow(deprecated)]
   let bench = tokio.block_on(runtime.resolve_value(run)).unwrap();
   let bench = {
-    deno_core::jsruntime_scope!(scope, &mut runtime);
+    deno_core::scope!(scope, &mut runtime);
     let bench: v8::Local<v8::Function> =
       v8::Local::new(scope, bench).try_into().unwrap();
 

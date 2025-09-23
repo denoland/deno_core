@@ -215,7 +215,7 @@ fn bench_op(
     .map_err(err_mapper)
     .unwrap();
   let bench = runtime.execute_script("", ascii_str!("bench")).unwrap();
-  deno_core::jsruntime_scope!(scope, &mut runtime);
+  deno_core::scope!(scope, &mut runtime);
   #[allow(clippy::unnecessary_fallible_conversions)]
   let bench: v8::Local<v8::Function> =
     v8::Local::<v8::Value>::new(scope, bench)

@@ -688,10 +688,8 @@ pub struct CreateRealmOptions {
 }
 
 #[macro_export]
-macro_rules! jsruntime_scope {
+macro_rules! scope {
   ($scope: ident, $self: expr) => {
-    // let isolate = &mut self.inner.v8_isolate;
-    // self.inner.main_realm.handle_scope(isolate)
     let context = $self.main_context();
     let isolate = &mut *$self.v8_isolate();
     $crate::v8::scope!($scope, isolate);
@@ -1340,7 +1338,7 @@ impl JsRuntime {
     context_global: &v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
   ) {
-    jsruntime_scope!(scope, self);
+    scope!(scope, self);
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
@@ -1372,7 +1370,7 @@ impl JsRuntime {
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), CoreError> {
-    jsruntime_scope!(scope, self);
+    scope!(scope, self);
 
     for source_file in &BUILTIN_SOURCES {
       let name = source_file.specifier.v8_string(scope).unwrap();
@@ -1475,7 +1473,7 @@ impl JsRuntime {
       };
 
       let isolate = self.v8_isolate();
-      jsrealm::handle_scope!(scope, realm, isolate);
+      jsrealm::context_scope!(scope, realm, isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
       let mut cx = Context::from_waker(Waker::noop());
       // poll once so code cache is populated. the `ExtCodeCache` trait is sync, so
@@ -1485,7 +1483,7 @@ impl JsRuntime {
 
     #[cfg(debug_assertions)]
     {
-      jsrealm::handle_scope!(scope, realm, self.v8_isolate());
+      jsrealm::context_scope!(scope, realm, self.v8_isolate());
       module_map.check_all_modules_evaluated(scope)?;
     }
 
@@ -1532,7 +1530,7 @@ impl JsRuntime {
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
-      jsruntime_scope!(scope, self);
+      scope!(scope, self);
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
@@ -1686,7 +1684,7 @@ impl JsRuntime {
     args: &[v8::Global<v8::Value>],
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    jsruntime_scope!(scope, self);
+    scope!(scope, self);
     Self::scoped_call_with_args(scope, function, args)
   }
 
@@ -1873,7 +1871,7 @@ impl JsRuntime {
     promise: v8::Global<v8::Value>,
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    jsruntime_scope!(scope, self);
+    scope!(scope, self);
     Self::scoped_resolve(scope, promise)
   }
 
@@ -2254,7 +2252,7 @@ impl JsRuntimeForSnapshot {
 
     // Set the context to be snapshot's default context
     {
-      jsrealm::handle_scope!(scope, realm, self.v8_isolate());
+      jsrealm::context_scope!(scope, realm, self.v8_isolate());
       let default_context = v8::Context::new(scope, Default::default());
       scope.set_default_context(default_context);
 
@@ -2322,7 +2320,7 @@ impl JsRuntimeForSnapshot {
         external_strings,
       };
 
-      jsrealm::handle_scope!(scope, realm, self.v8_isolate());
+      jsrealm::context_scope!(scope, realm, self.v8_isolate());
       snapshot::store_snapshotted_data_for_snapshot(
         scope,
         realm.context().clone(),
@@ -2471,7 +2469,7 @@ impl JsRuntime {
   ) -> Result<(), v8::Global<v8::Value>> {
     let isolate = &mut *self.inner.v8_isolate;
     let realm = JsRealm::clone(&self.inner.main_realm);
-    jsrealm::handle_scope!(scope, realm, isolate);
+    jsrealm::context_scope!(scope, realm, isolate);
     realm.instantiate_module(scope, id)
   }
 
@@ -2498,7 +2496,7 @@ impl JsRuntime {
   ) -> impl Future<Output = Result<(), CoreError>> + use<> {
     let isolate = &mut *self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
-    jsrealm::handle_scope!(scope, realm, isolate);
+    jsrealm::context_scope!(scope, realm, isolate);
     self.inner.main_realm.0.module_map.mod_evaluate(scope, id)
   }
 

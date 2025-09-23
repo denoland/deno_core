@@ -242,7 +242,7 @@ unsafe fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
     Rc::from_raw(raw)
   }
 }
-macro_rules! handle_scope {
+macro_rules! context_scope {
   ($scope: ident, $self: expr, $isolate: expr) => {
     v8::scope!($scope, $isolate);
     let context = v8::Local::new($scope, $self.context());
@@ -250,7 +250,7 @@ macro_rules! handle_scope {
   };
 }
 
-pub(crate) use handle_scope;
+pub(crate) use context_scope;
 
 impl JsRealm {
   pub(crate) fn new(inner: JsRealmInner) -> Self {
@@ -321,7 +321,7 @@ impl JsRealm {
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Box<JsError>> {
-    handle_scope!(scope, self, isolate);
+    context_scope!(scope, self, isolate);
 
     let source = source_code.into_module_code().v8_string(scope).unwrap();
     let name = name.into_module_name().v8_string(scope).unwrap();
@@ -363,7 +363,7 @@ impl JsRealm {
     ) -> SourceCodeCacheInfo,
     cache_ready: &dyn Fn(ModuleSpecifier, u64, &[u8]),
   ) -> Result<v8::Global<v8::Value>, CoreError> {
-    handle_scope!(scope, self, isolate);
+    context_scope!(scope, self, isolate);
 
     let specifier = name.clone();
     let code = source_code.into_module_code();
@@ -446,7 +446,7 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     module_id: ModuleId,
   ) -> Result<v8::Global<v8::Object>, CoreError> {
-    handle_scope!(scope, self, isolate);
+    context_scope!(scope, self, isolate);
     self.0.module_map().get_module_namespace(scope, module_id)
   }
 
@@ -482,7 +482,7 @@ impl JsRealm {
   ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
-      handle_scope!(scope, self, isolate);
+      context_scope!(scope, self, isolate);
       // true for main module
       module_map_rc
         .new_es_module(scope, true, specifier.to_owned(), code, false, None)
@@ -494,14 +494,14 @@ impl JsRealm {
 
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
-      handle_scope!(scope, self, isolate);
+      context_scope!(scope, self, isolate);
       load
         .register_and_recurse(scope, &request, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
-    handle_scope!(scope, self, isolate);
+    context_scope!(scope, self, isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
       exception_to_err(scope, exception, false, false)
@@ -528,7 +528,7 @@ impl JsRealm {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let specifier = specifier.to_owned();
-      handle_scope!(scope, self, isolate);
+      context_scope!(scope, self, isolate);
       // false for side module (not main module)
       module_map_rc
         .new_es_module(scope, false, specifier, code, false, None)
@@ -540,14 +540,14 @@ impl JsRealm {
 
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
-      handle_scope!(scope, self, isolate);
+      context_scope!(scope, self, isolate);
       load
         .register_and_recurse(scope, &request, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
-    handle_scope!(scope, self, isolate);
+    context_scope!(scope, self, isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
       exception_to_err(scope, exception, false, false)
@@ -569,7 +569,7 @@ impl JsRealm {
     code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, CoreError> {
     let module_map_rc = self.0.module_map();
-    handle_scope!(scope, self, isolate);
+    context_scope!(scope, self, isolate);
     module_map_rc.lazy_load_es_module_with_code(
       scope,
       module_specifier.as_str(),
