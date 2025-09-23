@@ -772,34 +772,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   }
 }
 
-#[derive(Debug, Boxed)]
-pub struct InspectorPostMessageError(pub Box<InspectorPostMessageErrorKind>);
-
-#[derive(Debug, Error)]
-pub enum InspectorPostMessageErrorKind {
-  #[error(transparent)]
-  JsBox(#[from] JsErrorBox),
-  #[error(transparent)]
-  FutureCanceled(futures::channel::oneshot::Canceled),
-}
-
-impl From<InspectorPostMessageError> for CoreError {
-  fn from(value: InspectorPostMessageError) -> Self {
-    CoreErrorKind::JsBox(value.into_js_error_box()).into_box()
-  }
-}
-
-impl InspectorPostMessageError {
-  pub fn into_js_error_box(self) -> JsErrorBox {
-    match self.into_kind() {
-      InspectorPostMessageErrorKind::JsBox(e) => e,
-      InspectorPostMessageErrorKind::FutureCanceled(e) => {
-        JsErrorBox::generic(e.to_string())
-      }
-    }
-  }
-}
-
 /// A local inspector session that can be used to send and receive protocol messages directly on
 /// the same thread as an isolate.
 ///
