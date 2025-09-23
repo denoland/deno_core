@@ -907,20 +907,6 @@ Extracts an object from `OpState`.
 </td><td>
 Only usable in `deno_core`.
 </td></tr>
-<tr>
-<td>
-
-```text
-v8::UnsafeRawIsolatePtr
-```
-
-</td><td>
-✅
-</td><td>
-
-</td><td>
-⚠️ Extremely dangerous, may crash if you don't use `nofast` depending on what you do.
-</td></tr>
 </table>
 
 <!-- END ARGS -->

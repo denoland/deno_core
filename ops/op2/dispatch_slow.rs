@@ -597,10 +597,6 @@ pub fn from_arg(
     Arg::External(External::Ptr(_)) => {
       from_arg_option(generator_state, &arg_ident, "external")
     }
-    Arg::Special(Special::RawIsolatePtr) => {
-      *needs_opctx = true;
-      quote!(let #arg_ident = #opctx.isolate;)
-    }
     Arg::Ref(RefType::Ref, Special::Isolate) => {
       *needs_opctx = true;
       quote!(

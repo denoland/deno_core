@@ -2091,20 +2091,16 @@ mod tests {
   }
 
   #[op2(nofast)]
-  fn op_isolate_run_microtasks(isolate: v8::UnsafeRawIsolatePtr) {
-    // SAFETY: testing
-    unsafe {
-      v8::Isolate::from_raw_isolate_ptr(isolate).perform_microtask_checkpoint();
-    };
+  fn op_isolate_run_microtasks(isolate: &mut v8::Isolate) {
+    isolate.perform_microtask_checkpoint();
   }
 
   #[op2(nofast)]
   fn op_isolate_queue_microtask(
-    isolate: v8::UnsafeRawIsolatePtr,
+    isolate: &mut v8::Isolate,
     cb: v8::Local<'_, v8::Function>,
   ) {
-    // SAFETY: testing
-    unsafe { v8::Isolate::from_raw_isolate_ptr(isolate).enqueue_microtask(cb) };
+    isolate.enqueue_microtask(cb);
   }
 
   #[tokio::test]

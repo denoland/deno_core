@@ -204,25 +204,17 @@ pub fn op_lazy_load_esm(
 // allowed to touch JS heap.
 #[op2(nofast)]
 pub fn op_queue_microtask(
-  isolate: v8::UnsafeRawIsolatePtr,
+  isolate: &mut v8::Isolate,
   cb: v8::Local<v8::Function>,
 ) {
-  // SAFETY: we know v8 provides us a valid, non-null isolate pointer
-  unsafe {
-    let mut isolate: v8::Isolate = v8::Isolate::from_raw_isolate_ptr(isolate);
-    isolate.enqueue_microtask(cb);
-  }
+  isolate.enqueue_microtask(cb);
 }
 
 // We run in a `nofast` op here so we don't get put into a `DisallowJavascriptExecutionScope` and we're
 // allowed to touch JS heap.
 #[op2(nofast, reentrant)]
-pub fn op_run_microtasks(isolate: v8::UnsafeRawIsolatePtr) {
-  // SAFETY: we know v8 provides us with a valid, non-null isolate
-  unsafe {
-    let mut isolate: v8::Isolate = v8::Isolate::from_raw_isolate_ptr(isolate);
-    isolate.perform_microtask_checkpoint()
-  };
+pub fn op_run_microtasks(isolate: &mut v8::Isolate) {
+  isolate.perform_microtask_checkpoint()
 }
 
 #[op2(fast)]

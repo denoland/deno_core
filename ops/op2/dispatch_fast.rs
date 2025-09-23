@@ -729,12 +729,6 @@ fn map_v8_fastcall_arg_to_arg(
         *buffer,
       )?
     }
-    Arg::Special(Special::RawIsolatePtr) => {
-      *needs_fast_api_callback_options = true;
-      gs_quote!(generator_state(fast_api_callback_options) => {
-        let #arg_ident = #fast_api_callback_options.isolate;
-      })
-    }
     Arg::Ref(RefType::Ref, Special::Isolate) => {
       *needs_fast_api_callback_options = true;
       gs_quote!(generator_state(fast_api_callback_options) => {
@@ -933,7 +927,6 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::State(..)
     | Arg::VarArgs
     | Arg::This
-    | Arg::Special(Special::RawIsolatePtr)
     | Arg::Ref(_, Special::Isolate)
     | Arg::OptionState(..) => V8FastCallType::Virtual,
     // Other types + ref types are not handled

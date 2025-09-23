@@ -125,7 +125,7 @@ pub fn op_global_scope(
 pub fn op_scope(_scope: &mut v8::PinScope) {}
 
 #[op2(nofast)]
-pub fn op_isolate_nofast(_isolate: v8::UnsafeRawIsolatePtr) {}
+pub fn op_isolate_nofast(_isolate: &mut v8::Isolate) {}
 
 #[op2(fast)]
 pub fn op_make_external() -> *const c_void {
