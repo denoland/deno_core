@@ -443,7 +443,7 @@ fn test_mods() {
   let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b) = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let mod_a = module_map
       .new_es_module(
         scope,
@@ -552,7 +552,7 @@ fn test_json_text_bytes_modules() {
   let module_map = runtime.module_map().clone();
 
   let (mod_b, mod_c, mod_d, mod_e) = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_b = ascii_str!("file:///b.js");
 
     let mod_b = module_map
@@ -654,7 +654,7 @@ fn test_validate_import_attributes_default() {
   });
 
   let module_map_rc = runtime.module_map().clone();
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
   module_map_rc
     .new_es_module(
       scope,
@@ -684,7 +684,7 @@ fn test_validate_import_attributes_callback() {
   // attributes.
 
   fn validate_import_attributes(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     assertions: &HashMap<String, String>,
   ) {
     for (key, value) in assertions {
@@ -717,7 +717,7 @@ fn test_validate_import_attributes_callback() {
   let module_map_rc = runtime.module_map().clone();
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -742,7 +742,7 @@ fn test_validate_import_attributes_callback() {
   }
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -770,7 +770,7 @@ fn test_validate_import_attributes_callback() {
 #[test]
 fn test_validate_import_attributes_callback2() {
   fn validate_import_attrs(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     _attrs: &HashMap<String, String>,
   ) {
     let msg = v8::String::new(scope, "boom!").unwrap();
@@ -788,7 +788,7 @@ fn test_validate_import_attributes_callback2() {
   let module_map = runtime.module_map().clone();
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map
       .new_es_module(
         scope,
@@ -821,7 +821,7 @@ fn test_custom_module_type_default() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -850,7 +850,7 @@ fn test_custom_module_type_default() {
 #[test]
 fn test_custom_module_type_callback_synthetic() {
   fn custom_eval_cb(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
@@ -886,7 +886,7 @@ fn test_custom_module_type_callback_synthetic() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -912,7 +912,7 @@ fn test_custom_module_type_callback_synthetic() {
   };
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
@@ -934,7 +934,7 @@ fn test_custom_module_type_callback_synthetic() {
 #[test]
 fn test_custom_module_type_callback_computed() {
   fn custom_eval_cb(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,
@@ -983,7 +983,7 @@ export const foo = bytes;
   let module_map = runtime.module_map().clone();
 
   let mod_id = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(

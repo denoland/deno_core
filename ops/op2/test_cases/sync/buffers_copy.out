@@ -117,11 +117,11 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let Ok(arg0) = arg0.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -149,11 +149,11 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 let arg0 = arg0.to_vec();
                 let Ok(arg1) = arg1.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -181,11 +181,11 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 let arg1 = arg1.to_vec().into_boxed_slice();
                 let Ok(arg2) = arg2.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -413,11 +413,11 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let Ok(arg0) = arg0.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -445,11 +445,11 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 let arg0 = arg0.to_vec();
                 let Ok(arg1) = arg1.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",

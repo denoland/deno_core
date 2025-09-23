@@ -182,13 +182,13 @@ impl From<&'static [u8]> for ModuleCodeBytes {
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.
 pub type ValidateImportAttributesCb =
-  Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
+  Box<dyn Fn(&mut v8::PinScope, &HashMap<String, String>)>;
 
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.
 pub type CustomModuleEvaluationCb = Box<
   dyn Fn(
-    &mut v8::HandleScope,
+    &mut v8::PinScope,
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
@@ -234,9 +234,9 @@ pub(crate) enum ImportAttributesKind {
   DynamicImport,
 }
 
-pub(crate) fn parse_import_attributes(
-  scope: &mut v8::HandleScope,
-  attributes: v8::Local<v8::FixedArray>,
+pub(crate) fn parse_import_attributes<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  attributes: v8::Local<'s, v8::FixedArray>,
   kind: ImportAttributesKind,
 ) -> HashMap<String, String> {
   let mut assertions: HashMap<String, String> = HashMap::default();
@@ -312,9 +312,9 @@ impl std::fmt::Display for ModuleType {
 }
 
 impl ModuleType {
-  pub fn to_v8<'s>(
+  pub fn to_v8<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> v8::Local<'s, v8::Value> {
     match self {
       ModuleType::JavaScript => v8::Integer::new(scope, 0).into(),
@@ -326,9 +326,9 @@ impl ModuleType {
     }
   }
 
-  pub fn try_from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  pub fn try_from_v8<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Option<Self> {
     Some(if let Some(int) = value.to_integer(scope) {
       match int.int32_value(scope).unwrap_or_default() {
@@ -537,9 +537,9 @@ pub enum RequestedModuleType {
 }
 
 impl RequestedModuleType {
-  pub fn to_v8<'s>(
+  pub fn to_v8<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> v8::Local<'s, v8::Value> {
     match self {
       RequestedModuleType::None => v8::Integer::new(scope, 0).into(),
@@ -552,9 +552,9 @@ impl RequestedModuleType {
     }
   }
 
-  pub fn try_from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  pub fn try_from_v8<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Option<Self> {
     Some(if let Some(int) = value.to_integer(scope) {
       match int.int32_value(scope).unwrap_or_default() {
@@ -682,7 +682,7 @@ pub enum ModuleError {
 impl ModuleError {
   pub fn into_error(
     self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     in_promise: bool,
     clear_error: bool,
   ) -> CoreError {

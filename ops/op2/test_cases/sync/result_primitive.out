@@ -106,9 +106,11 @@ pub const fn op_u32_with_result() -> ::deno_core::_ops::OpDecl {
             let result = match result {
                 Ok(result) => result,
                 Err(err) => {
-                    let mut scope = unsafe {
-                        deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
-                    };
+                    let scope = ::std::pin::pin!(
+                        unsafe { deno_core::v8::CallbackScope::new(& *
+                        fast_api_callback_options) }
+                    );
+                    let mut scope = scope.init();
                     let exception = deno_core::error::to_v8_error(&mut scope, &err);
                     scope.throw_exception(exception);
                     return unsafe { std::mem::zeroed() };
@@ -131,7 +133,10 @@ pub const fn op_u32_with_result() -> ::deno_core::_ops::OpDecl {
             match result {
                 Ok(result) => deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv),
                 Err(err) => {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                    let scope = ::std::pin::pin!(
+                        unsafe { deno_core::v8::CallbackScope::new(info) }
+                    );
+                    let mut scope = scope.init();
                     let opctx: &'s _ = unsafe {
                         &*(deno_core::v8::Local::<
                             deno_core::v8::External,

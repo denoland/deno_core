@@ -109,11 +109,11 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                     deno_core::v8::String,
                 >(arg0) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected String",
@@ -129,11 +129,11 @@ pub const fn op_v8_lifetime() -> ::deno_core::_ops::OpDecl {
                     deno_core::v8::String,
                 >(arg1) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected String",

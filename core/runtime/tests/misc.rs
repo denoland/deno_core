@@ -44,13 +44,13 @@ fn test_execute_script_return_value() {
   let mut runtime = JsRuntime::new(Default::default());
   let value_global = runtime.execute_script("a.js", "a = 1 + 2").unwrap();
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let value = value_global.open(scope);
     assert_eq!(value.integer_value(scope).unwrap(), 3);
   }
   let value_global = runtime.execute_script("b.js", "b = 'foobar'").unwrap();
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let value = value_global.open(scope);
     assert!(value.is_string());
     assert_eq!(
@@ -169,7 +169,7 @@ async fn test_resolve_promise(
   let out = runtime
     .with_event_loop_promise(resolve, PollEventLoopOptions::default())
     .await;
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
   match result {
     Ok(value) => {
       let out = v8::Local::new(scope, out.expect("expected success"));
@@ -266,7 +266,7 @@ async fn test_resolve_value_generic(
   } else {
     unreachable!()
   };
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
 
   match output {
     Ok(None) => {
@@ -410,7 +410,8 @@ async fn wasm_streaming_op_invocation_in_import() {
                             "#).unwrap();
   #[allow(deprecated)]
   let value = runtime.resolve_value(promise).await.unwrap();
-  let val = value.open(&mut runtime.handle_scope());
+  deno_core::scope!(scope, runtime);
+  let val = value.open(scope);
   assert!(val.is_object());
 }
 
@@ -520,7 +521,7 @@ fn test_get_module_namespace() {
 
   let module_namespace = runtime.get_module_namespace(module_id).unwrap();
 
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
 
   let module_namespace = v8::Local::<v8::Object>::new(scope, module_namespace);
 
@@ -708,8 +709,8 @@ fn test_is_proxy() {
   "#,
     )
     .unwrap();
-  let mut scope = runtime.handle_scope();
-  let all_true = v8::Local::<v8::Value>::new(&mut scope, &all_true);
+  deno_core::scope!(scope, runtime);
+  let all_true = v8::Local::<v8::Value>::new(scope, &all_true);
   assert!(all_true.is_true());
 }
 
@@ -1161,7 +1162,7 @@ fn create_spawner_runtime() -> JsRuntime {
   runtime
 }
 
-fn call_i32_function(scope: &mut v8::HandleScope) -> i32 {
+fn call_i32_function(scope: &mut v8::PinScope) -> i32 {
   let ctx = scope.get_current_context();
   let global = ctx.global(scope);
   let key = v8::String::new_external_onebyte_static(scope, b"f")
@@ -1314,7 +1315,7 @@ async fn global_template_middleware() {
   static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
   pub fn descriptor<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
@@ -1325,7 +1326,7 @@ async fn global_template_middleware() {
   }
 
   pub fn setter<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _value: v8::Local<'s, v8::Value>,
     _args: v8::PropertyCallbackArguments<'s>,
@@ -1336,7 +1337,7 @@ async fn global_template_middleware() {
   }
 
   fn definer<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _descriptor: &v8::PropertyDescriptor,
     _args: v8::PropertyCallbackArguments<'s>,
@@ -1347,7 +1348,7 @@ async fn global_template_middleware() {
   }
 
   pub fn gt_middleware<'s>(
-    _scope: &mut v8::HandleScope<'s, ()>,
+    _scope: &mut v8::PinScope<'s, '_, ()>,
     template: v8::Local<'s, v8::ObjectTemplate>,
   ) -> v8::Local<'s, v8::ObjectTemplate> {
     let mut config = v8::NamedPropertyHandlerConfiguration::new().flags(

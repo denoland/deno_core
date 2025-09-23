@@ -62,9 +62,9 @@ pub struct SnapshotLoadDataStore {
 }
 
 impl SnapshotLoadDataStore {
-  pub fn get<'s, T>(
+  pub fn get<'s, 'i, T>(
     &mut self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     id: SnapshotDataId,
   ) -> v8::Global<T>
   where
@@ -336,7 +336,7 @@ impl<'snapshot> SerializableSnapshotSidecarData<'snapshot> {
 /// Given the sidecar data and a scope to extract data from, reconstructs the
 /// `SnapshottedData` and `SnapshotLoadDataStore`.
 pub(crate) fn load_snapshotted_data_from_snapshot<'snapshot>(
-  scope: &mut v8::HandleScope<()>,
+  scope: &mut v8::PinScope<()>,
   context: v8::Local<v8::Context>,
   raw_data: SerializableSnapshotSidecarData<'snapshot>,
 ) -> (SnapshottedData<'snapshot>, SnapshotLoadDataStore) {
@@ -356,7 +356,7 @@ pub(crate) fn load_snapshotted_data_from_snapshot<'snapshot>(
 /// Given a `SnapshottedData` and `SnapshotStoreDataStore`, attaches the data to the
 /// context and returns the serialized sidecar data.
 pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   context: v8::Global<v8::Context>,
   snapshotted_data: SnapshottedData<'snapshot>,
   data_store: SnapshotStoreDataStore,

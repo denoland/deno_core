@@ -52,7 +52,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );
@@ -173,7 +176,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );
@@ -275,7 +281,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                     info,
                 );
@@ -384,7 +393,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );
@@ -573,16 +585,18 @@ impl Foo {
                 let fast_api_callback_options: &'s mut _ = unsafe {
                     &mut *fast_api_callback_options
                 };
-                let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
+                let mut scope = unsafe {
+                    fast_api_callback_options.isolate_unchecked_mut()
+                };
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, this.into()) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected Foo",
@@ -601,7 +615,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );
@@ -701,7 +718,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );
@@ -804,7 +824,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );
@@ -990,7 +1013,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );
@@ -1152,16 +1178,18 @@ impl Foo {
                 let fast_api_callback_options: &'s mut _ = unsafe {
                     &mut *fast_api_callback_options
                 };
-                let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
+                let mut scope = unsafe {
+                    fast_api_callback_options.isolate_unchecked_mut()
+                };
                 let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Foo,
                 >(&mut scope, this.into()) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected Foo",
@@ -1180,7 +1208,10 @@ impl Foo {
                 let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                     &<Self as deno_core::_ops::Op>::DECL,
                 );
-                let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+                let scope = ::std::pin::pin!(
+                    unsafe { deno_core::v8::CallbackScope::new(info) }
+                );
+                let mut scope = scope.init();
                 let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(
                     info,
                 );

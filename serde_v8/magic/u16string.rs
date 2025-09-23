@@ -64,10 +64,10 @@ impl From<Vec<u16>> for U16String {
 }
 
 impl ToV8 for U16String {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     let maybe_v =
       v8::String::new_from_two_byte(scope, self, v8::NewStringType::Normal);
 
@@ -83,9 +83,9 @@ impl ToV8 for U16String {
 }
 
 impl FromV8 for U16String {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     let v8str = v8::Local::<v8::String>::try_from(value)
       .map_err(|_| Error::ExpectedString(value.type_repr()))?;

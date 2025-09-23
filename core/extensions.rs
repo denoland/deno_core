@@ -160,12 +160,12 @@ pub trait Op {
   const DECL: OpDecl;
 }
 pub type GlobalTemplateMiddlewareFn =
-  for<'s> fn(
-    &mut v8::HandleScope<'s, ()>,
+  for<'s, 'i> fn(
+    &mut v8::PinScope<'s, 'i, ()>,
     v8::Local<'s, v8::ObjectTemplate>,
   ) -> v8::Local<'s, v8::ObjectTemplate>;
 pub type GlobalObjectMiddlewareFn =
-  for<'s> fn(&mut v8::HandleScope<'s>, v8::Local<'s, v8::Object>);
+  for<'s, 'i> fn(&mut v8::PinScope<'s, 'i>, v8::Local<'s, v8::Object>);
 
 extern "C" fn noop() {}
 

@@ -60,6 +60,7 @@ use crate::ops_metrics::dispatch_metrics_async;
 use crate::runtime::ContextState;
 use crate::runtime::JsRealm;
 use crate::runtime::OpDriverImpl;
+use crate::runtime::jsrealm;
 use crate::source_map::SourceMapData;
 use crate::source_map::SourceMapper;
 use crate::stats::RuntimeActivityType;
@@ -87,7 +88,6 @@ use std::sync::Mutex;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
-use v8::Isolate;
 
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
@@ -588,8 +588,9 @@ extern "C" fn isolate_message_listener(
   message: v8::Local<v8::Message>,
   _exception: v8::Local<v8::Value>,
 ) {
-  let scope = &mut unsafe { v8::CallbackScope::new(message) };
-  let scope = &mut v8::HandleScope::new(scope);
+  v8::callback_scope!(unsafe scope, message);
+  v8::scope!(let scope, scope);
+
   let message_v8_str = message.get(scope);
   let message_str = message_v8_str.to_rust_string_lossy(scope);
 
@@ -686,6 +687,17 @@ pub struct CreateRealmOptions {
   pub module_loader: Option<Rc<dyn ModuleLoader>>,
 }
 
+#[macro_export]
+macro_rules! scope {
+  ($scope: ident, $self: expr) => {
+    let context = $self.main_context();
+    let isolate = &mut *$self.v8_isolate();
+    $crate::v8::scope!($scope, isolate);
+    let context = $crate::v8::Local::new($scope, context);
+    let $scope = &mut $crate::v8::ContextScope::new($scope, context);
+  };
+}
+
 impl JsRuntime {
   /// Explicitly initalizes the V8 platform using the passed platform. This
   /// should only be called once per process. Further calls will be silently
@@ -763,7 +775,7 @@ impl JsRuntime {
     state.op_state.clone()
   }
 
-  pub(crate) fn has_more_work(scope: &mut v8::HandleScope) -> bool {
+  pub(crate) fn has_more_work(scope: &mut v8::PinScope) -> bool {
     EventLoopPendingState::new_from_scope(scope).is_pending()
   }
 
@@ -941,7 +953,7 @@ impl JsRuntime {
       );
     }
 
-    let isolate_ptr = isolate.as_mut() as *mut Isolate;
+    let isolate_ptr = unsafe { isolate.as_raw_isolate_ptr() };
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
     // their' setup...
     for op_ctx in op_ctxs.iter_mut() {
@@ -977,7 +989,7 @@ impl JsRuntime {
     // ...and with `ContextState` available we can set up V8 context...
     let mut snapshotted_data = None;
     let main_context = {
-      let scope = &mut v8::HandleScope::new(&mut isolate);
+      v8::scope!(let scope, &mut isolate);
 
       let cppgc_template = crate::cppgc::make_cppgc_template(scope);
       state_rc
@@ -1002,132 +1014,136 @@ impl JsRuntime {
       v8::Global::new(scope, context)
     };
 
-    let mut context_scope: v8::HandleScope =
-      v8::HandleScope::with_context(&mut isolate, &main_context);
-    let scope = &mut context_scope;
-    let context = v8::Local::new(scope, &main_context);
+    let main_realm = {
+      v8::scope_with_context!(context_scope, &mut isolate, &main_context);
+      let scope = context_scope;
+      let context = v8::Local::new(scope, &main_context);
 
-    let callsite_prototype = crate::error::make_callsite_prototype(scope);
-    state_rc
-      .callsite_prototype
-      .borrow_mut()
-      .replace(v8::Global::new(scope, callsite_prototype));
+      let callsite_prototype = crate::error::make_callsite_prototype(scope);
+      state_rc
+        .callsite_prototype
+        .borrow_mut()
+        .replace(v8::Global::new(scope, callsite_prototype));
 
-    // ...followed by creation of `Deno.core` namespace, as well as internal
-    // infrastructure to provide JavaScript bindings for ops...
-    if init_mode == InitMode::New {
-      bindings::initialize_deno_core_namespace(scope, context, init_mode);
-      bindings::initialize_primordials_and_infra(scope)?;
-    }
-    // If we're creating a new runtime or there are new ops to register
-    // set up JavaScript bindings for them.
-    if init_mode.needs_ops_bindings() {
-      bindings::initialize_deno_core_ops_bindings(
-        scope,
-        context,
-        &context_state.op_ctxs,
-        &context_state.op_method_decls,
-        methods_ctx_offset,
-        &mut state_rc.function_templates.borrow_mut(),
-      );
-    }
-
-    // SAFETY: Initialize the context state slot.
-    unsafe {
-      context.set_aligned_pointer_in_embedder_data(
-        super::jsrealm::CONTEXT_STATE_SLOT_INDEX,
-        Rc::into_raw(context_state.clone()) as *mut c_void,
-      );
-    }
-
-    let inspector = if options.inspector {
-      Some(JsRuntimeInspector::new(
-        isolate_ptr,
-        scope,
-        context,
-        options.is_main,
-      ))
-    } else {
-      None
-    };
-
-    // ...now that JavaScript bindings to ops are available we can deserialize
-    // modules stored in the snapshot (because they depend on the ops and external
-    // references must match properly) and recreate a module map...
-    let exception_state = context_state.exception_state.clone();
-    let module_map = Rc::new(ModuleMap::new(
-      loader,
-      exception_state.clone(),
-      will_snapshot,
-    ));
-
-    if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
-      *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
-        snapshotted_data
-          .js_handled_promise_rejection_cb
-          .map(|cb| data_store.get(scope, cb));
-      module_map.update_with_snapshotted_data(
-        scope,
-        &mut data_store,
-        snapshotted_data.module_map_data,
-      );
-
-      if let Some(index) = snapshotted_data.ext_import_meta_proto {
-        *context_state.ext_import_meta_proto.borrow_mut() =
-          Some(data_store.get(scope, index));
+      // ...followed by creation of `Deno.core` namespace, as well as internal
+      // infrastructure to provide JavaScript bindings for ops...
+      if init_mode == InitMode::New {
+        bindings::initialize_deno_core_namespace(scope, context, init_mode);
+        bindings::initialize_primordials_and_infra(scope)?;
+      }
+      // If we're creating a new runtime or there are new ops to register
+      // set up JavaScript bindings for them.
+      if init_mode.needs_ops_bindings() {
+        bindings::initialize_deno_core_ops_bindings(
+          scope,
+          context,
+          &context_state.op_ctxs,
+          &context_state.op_method_decls,
+          methods_ctx_offset,
+          &mut state_rc.function_templates.borrow_mut(),
+        );
       }
 
-      state_rc
-        .function_templates
-        .borrow_mut()
-        .update_with_snapshotted_data(
+      // SAFETY: Initialize the context state slot.
+      unsafe {
+        context.set_aligned_pointer_in_embedder_data(
+          super::jsrealm::CONTEXT_STATE_SLOT_INDEX,
+          Rc::into_raw(context_state.clone()) as *mut c_void,
+        );
+      }
+
+      let inspector = if options.inspector {
+        Some(JsRuntimeInspector::new(
+          isolate_ptr,
+          scope,
+          context,
+          options.is_main,
+        ))
+      } else {
+        None
+      };
+
+      // ...now that JavaScript bindings to ops are available we can deserialize
+      // modules stored in the snapshot (because they depend on the ops and external
+      // references must match properly) and recreate a module map...
+      let exception_state = context_state.exception_state.clone();
+      let module_map = Rc::new(ModuleMap::new(
+        loader,
+        exception_state.clone(),
+        will_snapshot,
+      ));
+
+      if let Some((snapshotted_data, mut data_store)) = snapshotted_data {
+        *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
+          snapshotted_data
+            .js_handled_promise_rejection_cb
+            .map(|cb| data_store.get(scope, cb));
+        module_map.update_with_snapshotted_data(
           scope,
           &mut data_store,
-          snapshotted_data.function_templates_data,
+          snapshotted_data.module_map_data,
         );
 
-      let mut mapper = state_rc.source_mapper.borrow_mut();
-      for (key, map) in snapshotted_data.ext_source_maps {
-        mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
+        if let Some(index) = snapshotted_data.ext_import_meta_proto {
+          *context_state.ext_import_meta_proto.borrow_mut() =
+            Some(data_store.get(scope, index));
+        }
+
+        state_rc
+          .function_templates
+          .borrow_mut()
+          .update_with_snapshotted_data(
+            scope,
+            &mut data_store,
+            snapshotted_data.function_templates_data,
+          );
+
+        let mut mapper = state_rc.source_mapper.borrow_mut();
+        for (key, map) in snapshotted_data.ext_source_maps {
+          mapper.add_ext_source_map(ModuleName::from_static(key), map.into());
+        }
       }
-    }
 
-    if context_state.ext_import_meta_proto.borrow().is_none() {
-      let null = v8::null(scope);
-      let obj =
-        v8::Object::with_prototype_and_properties(scope, null.into(), &[], &[]);
-      *context_state.ext_import_meta_proto.borrow_mut() =
-        Some(v8::Global::new(scope, obj));
-    }
+      if context_state.ext_import_meta_proto.borrow().is_none() {
+        let null = v8::null(scope);
+        let obj = v8::Object::with_prototype_and_properties(
+          scope,
+          null.into(),
+          &[],
+          &[],
+        );
+        *context_state.ext_import_meta_proto.borrow_mut() =
+          Some(v8::Global::new(scope, obj));
+      }
 
-    // SAFETY: Set the module map slot in the context
-    unsafe {
-      context.set_aligned_pointer_in_embedder_data(
-        super::jsrealm::MODULE_MAP_SLOT_INDEX,
-        Rc::into_raw(module_map.clone()) as *mut c_void,
+      // SAFETY: Set the module map slot in the context
+      unsafe {
+        context.set_aligned_pointer_in_embedder_data(
+          super::jsrealm::MODULE_MAP_SLOT_INDEX,
+          Rc::into_raw(module_map.clone()) as *mut c_void,
+        );
+      }
+
+      // ...we are ready to create a "realm" for the context...
+      let main_realm = {
+        let main_realm = JsRealmInner::new(
+          context_state,
+          main_context,
+          module_map.clone(),
+          state_rc.function_templates.clone(),
+        );
+        // TODO(bartlomieju): why is this done in here? Maybe we can hoist it out?
+        state_rc.has_inspector.set(inspector.is_some());
+        *state_rc.inspector.borrow_mut() = inspector;
+        main_realm
+      };
+      let main_realm = JsRealm::new(main_realm);
+      scope.set_data(
+        STATE_DATA_OFFSET,
+        Rc::into_raw(state_rc.clone()) as *mut c_void,
       );
-    }
-
-    // ...we are ready to create a "realm" for the context...
-    let main_realm = {
-      let main_realm = JsRealmInner::new(
-        context_state,
-        main_context,
-        module_map.clone(),
-        state_rc.function_templates.clone(),
-      );
-      // TODO(bartlomieju): why is this done in here? Maybe we can hoist it out?
-      state_rc.has_inspector.set(inspector.is_some());
-      *state_rc.inspector.borrow_mut() = inspector;
       main_realm
     };
-    let main_realm = JsRealm::new(main_realm);
-    scope.set_data(
-      STATE_DATA_OFFSET,
-      Rc::into_raw(state_rc.clone()) as *mut c_void,
-    );
-
-    drop(context_scope);
 
     // ...which allows us to create the `JsRuntime` instance...
     let mut js_runtime = JsRuntime {
@@ -1281,8 +1297,8 @@ impl JsRuntime {
   }
 
   #[inline]
-  fn v8_isolate_ptr(&mut self) -> *mut v8::Isolate {
-    &mut **self.inner.v8_isolate as _
+  fn v8_isolate_ptr(&mut self) -> v8::UnsafeRawIsolatePtr {
+    unsafe { self.inner.v8_isolate.as_raw_isolate_ptr() }
   }
 
   #[inline]
@@ -1315,12 +1331,6 @@ impl JsRuntime {
     &self.files_loaded_from_fs_during_snapshot
   }
 
-  #[inline]
-  pub fn handle_scope(&mut self) -> v8::HandleScope<'_> {
-    let isolate = &mut self.inner.v8_isolate;
-    self.inner.main_realm.handle_scope(isolate)
-  }
-
   /// Create a synthetic module - `ext:core/ops` - that exports all ops registered
   /// with the runtime.
   fn execute_virtual_ops_module(
@@ -1328,7 +1338,7 @@ impl JsRuntime {
     context_global: &v8::Global<v8::Context>,
     module_map: Rc<ModuleMap>,
   ) {
-    let scope = &mut self.handle_scope();
+    scope!(scope, self);
     let context_local = v8::Local::new(scope, context_global);
     let context_state = JsRealm::state_from_scope(scope);
     let global = context_local.global(scope);
@@ -1356,11 +1366,11 @@ impl JsRuntime {
   /// some of this code already relies on certain ops being available.
   fn execute_builtin_sources(
     &mut self,
-    realm: &JsRealm,
+    _realm: &JsRealm,
     module_map: &Rc<ModuleMap>,
     files_loaded: &mut Vec<&'static str>,
   ) -> Result<(), CoreError> {
-    let scope = &mut realm.handle_scope(self.v8_isolate());
+    scope!(scope, self);
 
     for source_file in &BUILTIN_SOURCES {
       let name = source_file.specifier.v8_string(scope).unwrap();
@@ -1463,7 +1473,7 @@ impl JsRuntime {
       };
 
       let isolate = self.v8_isolate();
-      let scope = &mut realm.handle_scope(isolate);
+      jsrealm::context_scope!(scope, realm, isolate);
       module_map.mod_evaluate_sync(scope, mod_id)?;
       let mut cx = Context::from_waker(Waker::noop());
       // poll once so code cache is populated. the `ExtCodeCache` trait is sync, so
@@ -1473,8 +1483,8 @@ impl JsRuntime {
 
     #[cfg(debug_assertions)]
     {
-      let mut scope = realm.handle_scope(self.v8_isolate());
-      module_map.check_all_modules_evaluated(&mut scope)?;
+      jsrealm::context_scope!(scope, realm, self.v8_isolate());
+      module_map.check_all_modules_evaluated(scope)?;
     }
 
     let module_map = realm.0.module_map();
@@ -1502,14 +1512,14 @@ impl JsRuntime {
     Ok(())
   }
 
-  pub fn eval<'s, T>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn eval<'s, 'i, T>(
+    scope: &mut v8::PinScope<'s, 'i>,
     code: &str,
   ) -> Option<v8::Local<'s, T>>
   where
     v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Value>, Error = v8::DataError>,
   {
-    let scope = &mut v8::EscapableHandleScope::new(scope);
+    v8::escapable_handle_scope!(let scope, scope);
     let source = v8::String::new(scope, code).unwrap();
     let script = v8::Script::compile(scope, source, None).unwrap();
     let v = script.run(scope)?;
@@ -1520,7 +1530,7 @@ impl JsRuntime {
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
-      let scope = &mut realm.handle_scope(self.v8_isolate());
+      scope!(scope, self);
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
@@ -1654,7 +1664,7 @@ impl JsRuntime {
   /// The event loop must be polled seperately for this future to resolve. If the event loop
   /// is not polled, the future will never make progress.
   pub fn scoped_call(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     function: &v8::Global<v8::Function>,
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
@@ -1674,7 +1684,7 @@ impl JsRuntime {
     args: &[v8::Global<v8::Value>],
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    let scope = &mut self.handle_scope();
+    scope!(scope, self);
     Self::scoped_call_with_args(scope, function, args)
   }
 
@@ -1686,12 +1696,12 @@ impl JsRuntime {
   /// The event loop must be polled seperately for this future to resolve. If the event loop
   /// is not polled, the future will never make progress.
   pub fn scoped_call_with_args(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     function: &v8::Global<v8::Function>,
     args: &[v8::Global<v8::Value>],
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    let scope = &mut v8::TryCatch::new(scope);
+    v8::tc_scope!(let scope, scope);
     let cb = function.open(scope);
     let this = v8::undefined(scope).into();
     let promise = if args.is_empty() {
@@ -1807,7 +1817,7 @@ impl JsRuntime {
 
   fn pump_v8_message_loop(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
   ) -> Result<(), Box<JsError>> {
     while v8::Platform::pump_message_loop(
       &v8::V8::get_current_platform(),
@@ -1817,7 +1827,8 @@ impl JsRuntime {
       // do nothing
     }
 
-    let tc_scope = &mut v8::TryCatch::new(scope);
+    v8::tc_scope!(let tc_scope, scope);
+
     tc_scope.perform_microtask_checkpoint();
     match tc_scope.exception() {
       None => Ok(()),
@@ -1834,8 +1845,9 @@ impl JsRuntime {
     }
 
     let context = self.main_context();
-    let isolate_ptr = self.inner.v8_isolate.as_mut() as *mut _;
-    let scope = &mut v8::HandleScope::with_context(
+    let isolate_ptr = unsafe { self.inner.v8_isolate.as_raw_isolate_ptr() };
+    v8::scope_with_context!(
+      scope,
       self.inner.v8_isolate.as_mut(),
       context.clone(),
     );
@@ -1859,7 +1871,7 @@ impl JsRuntime {
     promise: v8::Global<v8::Value>,
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
-    let scope = &mut self.handle_scope();
+    scope!(scope, self);
     Self::scoped_resolve(scope, promise)
   }
 
@@ -1868,7 +1880,7 @@ impl JsRuntime {
   /// This future resolves when either the value is resolved or the event loop runs to
   /// completion.
   pub fn scoped_resolve(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     promise: v8::Global<v8::Value>,
   ) -> impl Future<Output = Result<v8::Global<v8::Value>, Box<JsError>>> + use<>
   {
@@ -1896,8 +1908,8 @@ impl JsRuntime {
   }
 
   /// Given a promise, returns a future that resolves when it does.
-  fn resolve_promise_inner<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  fn resolve_promise_inner<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     promise: v8::Local<'s, v8::Promise>,
   ) -> RcPromiseFuture {
     let future = RcPromiseFuture::default();
@@ -1998,18 +2010,19 @@ impl JsRuntime {
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), CoreError>> {
     // SAFETY: We know this isolate is valid and non-null at this time
-    let mut isolate_scope =
-      v8::HandleScope::new(unsafe { &mut *self.v8_isolate_ptr() });
+    let mut isolate =
+      unsafe { v8::Isolate::from_raw_isolate_ptr(self.v8_isolate_ptr()) };
+    v8::scope!(let isolate_scope, &mut isolate);
     let context =
-      v8::Local::new(&mut isolate_scope, self.inner.main_realm.context());
-    let mut scope = v8::ContextScope::new(&mut isolate_scope, context);
+      v8::Local::new(isolate_scope, self.inner.main_realm.context());
+    let mut scope = v8::ContextScope::new(isolate_scope, context);
     self.poll_event_loop_inner(cx, &mut scope, poll_options)
   }
 
   fn poll_event_loop_inner(
     &self,
     cx: &mut Context,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     poll_options: PollEventLoopOptions,
   ) -> Poll<Result<(), CoreError>> {
     let has_inspector = self.inner.state.has_inspector.get();
@@ -2141,7 +2154,7 @@ impl JsRuntime {
 }
 
 fn find_and_report_stalled_level_await_in_any_realm(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   inner_realm: &JsRealmInner,
 ) -> Box<JsError> {
   let module_map = inner_realm.module_map();
@@ -2160,12 +2173,12 @@ fn find_and_report_stalled_level_await_in_any_realm(
   unreachable!("Expected at least one stalled top-level await");
 }
 
-fn create_context<'a>(
-  scope: &mut v8::HandleScope<'a, ()>,
+fn create_context<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i, ()>,
   global_template_middlewares: &[GlobalTemplateMiddlewareFn],
   global_object_middlewares: &[GlobalObjectMiddlewareFn],
   has_snapshot: bool,
-) -> v8::Local<'a, v8::Context> {
+) -> v8::Local<'s, v8::Context> {
   let context = if has_snapshot {
     // Try to load the 1st index first, embedder may have used 0th for something else (like node:vm).
     v8::Context::from_snapshot(scope, 1, Default::default()).unwrap_or_else(
@@ -2239,11 +2252,11 @@ impl JsRuntimeForSnapshot {
 
     // Set the context to be snapshot's default context
     {
-      let mut scope = realm.handle_scope(self.v8_isolate());
-      let default_context = v8::Context::new(&mut scope, Default::default());
+      jsrealm::context_scope!(scope, realm, self.v8_isolate());
+      let default_context = v8::Context::new(scope, Default::default());
       scope.set_default_context(default_context);
 
-      let local_context = v8::Local::new(&mut scope, realm.context());
+      let local_context = v8::Local::new(scope, realm.context());
       scope.add_context(local_context);
     }
 
@@ -2307,9 +2320,9 @@ impl JsRuntimeForSnapshot {
         external_strings,
       };
 
-      let mut scope = realm.handle_scope(self.v8_isolate());
+      jsrealm::context_scope!(scope, realm, self.v8_isolate());
       snapshot::store_snapshotted_data_for_snapshot(
-        &mut scope,
+        scope,
         realm.context().clone(),
         snapshotted_data,
         data_store,
@@ -2344,7 +2357,7 @@ pub(crate) struct EventLoopPendingState {
 impl EventLoopPendingState {
   /// Collect event loop state from all the sub-states.
   pub fn new(
-    scope: &mut v8::HandleScope<()>,
+    scope: &mut v8::PinScope<()>,
     state: &ContextState,
     modules: &ModuleMap,
   ) -> Self {
@@ -2386,7 +2399,7 @@ impl EventLoopPendingState {
   }
 
   /// Collect event loop state from all the states stored in the scope.
-  pub fn new_from_scope(scope: &mut v8::HandleScope) -> Self {
+  pub fn new_from_scope(scope: &mut v8::PinScope) -> Self {
     let module_map = JsRealm::module_map_from(scope);
     let context_state = JsRealm::state_from_scope(scope);
     Self::new(scope, &context_state, &module_map)
@@ -2454,9 +2467,9 @@ impl JsRuntime {
     &mut self,
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
-    let isolate = &mut self.inner.v8_isolate;
+    let isolate = &mut *self.inner.v8_isolate;
     let realm = JsRealm::clone(&self.inner.main_realm);
-    let scope = &mut realm.handle_scope(isolate);
+    jsrealm::context_scope!(scope, realm, isolate);
     realm.instantiate_module(scope, id)
   }
 
@@ -2481,9 +2494,9 @@ impl JsRuntime {
     &mut self,
     id: ModuleId,
   ) -> impl Future<Output = Result<(), CoreError>> + use<> {
-    let isolate = &mut self.inner.v8_isolate;
+    let isolate = &mut *self.inner.v8_isolate;
     let realm = &self.inner.main_realm;
-    let scope = &mut realm.handle_scope(isolate);
+    jsrealm::context_scope!(scope, realm, isolate);
     self.inner.main_realm.0.module_map.mod_evaluate(scope, id)
   }
 
@@ -2606,9 +2619,9 @@ impl JsRuntime {
     )
   }
 
-  fn do_js_event_loop_tick_realm(
+  fn do_js_event_loop_tick_realm<'s, 'i>(
     cx: &mut Context,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
     exception_state: &ExceptionState,
   ) -> Result<bool, Box<JsError>> {
@@ -2771,7 +2784,8 @@ impl JsRuntime {
     let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
     args.push(has_tick_scheduled.into());
 
-    let tc_scope = &mut v8::TryCatch::new(scope);
+    v8::tc_scope!(let tc_scope, scope);
+
     let js_event_loop_tick_cb = context_state.js_event_loop_tick_cb.borrow();
     let js_event_loop_tick_cb =
       js_event_loop_tick_cb.as_ref().unwrap().open(tc_scope);
