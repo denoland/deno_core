@@ -1149,12 +1149,20 @@ async fn generic_in_extension_middleware() {
             _ => op,
         }
     },
+
   );
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![welcome_ext::init::<English>()],
     ..Default::default()
   });
+
+  {
+    let op_state = runtime.op_state();
+    let mut state = op_state.borrow_mut();
+
+    state.put(English);
+  }
 
   let value_global = runtime
     .execute_script(
