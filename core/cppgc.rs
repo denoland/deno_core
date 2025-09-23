@@ -145,9 +145,9 @@ pub(crate) fn make_cppgc_template<'s, 'i>(
 }
 
 #[doc(hidden)]
-pub fn make_cppgc_empty_object<'s, 'i, T: GarbageCollected + 'static>(
-  scope: &mut v8::PinScope<'s, 'i>,
-) -> v8::Local<'s, v8::Object> {
+pub fn make_cppgc_empty_object<'a, 'i, T: GarbageCollected + 'static>(
+  scope: &mut v8::PinScope<'a, 'i>,
+) -> v8::Local<'a, v8::Object> {
   let state = JsRuntime::state_from(scope);
   let templates = state.function_templates.borrow();
 
@@ -166,20 +166,20 @@ pub fn make_cppgc_empty_object<'s, 'i, T: GarbageCollected + 'static>(
   }
 }
 
-pub fn make_cppgc_object<'s, 'i, T: GarbageCollected + 'static>(
-  scope: &mut v8::PinScope<'s, 'i>,
+pub fn make_cppgc_object<'a, 'i, T: GarbageCollected + 'static>(
+  scope: &mut v8::PinScope<'a, 'i>,
   t: T,
-) -> v8::Local<'s, v8::Object> {
+) -> v8::Local<'a, v8::Object> {
   let obj = make_cppgc_empty_object::<T>(scope);
   wrap_object(scope, obj, t)
 }
 
 // Wrap an API object (eg: `args.This()`)
-pub fn wrap_object<'s, T: GarbageCollected + 'static>(
+pub fn wrap_object<'a, T: GarbageCollected + 'static>(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'s, v8::Object>,
+  obj: v8::Local<'a, v8::Object>,
   t: T,
-) -> v8::Local<'s, v8::Object> {
+) -> v8::Local<'a, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
   unsafe {
     let member = v8::cppgc::make_garbage_collected(
@@ -197,23 +197,23 @@ pub fn wrap_object<'s, T: GarbageCollected + 'static>(
 }
 
 pub fn make_cppgc_proto_object<
-  's,
+  'a,
   'i,
   T: GarbageCollected + PrototypeChain + 'static,
 >(
-  scope: &mut v8::PinScope<'s, 'i>,
+  scope: &mut v8::PinScope<'a, 'i>,
   t: T,
-) -> v8::Local<'s, v8::Object> {
+) -> v8::Local<'a, v8::Object> {
   let obj = make_cppgc_empty_object::<T>(scope);
   wrap_object1(scope, obj, t)
 }
 
 #[doc(hidden)]
-pub fn wrap_object1<'s, T: GarbageCollected + PrototypeChain + 'static>(
+pub fn wrap_object1<'a, T: GarbageCollected + PrototypeChain + 'static>(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'s, v8::Object>,
+  obj: v8::Local<'a, v8::Object>,
   t: T,
-) -> v8::Local<'s, v8::Object> {
+) -> v8::Local<'a, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {
@@ -246,14 +246,14 @@ pub fn wrap_object1<'s, T: GarbageCollected + PrototypeChain + 'static>(
 
 #[doc(hidden)]
 pub fn wrap_object2<
-  's,
+  'a,
   T: GarbageCollected + PrototypeChain + 'static,
   S: GarbageCollected + PrototypeChain + 'static,
 >(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'s, v8::Object>,
+  obj: v8::Local<'a, v8::Object>,
   t: (T, S),
-) -> v8::Local<'s, v8::Object> {
+) -> v8::Local<'a, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {
@@ -295,15 +295,15 @@ pub fn wrap_object2<
 
 #[doc(hidden)]
 pub fn wrap_object3<
-  's,
+  'a,
   T: GarbageCollected + PrototypeChain + 'static,
   S: GarbageCollected + PrototypeChain + 'static,
   R: GarbageCollected + PrototypeChain + 'static,
 >(
   isolate: &mut v8::Isolate,
-  obj: v8::Local<'s, v8::Object>,
+  obj: v8::Local<'a, v8::Object>,
   t: (T, S, R),
-) -> v8::Local<'s, v8::Object> {
+) -> v8::Local<'a, v8::Object> {
   let heap = isolate.get_cpp_heap().unwrap();
 
   let member = unsafe {

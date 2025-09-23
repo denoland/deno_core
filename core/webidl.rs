@@ -159,9 +159,9 @@ pub enum Type {
   Object,
 }
 
-pub fn type_of<'s, 'i>(
-  scope: &mut v8::PinScope<'s, 'i>,
-  value: Local<'s, Value>,
+pub fn type_of<'a, 'i>(
+  scope: &mut v8::PinScope<'a, 'i>,
+  value: Local<'a, Value>,
 ) -> Type {
   if value.is_null() {
     return Type::Null;

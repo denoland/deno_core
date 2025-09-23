@@ -297,10 +297,10 @@ impl FastString {
 
   /// Create a v8 string from this [`FastString`]. If the string is static and contains only ASCII characters,
   /// an external one-byte static is created.
-  pub fn v8_string<'s, 'i>(
+  pub fn v8_string<'a, 'i>(
     &self,
-    scope: &mut v8::PinScope<'s, 'i>,
-  ) -> Result<v8::Local<'s, v8::String>, FastStringV8AllocationError> {
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> Result<v8::Local<'a, v8::String>, FastStringV8AllocationError> {
     match self.inner {
       FastStringInner::StaticAscii(s) => {
         v8::String::new_external_onebyte_static(scope, s.as_bytes())
