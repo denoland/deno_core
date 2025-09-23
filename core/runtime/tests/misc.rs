@@ -1114,7 +1114,6 @@ async fn tla_in_esm_extensions_panics() {
   });
 }
 
-
 #[tokio::test]
 async fn generic_in_extension_middleware() {
   trait WelcomeWorld {
@@ -1129,12 +1128,9 @@ async fn generic_in_extension_middleware() {
     }
   }
 
-
   #[op2]
   #[string]
-  fn say_greeting<W: WelcomeWorld + 'static>(
-    state: &mut OpState,
-  ) -> String {
+  fn say_greeting<W: WelcomeWorld + 'static>(state: &mut OpState) -> String {
     let welcomer = state.borrow::<W>();
 
     welcomer.hello()
@@ -1145,7 +1141,6 @@ async fn generic_in_extension_middleware() {
   pub fn say_goodbye() -> String {
     "Goodbye!".to_string()
   }
-
 
   deno_core::extension!(welcome_ext, parameters= [W: WelcomeWorld], ops = [say_greeting, say_goodbye],
     middleware = |op| {
@@ -1172,15 +1167,13 @@ async fn generic_in_extension_middleware() {
       "#,
     )
     .unwrap();
-  
+
   // Check the result
   let scope = &mut runtime.handle_scope();
   let value = value_global.open(scope);
 
   let result = value.to_rust_string_lossy(scope);
   assert_eq!(result, "Hello World and Hello World");
-  
-
 }
 // TODO(mmastrac): This is only fired in debug mode
 #[cfg(debug_assertions)]
