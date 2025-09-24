@@ -4,8 +4,6 @@
 //! <https://chromedevtools.github.io/devtools-protocol/>
 //! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
-use crate::error::CoreError;
-use crate::error::CoreErrorKind;
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
 use crate::futures::channel::mpsc::UnboundedSender;
@@ -16,8 +14,6 @@ use crate::futures::stream::StreamExt;
 use crate::futures::task;
 use crate::serde_json::json;
 
-use boxed_error::Boxed;
-use deno_error::JsErrorBox;
 use parking_lot::Mutex;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -30,7 +26,6 @@ use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::thread;
-use thiserror::Error;
 
 #[derive(Debug)]
 pub enum InspectorMsgKind {
@@ -54,7 +49,7 @@ pub type SessionProxyReceiver = UnboundedReceiver<String>;
 pub struct InspectorSessionProxy {
   pub tx: SessionProxySender,
   pub rx: SessionProxyReceiver,
-  pub options: InspectorSessionOptions,
+  pub kind: InspectorSessionKind,
 }
 
 pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
@@ -213,7 +208,7 @@ impl JsRuntimeInspectorState {
               let _ = session_proxy.tx.unbounded_send(msg);
             }),
             Some(session_proxy.rx),
-            session_proxy.options,
+            session_proxy.kind,
           );
           let prev = sessions.handshake.replace(session);
           assert!(prev.is_none());
@@ -453,7 +448,7 @@ impl JsRuntimeInspector {
   pub fn create_local_session(
     inspector: Rc<JsRuntimeInspector>,
     callback: InspectorSessionSend,
-    options: InspectorSessionOptions,
+    kind: InspectorSessionKind,
   ) -> LocalInspectorSession {
     let (session_id, sessions) = {
       let sessions = inspector.state.sessions.clone();
@@ -463,7 +458,7 @@ impl JsRuntimeInspector {
         inspector.state.is_dispatching_message.clone(),
         callback,
         None,
-        options,
+        kind,
       );
 
       let session_id = {
@@ -480,11 +475,6 @@ impl JsRuntimeInspector {
 
     LocalInspectorSession::new(session_id, sessions)
   }
-}
-
-#[derive(Debug)]
-pub struct InspectorSessionOptions {
-  pub kind: InspectorSessionKind,
 }
 
 #[derive(Default)]
@@ -694,13 +684,13 @@ impl InspectorSession {
     is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
     rx: Option<SessionProxyReceiver>,
-    options: InspectorSessionOptions,
+    kind: InspectorSessionKind,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
       send: Rc::new(send),
       rx: Rc::new(RefCell::new(rx)),
-      kind: options.kind,
+      kind,
     };
 
     let v8_session = v8_inspector.connect(
@@ -769,34 +759,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
   while let Some(msg) = rx.next().await {
     session.dispatch_message(msg);
-  }
-}
-
-#[derive(Debug, Boxed)]
-pub struct InspectorPostMessageError(pub Box<InspectorPostMessageErrorKind>);
-
-#[derive(Debug, Error)]
-pub enum InspectorPostMessageErrorKind {
-  #[error(transparent)]
-  JsBox(#[from] JsErrorBox),
-  #[error(transparent)]
-  FutureCanceled(futures::channel::oneshot::Canceled),
-}
-
-impl From<InspectorPostMessageError> for CoreError {
-  fn from(value: InspectorPostMessageError) -> Self {
-    CoreErrorKind::JsBox(value.into_js_error_box()).into_box()
-  }
-}
-
-impl InspectorPostMessageError {
-  pub fn into_js_error_box(self) -> JsErrorBox {
-    match self.into_kind() {
-      InspectorPostMessageErrorKind::JsBox(e) => e,
-      InspectorPostMessageErrorKind::FutureCanceled(e) => {
-        JsErrorBox::generic(e.to_string())
-      }
-    }
   }
 }
 
