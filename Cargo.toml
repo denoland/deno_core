@@ -73,6 +73,9 @@ proc-macro2 = "1"
 quote = "1"
 syn = { version = "2", features = ["full", "extra-traits"] }
 
+[patch.crates-io]
+v8 = { git = "https://github.com/denoland/rusty_v8.git", rev = "refs/pull/1858/head" }
+
 [profile.dev.package.v8]
 # v8 miscompiles at opt-level=0
 opt-level = 1
