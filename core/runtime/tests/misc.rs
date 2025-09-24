@@ -1110,6 +1110,74 @@ async fn tla_in_esm_extensions_panics() {
   });
 }
 
+#[tokio::test]
+async fn generic_in_extension_middleware() {
+  trait WelcomeWorld {
+    fn hello(&self) -> String;
+  }
+
+  struct English;
+
+  impl WelcomeWorld for English {
+    fn hello(&self) -> String {
+      "Hello World".to_string()
+    }
+  }
+
+  #[op2]
+  #[string]
+  fn say_greeting<W: WelcomeWorld + 'static>(state: &mut OpState) -> String {
+    let welcomer = state.borrow::<W>();
+
+    welcomer.hello()
+  }
+
+  #[op2]
+  #[string]
+  pub fn say_goodbye() -> String {
+    "Goodbye!".to_string()
+  }
+
+  deno_core::extension!(welcome_ext, parameters = [W: WelcomeWorld], ops = [say_greeting<W>, say_goodbye],
+    middleware = |op| {
+        match op.name {
+            "say_goodbye" => say_greeting::<W>(),
+            _ => op,
+        }
+    },
+
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![welcome_ext::init::<English>()],
+    ..Default::default()
+  });
+
+  {
+    let op_state = runtime.op_state();
+    let mut state = op_state.borrow_mut();
+
+    state.put(English);
+  }
+
+  let value_global = runtime
+    .execute_script(
+      "greet.js",
+      r#"
+        const greet = Deno.core.ops.say_greeting();
+        const bye = Deno.core.ops.say_goodbye();
+        greet + " and " + bye;
+      "#,
+    )
+    .unwrap();
+
+  // Check the result
+  let scope = &mut runtime.handle_scope();
+  let value = value_global.open(scope);
+
+  let result = value.to_rust_string_lossy(scope);
+  assert_eq!(result, "Hello World and Hello World");
+}
 // TODO(mmastrac): This is only fired in debug mode
 #[cfg(debug_assertions)]
 #[tokio::test]

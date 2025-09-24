@@ -501,7 +501,7 @@ macro_rules! extension {
       // Includes the state and middleware functions, if defined.
       #[inline(always)]
       #[allow(unused_variables)]
-      fn with_middleware(ext: &mut $crate::Extension)
+      fn with_middleware $( <  $( $param : $type + 'static ),+ > )?(ext: &mut $crate::Extension)
       {
         $(
           ext.global_template_middleware = ::std::option::Option::Some($global_template_middleware_fn);
@@ -534,7 +534,7 @@ macro_rules! extension {
         let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         $crate::extension!(! __config__ ext $( parameters = [ $( $param : $type ),* ] )? $( config = { $( $options_id : $options_type ),* } )? $( state_fn = $state_fn )? );
-        Self::with_middleware(&mut ext);
+        Self::with_middleware $( ::< $( $param ),+ > )?(&mut ext);
         Self::with_customizer(&mut ext);
         ext
       }
@@ -553,7 +553,7 @@ macro_rules! extension {
         let mut ext = Self::ext $( ::< $( $param ),+ > )?();
         Self::with_ops_fn $( ::< $( $param ),+ > )?(&mut ext);
         ext.needs_lazy_init = true;
-        Self::with_middleware(&mut ext);
+        Self::with_middleware$( ::< $( $param ),+ > )?(&mut ext);
         Self::with_customizer(&mut ext);
         ext
       }
