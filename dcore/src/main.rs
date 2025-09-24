@@ -91,7 +91,7 @@ fn main() -> Result<(), Error> {
   if let Some(inspector_server) = inspector_server.clone() {
     inspector_server.register_inspector(
       main_module.to_string(),
-      &mut js_runtime,
+      js_runtime.inspector(),
       matches!(maybe_inspect_mode.unwrap(), InspectMode::WaitForConnection),
     );
   }
