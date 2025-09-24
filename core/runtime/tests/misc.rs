@@ -1172,7 +1172,7 @@ async fn generic_in_extension_middleware() {
     .unwrap();
 
   // Check the result
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, &mut runtime);
   let value = value_global.open(scope);
 
   let result = value.to_rust_string_lossy(scope);
