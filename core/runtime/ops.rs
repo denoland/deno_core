@@ -622,6 +622,8 @@ mod tests {
       op_buffer_ptr,
       op_buffer_slice_32,
       op_buffer_ptr_32,
+      op_buffer_slice_f32,
+      op_buffer_ptr_f32,
       op_buffer_slice_f64,
       op_buffer_ptr_f64,
       op_buffer_slice_unsafe_callback,
@@ -675,6 +677,8 @@ mod tests {
       op_create_buf_i16,
       op_create_buf_i32,
       op_create_buf_i64,
+      op_create_buf_f32,
+      op_create_buf_f64,
     ],
     state = |state| {
       state.put(1234u32);
@@ -1587,12 +1591,45 @@ mod tests {
     }
   }
 
+  #[op2(fast)]
+  pub fn op_buffer_slice_f32(
+    #[buffer] input: &[f32],
+    #[number] inlen: usize,
+    #[buffer] output: &mut [f32],
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[op2(fast)]
+  pub fn op_buffer_ptr_f32(
+    #[buffer] input: *const f32,
+    #[number] inlen: usize,
+    #[buffer] output: *mut f32,
+    #[number] outlen: usize,
+  ) {
+    if inlen > 0 && outlen > 0 {
+      // SAFETY: for test
+      unsafe { std::ptr::write(output, std::ptr::read(input)) }
+    }
+  }
+
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
     for (op, op_ptr, arr, size) in [
       ("op_buffer_slice", "op_buffer_ptr", "Uint8Array", 1),
       ("op_buffer_slice_32", "op_buffer_ptr_32", "Uint32Array", 4),
+      (
+        "op_buffer_slice_f32",
+        "op_buffer_ptr_f32",
+        "Float32Array",
+        4,
+      ),
       (
         "op_buffer_slice_f64",
         "op_buffer_ptr_f64",
@@ -2534,7 +2571,7 @@ mod tests {
         #[op2]
         #[buffer]
         fn [< op_create_buf_ $size >] () -> Vec<$size> {
-          vec![1, 2, 3, 4]
+          vec![1 as _, 2 as _, 3 as _, 4 as _]
         }
       }
     };
@@ -2547,6 +2584,8 @@ mod tests {
   op_create_buf!(i16);
   op_create_buf!(i32);
   op_create_buf!(i64);
+  op_create_buf!(f32);
+  op_create_buf!(f64);
 
   #[test]
   fn return_buffers() -> Result<(), Box<dyn std::error::Error>> {
@@ -2574,6 +2613,8 @@ mod tests {
     test("i16")?;
     test("i32")?;
     test("i64")?;
+    test("f32")?;
+    test("f64")?;
     Ok(())
   }
 }
