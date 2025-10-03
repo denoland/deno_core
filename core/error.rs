@@ -1106,8 +1106,38 @@ pub(crate) fn has_call_site<'s, 'i>(
 
 const DATA_URL_ABBREV_THRESHOLD: usize = 150;
 
-pub fn format_file_name(file_name: &str) -> String {
-  abbrev_file_name(file_name).unwrap_or_else(|| {
+fn to_percent_decoded_str(s: &str) -> String {
+  match percent_encoding::percent_decode_str(s).decode_utf8() {
+    Ok(s) => s.to_string(),
+    // when failed to decode, return the original string
+    Err(_) => s.to_string(),
+  }
+}
+
+pub fn relative_specifier(from: &Url, to: &Url) -> Option<String> {
+  let is_dir = to.path().ends_with('/');
+
+  if is_dir && from == to {
+    return Some("./".to_string());
+  }
+
+  // workaround for url crate not adding a trailing slash for a directory
+  // it seems to be fixed once a version greater than 2.2.2 is released
+  let text = from.make_relative(to)?;
+
+  let text = if text.starts_with("../") || text.starts_with("./") {
+    text
+  } else {
+    format!("./{text}")
+  };
+  Some(to_percent_decoded_str(&text))
+}
+
+pub fn format_file_name(
+  file_name: &str,
+  maybe_initial_cwd: Option<&Url>,
+) -> String {
+  abbrev_file_name(file_name, maybe_initial_cwd).unwrap_or_else(|| {
     // same as to_percent_decoded_str() in cli/util/path.rs
     match percent_encoding::percent_decode_str(file_name).decode_utf8() {
       Ok(s) => s.to_string(),
@@ -1117,14 +1147,24 @@ pub fn format_file_name(file_name: &str) -> String {
   })
 }
 
-fn abbrev_file_name(file_name: &str) -> Option<String> {
-  if !file_name.starts_with("data:") {
+fn abbrev_file_name(
+  file_name: &str,
+  maybe_initial_cwd: Option<&Url>,
+) -> Option<String> {
+  let Ok(url) = Url::parse(file_name) else {
+    return None;
+  };
+  if url.scheme() == "file"
+    && let Some(initial_cwd) = maybe_initial_cwd
+  {
+    return Some(relative_specifier(initial_cwd, &url)?);
+  }
+  if url.scheme() != "data" {
     return None;
   }
   if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
     return Some(file_name.to_string());
   }
-  let url = Url::parse(file_name).ok()?;
   let (head, tail) = url.path().split_once(',')?;
   let len = tail.len();
   let start = tail.get(0..20)?;
@@ -1736,11 +1776,20 @@ pub fn prepare_stack_trace_callback<'s, 'i>(
   prepare_stack_trace_inner::<true>(scope, error, callsites)
 }
 
+pub struct InitialCwd(pub Url);
+
 pub fn format_stack_trace<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
+  let state = JsRuntime::state_from(&scope);
+  let maybe_initial_cwd = state
+    .op_state
+    .borrow()
+    .try_borrow::<InitialCwd>()
+    .map(|i| &i.0)
+    .cloned();
   let mut result = String::new();
 
   if let Ok(obj) = error.try_cast() {
@@ -1781,8 +1830,12 @@ pub fn format_stack_trace<'s, 'i>(
       }
       break;
     };
-    write!(result, "\n    at {}", format_frame::<NoAnsiColors>(&frame))
-      .unwrap();
+    write!(
+      result,
+      "\n    at {}",
+      format_frame::<NoAnsiColors>(&frame, maybe_initial_cwd.as_ref())
+    )
+    .unwrap();
   }
 
   let result = v8::String::new(scope, &result).unwrap();
@@ -1828,7 +1881,10 @@ impl ErrorFormat for NoAnsiColors {
   }
 }
 
-pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
+pub fn format_location<F: ErrorFormat>(
+  frame: &JsStackFrame,
+  maybe_initial_cwd: Option<&Url>,
+) -> String {
   use ErrorElement::*;
   let _internal = frame
     .file_name
@@ -1841,7 +1897,10 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   let mut result = String::new();
   let file_name = frame.file_name.clone().unwrap_or_default();
   if !file_name.is_empty() {
-    result += &F::fmt_element(FileName, &format_file_name(&file_name))
+    result += &F::fmt_element(
+      FileName,
+      &format_file_name(&file_name, maybe_initial_cwd),
+    )
   } else {
     if frame.is_eval {
       result += &(F::fmt_element(
@@ -1872,7 +1931,10 @@ pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   result
 }
 
-pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
+pub fn format_frame<F: ErrorFormat>(
+  frame: &JsStackFrame,
+  maybe_initial_cwd: Option<&Url>,
+) -> String {
   use ErrorElement::*;
   let _internal = frame
     .file_name
@@ -1931,10 +1993,15 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
   } else if let Some(function_name) = &frame.function_name {
     result += F::fmt_element(FunctionName, function_name).as_ref();
   } else {
-    result += &format_location::<F>(frame);
+    result += &format_location::<F>(frame, maybe_initial_cwd);
     return result;
   }
-  write!(result, " ({})", format_location::<F>(frame)).unwrap();
+  write!(
+    result,
+    " ({})",
+    format_location::<F>(frame, maybe_initial_cwd)
+  )
+  .unwrap();
   result
 }
 
@@ -1974,23 +2041,24 @@ mod tests {
 
   #[test]
   fn test_format_file_name() {
-    let file_name = format_file_name("data:,Hello%2C%20World%21");
+    let file_name = format_file_name("data:,Hello%2C%20World%21", None);
     assert_eq!(file_name, "data:,Hello%2C%20World%21");
 
     let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
-    let file_name = format_file_name(&format!(
-      "data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"
-    ));
+    let file_name = format_file_name(
+      &format!("data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"),
+      None,
+    );
     assert_eq!(
       file_name,
       "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
     );
 
-    let file_name = format_file_name("file:///foo/bar.ts");
+    let file_name = format_file_name("file:///foo/bar.ts", None);
     assert_eq!(file_name, "file:///foo/bar.ts");
 
     let file_name =
-      format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts");
+      format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts", None);
     assert_eq!(file_name, "file:///東京/🦕.ts");
   }
 
