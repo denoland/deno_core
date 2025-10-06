@@ -22,6 +22,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use std::rc::Rc;
 use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
@@ -1783,7 +1784,7 @@ pub fn prepare_stack_trace_callback<'s, 'i>(
   prepare_stack_trace_inner::<true>(scope, error, callsites)
 }
 
-pub struct InitialCwd(pub Url);
+pub struct InitialCwd(pub Rc<Url>);
 
 pub fn format_stack_trace<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
@@ -1840,7 +1841,7 @@ pub fn format_stack_trace<'s, 'i>(
     write!(
       result,
       "\n    at {}",
-      format_frame::<NoAnsiColors>(&frame, maybe_initial_cwd.as_ref())
+      format_frame::<NoAnsiColors>(&frame, maybe_initial_cwd.as_deref())
     )
     .unwrap();
   }
