@@ -1155,7 +1155,7 @@ fn abbrev_file_name(
     return None;
   };
   if let Some(initial_cwd) = maybe_initial_cwd {
-    return Some(relative_specifier(initial_cwd, &url)?);
+    return relative_specifier(initial_cwd, &url);
   }
   if url.scheme() != "data" {
     return None;
@@ -1793,7 +1793,7 @@ pub fn format_stack_trace<'s, 'i>(
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
-  let state = JsRuntime::state_from(&scope);
+  let state = JsRuntime::state_from(scope);
   let maybe_initial_cwd = state
     .op_state
     .borrow()
