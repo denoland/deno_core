@@ -1170,6 +1170,18 @@ fn abbrev_file_name(
   Some(format!("{}:{},{}......{}", url.scheme(), head, start, end))
 }
 
+fn format_eval_origin(
+  eval_origin: &str,
+  maybe_initial_cwd: Option<&Url>,
+) -> String {
+  let Some((before, (file, line, col), after)) = parse_eval_origin(eval_origin)
+  else {
+    return eval_origin.to_string();
+  };
+  let formatted_file = format_file_name(file, maybe_initial_cwd);
+  format!("{before}{formatted_file}:{line}:{col}{after}")
+}
+
 pub(crate) fn exception_to_err_result<'s, 'i, T>(
   scope: &mut v8::PinScope<'s, 'i>,
   exception: v8::Local<'s, v8::Value>,
@@ -1902,12 +1914,13 @@ pub fn format_location<F: ErrorFormat>(
     )
   } else {
     if frame.is_eval {
-      result += &(F::fmt_element(
-        ErrorElement::EvalOrigin,
-        frame.eval_origin.as_ref().unwrap(),
-      )
-      .to_string()
-        + ", ");
+      let eval_origin = frame.eval_origin.as_ref().unwrap();
+      let formatted_eval_origin =
+        format_eval_origin(eval_origin, maybe_initial_cwd);
+      result +=
+        &(F::fmt_element(ErrorElement::EvalOrigin, &formatted_eval_origin)
+          .to_string()
+          + ", ");
     }
     result += &F::fmt_element(Anonymous, "<anonymous>");
   }
