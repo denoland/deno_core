@@ -1154,9 +1154,7 @@ fn abbrev_file_name(
   let Ok(url) = Url::parse(file_name) else {
     return None;
   };
-  if url.scheme() == "file"
-    && let Some(initial_cwd) = maybe_initial_cwd
-  {
+  if let Some(initial_cwd) = maybe_initial_cwd {
     return Some(relative_specifier(initial_cwd, &url)?);
   }
   if url.scheme() != "data" {
@@ -1790,6 +1788,7 @@ pub fn format_stack_trace<'s, 'i>(
     .try_borrow::<InitialCwd>()
     .map(|i| &i.0)
     .cloned();
+  eprintln!("maybe_initial_cwd: {:?}", maybe_initial_cwd);
   let mut result = String::new();
 
   if let Ok(obj) = error.try_cast() {
