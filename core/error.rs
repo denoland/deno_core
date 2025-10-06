@@ -1800,7 +1800,6 @@ pub fn format_stack_trace<'s, 'i>(
     .try_borrow::<InitialCwd>()
     .map(|i| &i.0)
     .cloned();
-  eprintln!("maybe_initial_cwd: {:?}", maybe_initial_cwd);
   let mut result = String::new();
 
   if let Ok(obj) = error.try_cast() {
