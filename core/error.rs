@@ -1121,10 +1121,7 @@ pub fn relative_specifier(from: &Url, to: &Url) -> Option<String> {
     return Some("./".to_string());
   }
 
-  // workaround for url crate not adding a trailing slash for a directory
-  // it seems to be fixed once a version greater than 2.2.2 is released
   let text = from.make_relative(to)?;
-
   let text = if text.starts_with("../") || text.starts_with("./") {
     text
   } else {
