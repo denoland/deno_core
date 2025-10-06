@@ -9,6 +9,7 @@ use deno_core::v8;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
 use std::sync::OnceLock;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -75,6 +76,12 @@ async fn run_integration_test_task(
 ) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["integration", &test]);
   let url = get_test_url(&test_dir, &test)?;
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put(deno_core::error::InitialCwd(Rc::new(Url::parse(
+      "test:///",
+    )?)));
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   let mut actual_output = String::new();
@@ -127,6 +134,12 @@ async fn run_unit_test_task(
 ) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["unit"]);
   let url = get_test_url(&test_dir, &test)?;
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put(deno_core::error::InitialCwd(Rc::new(Url::parse(
+      "test:///",
+    )?)));
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   runtime

@@ -11,7 +11,6 @@ use crate::error::CoreErrorKind;
 use crate::error::ResourceError;
 use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
-use crate::error::format_file_name;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -62,7 +61,6 @@ builtin_ops! {
   op_write_all,
   op_write_type_error,
   op_shutdown,
-  op_format_file_name,
   op_str_byte_length,
   op_panic,
   op_cancel_handle,
@@ -434,12 +432,6 @@ async fn op_shutdown(
     .get_any(rid)
     .map_err(JsErrorBox::from_err)?;
   resource.shutdown().await
-}
-
-#[op2]
-#[string]
-fn op_format_file_name(#[string] file_name: &str) -> String {
-  format_file_name(file_name)
 }
 
 #[op2(fast)]
