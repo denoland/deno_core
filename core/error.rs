@@ -1776,11 +1776,20 @@ pub fn prepare_stack_trace_callback<'s, 'i>(
   prepare_stack_trace_inner::<true>(scope, error, callsites)
 }
 
+pub struct InitialCwd(pub Url);
+
 pub fn format_stack_trace<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
+  let state = JsRuntime::state_from(&scope);
+  let maybe_initial_cwd = state
+    .op_state
+    .borrow()
+    .try_borrow::<InitialCwd>()
+    .map(|i| &i.0)
+    .cloned();
   let mut result = String::new();
 
   if let Ok(obj) = error.try_cast() {
@@ -1824,7 +1833,7 @@ pub fn format_stack_trace<'s, 'i>(
     write!(
       result,
       "\n    at {}",
-      format_frame::<NoAnsiColors>(&frame, None)
+      format_frame::<NoAnsiColors>(&frame, maybe_initial_cwd.as_ref())
     )
     .unwrap();
   }
