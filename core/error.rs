@@ -22,7 +22,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-use std::rc::Rc;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
@@ -1131,16 +1131,27 @@ pub fn relative_specifier(from: &Url, to: &Url) -> Option<String> {
   Some(to_percent_decoded_str(&text))
 }
 
+pub struct FileNameParts {
+  pub working_dir_path: Option<String>,
+  pub file_name: String,
+}
+
 pub fn format_file_name(
   file_name: &str,
   maybe_initial_cwd: Option<&Url>,
-) -> String {
+) -> FileNameParts {
   abbrev_file_name(file_name, maybe_initial_cwd).unwrap_or_else(|| {
     // same as to_percent_decoded_str() in cli/util/path.rs
     match percent_encoding::percent_decode_str(file_name).decode_utf8() {
-      Ok(s) => s.to_string(),
+      Ok(s) => FileNameParts {
+        working_dir_path: None,
+        file_name: s.to_string(),
+      },
       // when failing as utf-8, just return the original string
-      Err(_) => file_name.to_string(),
+      Err(_) => FileNameParts {
+        working_dir_path: None,
+        file_name: file_name.to_string(),
+      },
     }
   })
 }
@@ -1148,24 +1159,33 @@ pub fn format_file_name(
 fn abbrev_file_name(
   file_name: &str,
   maybe_initial_cwd: Option<&Url>,
-) -> Option<String> {
+) -> Option<FileNameParts> {
   let Ok(url) = Url::parse(file_name) else {
     return None;
   };
   if let Some(initial_cwd) = maybe_initial_cwd {
-    return relative_specifier(initial_cwd, &url);
+    return relative_specifier(initial_cwd, &url).map(|s| FileNameParts {
+      working_dir_path: Some(initial_cwd.to_string()),
+      file_name: s,
+    });
   }
   if url.scheme() != "data" {
     return None;
   }
   if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
-    return Some(file_name.to_string());
+    return Some(FileNameParts {
+      working_dir_path: None,
+      file_name: file_name.to_string(),
+    });
   }
   let (head, tail) = url.path().split_once(',')?;
   let len = tail.len();
   let start = tail.get(0..20)?;
   let end = tail.get(len - 20..)?;
-  Some(format!("{}:{},{}......{}", url.scheme(), head, start, end))
+  Some(FileNameParts {
+    working_dir_path: None,
+    file_name: format!("{}:{},{}......{}", url.scheme(), head, start, end),
+  })
 }
 
 fn format_eval_origin(
@@ -1177,7 +1197,16 @@ fn format_eval_origin(
     return eval_origin.to_string();
   };
   let formatted_file = format_file_name(file, maybe_initial_cwd);
-  format!("{before}{formatted_file}:{line}:{col}{after}")
+
+  format!(
+    "{before}{}{}:{line}:{col}{after}",
+    if let Some(working_dir_path) = &formatted_file.working_dir_path {
+      &working_dir_path
+    } else {
+      ""
+    },
+    formatted_file.file_name
+  )
 }
 
 pub(crate) fn exception_to_err_result<'s, 'i, T>(
@@ -1784,7 +1813,7 @@ pub fn prepare_stack_trace_callback<'s, 'i>(
   prepare_stack_trace_inner::<true>(scope, error, callsites)
 }
 
-pub struct InitialCwd(pub Rc<Url>);
+pub struct InitialCwd(pub Arc<Url>);
 
 pub fn format_stack_trace<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
@@ -1868,6 +1897,8 @@ pub enum ErrorElement {
   FunctionName,
   /// The name of a source file
   FileName,
+  /// The path to the working directory, as in part of a file name
+  WorkingDirPath,
   /// The origin of an error coming from `eval`ed code
   EvalOrigin,
   /// Text signifying a call to `Promise.all`
@@ -1905,10 +1936,14 @@ pub fn format_location<F: ErrorFormat>(
   let mut result = String::new();
   let file_name = frame.file_name.clone().unwrap_or_default();
   if !file_name.is_empty() {
-    result += &F::fmt_element(
-      FileName,
-      &format_file_name(&file_name, maybe_initial_cwd),
-    )
+    let parts = format_file_name(&file_name, maybe_initial_cwd);
+    if let Some(working_dir_path) = &parts.working_dir_path {
+      result += &F::fmt_element(WorkingDirPath, working_dir_path);
+      result +=
+        &F::fmt_element(FileName, &parts.file_name.trim_start_matches("./"))
+    } else {
+      result += &F::fmt_element(FileName, &parts.file_name)
+    }
   } else {
     if frame.is_eval {
       let eval_origin = frame.eval_origin.as_ref().unwrap();
@@ -2051,7 +2086,7 @@ mod tests {
   #[test]
   fn test_format_file_name() {
     let file_name = format_file_name("data:,Hello%2C%20World%21", None);
-    assert_eq!(file_name, "data:,Hello%2C%20World%21");
+    assert_eq!(file_name.file_name, "data:,Hello%2C%20World%21");
 
     let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
     let file_name = format_file_name(
@@ -2059,16 +2094,16 @@ mod tests {
       None,
     );
     assert_eq!(
-      file_name,
+      file_name.file_name,
       "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
     );
 
     let file_name = format_file_name("file:///foo/bar.ts", None);
-    assert_eq!(file_name, "file:///foo/bar.ts");
+    assert_eq!(file_name.file_name, "file:///foo/bar.ts");
 
     let file_name =
       format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts", None);
-    assert_eq!(file_name, "file:///東京/🦕.ts");
+    assert_eq!(file_name.file_name, "file:///東京/🦕.ts");
   }
 
   #[test]
