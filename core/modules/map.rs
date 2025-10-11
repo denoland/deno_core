@@ -1713,12 +1713,12 @@ impl ModuleMap {
         match maybe_result {
           Some(load_stream_result) => {
             match load_stream_result {
-              Ok((request, info)) => {
+              Ok((reference, info)) => {
                 // A module (not necessarily the one dynamically imported) has been
                 // fetched. Create and register it, and if successful, poll for the
                 // next recursive-load event related to this dynamic import.
                 let register_result =
-                  load.register_and_recurse(scope, &request, info);
+                  load.register_and_recurse(scope, &reference, info);
 
                 match register_result {
                   Ok(()) => {

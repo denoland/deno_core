@@ -11,7 +11,6 @@ use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoaderError;
 use crate::modules::ModuleReference;
-use crate::modules::ModuleRequest;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::loaders::ModuleLoadReferrer;
@@ -31,7 +30,7 @@ use std::task::Context;
 use std::task::Poll;
 
 type ModuleLoadFuture = dyn Future<
-  Output = Result<Option<(ModuleRequest, ModuleSource)>, ModuleLoaderError>,
+  Output = Result<Option<(ModuleReference, ModuleSource)>, ModuleLoaderError>,
 >;
 
 /// Describes the entrypoint of a recursive module load.
@@ -216,7 +215,7 @@ impl RecursiveModuleLoad {
   pub(crate) fn register_and_recurse(
     &mut self,
     scope: &mut v8::PinScope,
-    module_request: &ModuleRequest,
+    module_reference: &ModuleReference,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
     let (module_id, code) = self.module_map_rc.new_module(
@@ -226,7 +225,7 @@ impl RecursiveModuleLoad {
       module_source,
     )?;
 
-    self.register_and_recurse_inner(module_id, module_request, code.as_ref());
+    self.register_and_recurse_inner(module_id, module_reference, code.as_ref());
 
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
@@ -243,7 +242,7 @@ impl RecursiveModuleLoad {
   fn register_and_recurse_inner(
     &mut self,
     module_id: usize,
-    module_request: &ModuleRequest,
+    module_reference: &ModuleReference,
     code: Option<&FastString>,
   ) {
     // Recurse the module's imports. There are two cases for each import:
@@ -255,11 +254,12 @@ impl RecursiveModuleLoad {
     // This robustly ensures that the whole graph is in the module map before
     // `LoadState::Done` is set.
     let mut already_registered = VecDeque::new();
-    already_registered.push_back((module_id, module_request.clone()));
-    self.visited.insert(module_request.reference.clone());
-    while let Some((module_id, module_request)) = already_registered.pop_front()
+    already_registered.push_back((module_id, module_reference.clone()));
+    self.visited.insert(module_reference.clone());
+    while let Some((module_id, module_reference)) =
+      already_registered.pop_front()
     {
-      let referrer = &module_request.reference.specifier;
+      let referrer = &module_reference.specifier;
       let imports = self
         .module_map_rc
         .get_requested_modules(module_id)
@@ -277,7 +277,8 @@ impl RecursiveModuleLoad {
             &module_request.reference.requested_module_type,
           ) {
             Some(module_id) => {
-              already_registered.push_back((module_id, module_request.clone()));
+              already_registered
+                .push_back((module_id, module_request.reference.clone()));
             }
             _ => {
               let request = module_request.clone();
@@ -361,7 +362,7 @@ impl RecursiveModuleLoad {
                     .borrow_mut()
                     .insert(found_specifier.as_str().to_string());
                 }
-                load_result.map(|s| Some((request, s)))
+                load_result.map(|s| Some((request.reference, s)))
               };
               self.pending.push(fut.boxed_local());
             }
@@ -374,7 +375,7 @@ impl RecursiveModuleLoad {
 }
 
 impl Stream for RecursiveModuleLoad {
-  type Item = Result<(ModuleRequest, ModuleSource), CoreError>;
+  type Item = Result<(ModuleReference, ModuleSource), CoreError>;
 
   fn poll_next(
     self: Pin<&mut Self>,
@@ -395,17 +396,14 @@ impl Stream for RecursiveModuleLoad {
           LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
           _ => RequestedModuleType::None,
         };
-        let module_request = ModuleRequest {
-          reference: ModuleReference {
-            specifier: module_specifier.clone(),
-            requested_module_type: requested_module_type.clone(),
-          },
-          referrer_source_offset: None,
+        let module_reference = ModuleReference {
+          specifier: module_specifier.clone(),
+          requested_module_type: requested_module_type.clone(),
         };
         let load_fut = if let Some(module_id) = inner.root_module_id {
           // If the inner future is already in the map, we might be done (assuming there are no pending
           // loads).
-          inner.register_and_recurse_inner(module_id, &module_request, None);
+          inner.register_and_recurse_inner(module_id, &module_reference, None);
           if inner.pending.is_empty() {
             inner.state = LoadState::Done;
           } else {
@@ -428,7 +426,7 @@ impl Stream for RecursiveModuleLoad {
               ModuleLoadResponse::Sync(result) => result,
               ModuleLoadResponse::Async(fut) => fut.await,
             };
-            result.map(|s| Some((module_request, s)))
+            result.map(|s| Some((module_reference, s)))
           }
           .boxed_local()
         };

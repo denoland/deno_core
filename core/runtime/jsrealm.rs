@@ -493,10 +493,10 @@ impl JsRealm {
       ModuleMap::load_main(module_map_rc.clone(), &specifier).await?;
 
     while let Some(load_result) = load.next().await {
-      let (request, info) = load_result?;
+      let (reference, info) = load_result?;
       context_scope!(scope, self, isolate);
       load
-        .register_and_recurse(scope, &request, info)
+        .register_and_recurse(scope, &reference, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
@@ -539,10 +539,10 @@ impl JsRealm {
       ModuleMap::load_side(module_map_rc.clone(), &specifier).await?;
 
     while let Some(load_result) = load.next().await {
-      let (request, info) = load_result?;
+      let (reference, info) = load_result?;
       context_scope!(scope, self, isolate);
       load
-        .register_and_recurse(scope, &request, info)
+        .register_and_recurse(scope, &reference, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
