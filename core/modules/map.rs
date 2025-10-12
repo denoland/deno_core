@@ -5,7 +5,6 @@ use super::IntoModuleName;
 use super::ModuleConcreteError;
 use super::module_map_data::ModuleMapSnapshotData;
 use crate::FastStaticString;
-use crate::FastString;
 use crate::JsRuntime;
 use crate::ModuleCodeBytes;
 use crate::ModuleLoadResponse;
@@ -399,12 +398,12 @@ impl ModuleMap {
       ModuleType::Json => self.new_json_module(
         scope,
         module_url_found,
-        &ModuleSource::get_string_source(code),
+        ModuleSource::get_string_source(code),
       )?,
       ModuleType::Text => self.new_text_module(
         scope,
         module_url_found,
-        &ModuleSource::get_string_source(code),
+        ModuleSource::get_string_source(code),
       )?,
       ModuleType::Bytes => {
         // TODO(This PR): This was converted to string unconditionally, fix.
@@ -810,9 +809,10 @@ impl ModuleMap {
     &self,
     scope: &mut v8::PinScope,
     name: impl IntoModuleName,
-    code: &FastString,
+    code: impl IntoModuleCodeString,
   ) -> Result<ModuleId, ModuleError> {
     let name = name.into_module_name();
+    let code = code.into_module_code();
     let source_str = v8::String::new_from_utf8(
       scope,
       strip_bom(code.as_bytes()),
@@ -839,9 +839,10 @@ impl ModuleMap {
     &self,
     scope: &mut v8::PinScope,
     name: impl IntoModuleName,
-    code: &FastString,
+    code: impl IntoModuleCodeString,
   ) -> Result<ModuleId, ModuleError> {
     let name = name.into_module_name();
+    let code = code.into_module_code();
     // TODO(bartlomieju): would be much better if the string was ensured to not contain
     // BOM, then we could use a more efficient string type with `FastString::v8_string`.
     let source_str = v8::String::new_from_utf8(

@@ -223,9 +223,12 @@ fn es_snapshot() {
       main,
       name: specifier.into(),
       requests: vec![crate::modules::ModuleRequest {
-        specifier: ModuleSpecifier::parse(&format!("file:///{prev}.js"))
-          .unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse(&format!("file:///{prev}.js"))
+            .unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(25 + prev.to_string().len() as i32),
       }],
       module_type: ModuleType::JavaScript,
     }

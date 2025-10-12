@@ -496,7 +496,7 @@ impl ModuleSource {
   }
 
   pub fn into_cheap_copy_of_code(self) -> (Self, Option<ModuleCodeString>) {
-    if let ModuleType::Bytes = self.module_type {
+    if let ModuleType::Wasm | ModuleType::Bytes = self.module_type {
       return (self, None);
     }
     let (code, code_string) = self.code.into_string_with_cheap_copy();
