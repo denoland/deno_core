@@ -187,7 +187,7 @@ impl ModuleCodeBytes {
     }
   }
 
-  /// If this [`FastString`] is cheaply cloneable, returns a clone.
+  /// If this [`ModuleCodeBytes`] is cheaply cloneable, returns a clone.
   pub fn try_clone(&self) -> Option<Self> {
     match &self {
       Self::Static(b) => Some(Self::Static(b)),
