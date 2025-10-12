@@ -289,7 +289,7 @@ impl RecursiveModuleLoad {
                 // 1-based.
                 let (line_number, column_number) = code
                   .as_bytes()
-                  .split_at(source_offset as usize)
+                  .split_at_checked(source_offset as usize)?
                   .0
                   .iter()
                   .enumerate()

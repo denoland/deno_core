@@ -740,12 +740,20 @@ impl ModuleMap {
       };
       let requested_module_type =
         get_requested_module_type_from_attributes(&attributes);
+      let referrer_source_offset = if let ModuleType::Wasm = module_type {
+        // Wasm sources will have been rendered to synthetic JS modules, so any
+        // `ModuleRequest::referrer:source_offset`s we get from v8 are not
+        // applicable to user code. Disregard it.
+        None
+      } else {
+        Some(module_request.get_source_offset())
+      };
       let request = ModuleRequest {
         reference: ModuleReference {
           specifier: module_specifier,
           requested_module_type,
         },
-        referrer_source_offset: Some(module_request.get_source_offset()),
+        referrer_source_offset,
       };
       requests.push(request);
     }
