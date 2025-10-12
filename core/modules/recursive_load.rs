@@ -218,7 +218,8 @@ impl RecursiveModuleLoad {
     module_reference: &ModuleReference,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let (module_id, code) = self.module_map_rc.new_module(
+    let (module_source, code) = module_source.into_cheap_copy_of_code();
+    let module_id = self.module_map_rc.new_module(
       scope,
       self.is_currently_loading_main_module(),
       self.is_dynamic_import(),

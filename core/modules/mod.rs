@@ -56,6 +56,32 @@ impl ModuleSourceCode {
       Self::Bytes(b) => b.as_bytes(),
     }
   }
+
+  pub fn into_string_with_cheap_copy(self) -> (Self, ModuleCodeString) {
+    match self {
+      Self::String(s) => {
+        let (s1, s2) = s.into_cheap_copy();
+        (Self::String(s1), s2)
+      }
+      Self::Bytes(b) => {
+        let b = b.to_vec();
+        // TODO(nayeemrmn): Use `String::from_utf8_lossy_owned()` when stable.
+        // https://github.com/rust-lang/rust/issues/129436
+        let s = if let Cow::Owned(s) = String::from_utf8_lossy(&b) {
+          s
+        } else {
+          // SAFETY: `String::from_utf8_lossy`'s contract ensures that if
+          // it returns a `Cow::Borrowed`, it is a valid UTF-8 string.
+          // Otherwise, it returns a new allocation of an owned `String`, with
+          // replacement characters for invalid sequences, which is returned
+          // above.
+          unsafe { String::from_utf8_unchecked(b) }
+        };
+        let s = Arc::<str>::from(s);
+        (Self::String(s.clone().into()), s.into())
+      }
+    }
+  }
 }
 
 pub type ModuleCodeString = FastString;
@@ -467,6 +493,15 @@ impl ModuleSource {
         }
       }
     }
+  }
+
+  pub fn into_cheap_copy_of_code(self) -> (Self, Option<ModuleCodeString>) {
+    if let ModuleType::Bytes = self.module_type {
+      return (self, None);
+    }
+    let (code, code_string) = self.code.into_string_with_cheap_copy();
+    let copy = Self { code, ..self };
+    (copy, Some(code_string))
   }
 }
 

@@ -320,7 +320,7 @@ impl ModuleMap {
     main: bool,
     dynamic: bool,
     module_source: ModuleSource,
-  ) -> Result<(ModuleId, Option<FastString>), ModuleError> {
+  ) -> Result<ModuleId, ModuleError> {
     let ModuleSource {
       code,
       module_type,
@@ -354,13 +354,9 @@ impl ModuleMap {
     let maybe_module_id = self.get_id(&module_url_found, requested_module_type);
 
     if let Some(module_id) = maybe_module_id {
-      let code = match code {
-        ModuleSourceCode::String(s) => Some(s),
-        ModuleSourceCode::Bytes(_) => None,
-      };
-      return Ok((module_id, code));
+      return Ok(module_id);
     }
-    let (module_id, code) = match module_type {
+    let module_id = match module_type {
       ModuleType::JavaScript => {
         let code = ModuleSource::get_string_source(code);
 
@@ -384,7 +380,7 @@ impl ModuleMap {
             (None, module_url_found)
           };
 
-        let module_id = self.new_module_from_js_source(
+        self.new_module_from_js_source(
           scope,
           main,
           ModuleType::JavaScript,
@@ -392,35 +388,32 @@ impl ModuleMap {
           &code,
           dynamic,
           code_cache_info,
-        )?;
-        (module_id, Some(code))
+        )?
       }
       ModuleType::Wasm => {
         let ModuleSourceCode::Bytes(code) = code else {
           return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
         };
-        let (module_id, code) =
-          self.new_wasm_module(scope, module_url_found, code, dynamic)?;
-        (module_id, Some(code))
+        self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
-      ModuleType::Json => {
-        let code = ModuleSource::get_string_source(code);
-        let module_id = self.new_json_module(scope, module_url_found, &code)?;
-        (module_id, Some(code))
-      }
-      ModuleType::Text => {
-        let code = ModuleSource::get_string_source(code);
-        let module_id = self.new_text_module(scope, module_url_found, &code)?;
-        (module_id, Some(code))
-      }
+      ModuleType::Json => self.new_json_module(
+        scope,
+        module_url_found,
+        &ModuleSource::get_string_source(code),
+      )?,
+      ModuleType::Text => self.new_text_module(
+        scope,
+        module_url_found,
+        &ModuleSource::get_string_source(code),
+      )?,
       ModuleType::Bytes => {
+        // TODO(This PR): This was converted to string unconditionally, fix.
         let ModuleSourceCode::Bytes(code) = code else {
           return Err(ModuleError::Concrete(
             ModuleConcreteError::BytesNotBytes,
           ));
         };
-        let module_id = self.new_bytes_module(scope, module_url_found, code)?;
-        (module_id, None)
+        self.new_bytes_module(scope, module_url_found, code)?
       }
       ModuleType::Other(module_type) => {
         let state = JsRuntime::state_from(scope);
@@ -451,13 +444,12 @@ impl ModuleMap {
           CustomModuleEvaluationKind::Synthetic(value_global) => {
             let value = v8::Local::new(scope, value_global);
             let exports = vec![(ascii_str!("default"), value)];
-            let module_id = self.new_synthetic_module(
+            self.new_synthetic_module(
               scope,
               module_url_found,
               ModuleType::Other(module_type.clone()),
               exports,
-            );
-            (module_id, None)
+            )
           }
 
           // Complex case - besides a synthetic module, we will create a new
@@ -495,7 +487,7 @@ impl ModuleMap {
               (None, url2)
             };
 
-            let module_id = self.new_module_from_js_source(
+            self.new_module_from_js_source(
               scope,
               main,
               ModuleType::Other(module_type.clone()),
@@ -503,13 +495,12 @@ impl ModuleMap {
               &computed_src,
               dynamic,
               code_cache_info,
-            )?;
-            (module_id, Some(computed_src))
+            )?
           }
         }
       }
     };
-    Ok((module_id, code))
+    Ok(module_id)
   }
 
   /// Creates a "synthetic module", that contains only a single, "default" export.
@@ -779,7 +770,7 @@ impl ModuleMap {
     name: ModuleName,
     source: ModuleCodeBytes,
     is_dynamic_import: bool,
-  ) -> Result<(ModuleId, FastString), ModuleError> {
+  ) -> Result<ModuleId, ModuleError> {
     let bytes = source.as_bytes();
     let wasm_module_analysis = WasmDeps::parse(
       bytes,
@@ -803,18 +794,16 @@ impl ModuleMap {
     let exports = vec![(ascii_str!("default"), value)];
     let _synthetic_mod_id =
       self.new_synthetic_module(scope, name1, synthetic_module_type, exports);
-    let code = js_wasm_module_source.into();
 
-    let module_id = self.new_module_from_js_source(
+    self.new_module_from_js_source(
       scope,
       false,
       ModuleType::Wasm,
       name2,
-      &code,
+      &js_wasm_module_source.into(),
       is_dynamic_import,
       None,
-    )?;
-    Ok((module_id, code))
+    )
   }
 
   pub(crate) fn new_json_module(
