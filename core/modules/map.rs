@@ -406,7 +406,6 @@ impl ModuleMap {
         ModuleSource::get_string_source(code),
       )?,
       ModuleType::Bytes => {
-        // TODO(This PR): This was converted to string unconditionally, fix.
         let ModuleSourceCode::Bytes(code) = code else {
           return Err(ModuleError::Concrete(
             ModuleConcreteError::BytesNotBytes,
