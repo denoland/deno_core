@@ -286,11 +286,14 @@ impl RecursiveModuleLoad {
               let visited_as_alias = self.visited_as_alias.clone();
               let referrer = code.and_then(|code| {
                 let source_offset = request.referrer_source_offset?;
+                // 1-based.
                 let (line_number, column_number) = code
-                  .as_str()
-                  .char_indices()
-                  .take_while(|(i, _)| *i < source_offset as _)
-                  .filter(|(_, c)| *c == '\n')
+                  .as_bytes()
+                  .split_at(source_offset as usize)
+                  .0
+                  .iter()
+                  .enumerate()
+                  .filter(|(_, c)| **c as char == '\n')
                   .enumerate()
                   .last()
                   .map(|(n, (i, _))| {
