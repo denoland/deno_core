@@ -57,28 +57,15 @@ impl ModuleSourceCode {
     }
   }
 
-  pub fn into_string_with_cheap_copy(self) -> (Self, ModuleCodeString) {
+  pub fn into_cheap_copy(self) -> (Self, Self) {
     match self {
       Self::String(s) => {
         let (s1, s2) = s.into_cheap_copy();
-        (Self::String(s1), s2)
+        (Self::String(s1), Self::String(s2))
       }
       Self::Bytes(b) => {
-        let b = b.to_vec();
-        // TODO(nayeemrmn): Use `String::from_utf8_lossy_owned()` when stable.
-        // https://github.com/rust-lang/rust/issues/129436
-        let s = if let Cow::Owned(s) = String::from_utf8_lossy(&b) {
-          s
-        } else {
-          // SAFETY: `String::from_utf8_lossy`'s contract ensures that if
-          // it returns a `Cow::Borrowed`, it is a valid UTF-8 string.
-          // Otherwise, it returns a new allocation of an owned `String`, with
-          // replacement characters for invalid sequences, which is returned
-          // above.
-          unsafe { String::from_utf8_unchecked(b) }
-        };
-        let s = Arc::<str>::from(s);
-        (Self::String(s.clone().into()), s.into())
+        let (b1, b2) = b.into_cheap_copy();
+        (Self::Bytes(b1), Self::Bytes(b2))
       }
     }
   }
@@ -184,6 +171,28 @@ impl ModuleCodeBytes {
       ModuleCodeBytes::Static(s) => s.to_vec(),
       ModuleCodeBytes::Boxed(s) => s.to_vec(),
       ModuleCodeBytes::Arc(s) => s.to_vec(),
+    }
+  }
+
+  /// Creates a cheap copy of this [`ModuleCodeBytes`], potentially transmuting
+  /// it to a faster form. Note that this is not a clone operation as it
+  /// consumes the old [`ModuleCodeBytes`].
+  pub fn into_cheap_copy(self) -> (Self, Self) {
+    match self {
+      ModuleCodeBytes::Boxed(b) => {
+        let b = Arc::<[u8]>::from(b);
+        (Self::Arc(b.clone()), Self::Arc(b))
+      }
+      _ => (self.try_clone().unwrap(), self),
+    }
+  }
+
+  /// If this [`FastString`] is cheaply cloneable, returns a clone.
+  pub fn try_clone(&self) -> Option<Self> {
+    match &self {
+      Self::Static(b) => Some(Self::Static(b)),
+      Self::Boxed(_) => None,
+      Self::Arc(b) => Some(Self::Arc(b.clone())),
     }
   }
 }
@@ -495,13 +504,10 @@ impl ModuleSource {
     }
   }
 
-  pub fn into_cheap_copy_of_code(self) -> (Self, Option<ModuleCodeString>) {
-    if let ModuleType::Wasm | ModuleType::Bytes = self.module_type {
-      return (self, None);
-    }
-    let (code, code_string) = self.code.into_string_with_cheap_copy();
+  pub fn into_cheap_copy_of_code(self) -> (Self, ModuleSourceCode) {
+    let (code, code_copy) = self.code.into_cheap_copy();
     let copy = Self { code, ..self };
-    (copy, Some(code_string))
+    (copy, code_copy)
   }
 }
 

@@ -1,9 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::FastString;
 use crate::ModuleLoadResponse;
 use crate::ModuleLoader;
 use crate::ModuleSource;
+use crate::ModuleSourceCode;
 use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleError;
@@ -226,7 +226,7 @@ impl RecursiveModuleLoad {
       module_source,
     )?;
 
-    self.register_and_recurse_inner(module_id, module_reference, code.as_ref());
+    self.register_and_recurse_inner(module_id, module_reference, Some(&code));
 
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
@@ -244,7 +244,7 @@ impl RecursiveModuleLoad {
     &mut self,
     module_id: usize,
     module_reference: &ModuleReference,
-    code: Option<&FastString>,
+    code: Option<&ModuleSourceCode>,
   ) {
     // Recurse the module's imports. There are two cases for each import:
     // 1. If the module is not in the module map, start a new load for it in
