@@ -384,7 +384,7 @@ impl ModuleMap {
           main,
           ModuleType::JavaScript,
           module_url_found,
-          &code,
+          code,
           dynamic,
           code_cache_info,
         )?
@@ -490,7 +490,7 @@ impl ModuleMap {
               main,
               ModuleType::Other(module_type.clone()),
               url2,
-              &computed_src,
+              computed_src,
               dynamic,
               code_cache_info,
             )?
@@ -574,7 +574,7 @@ impl ModuleMap {
       main,
       ModuleType::JavaScript,
       name.into_module_name(),
-      &source.into_module_code(),
+      source.into_module_code(),
       is_dynamic_import,
       code_cache_info,
     )
@@ -599,7 +599,7 @@ impl ModuleMap {
     main: bool,
     module_type: ModuleType,
     name: ModuleName,
-    source: &ModuleCodeString,
+    source: ModuleCodeString,
     is_dynamic_import: bool,
     mut code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<ModuleId, ModuleError> {
@@ -798,7 +798,7 @@ impl ModuleMap {
       false,
       ModuleType::Wasm,
       name2,
-      &js_wasm_module_source.into(),
+      js_wasm_module_source.into(),
       is_dynamic_import,
       None,
     )
