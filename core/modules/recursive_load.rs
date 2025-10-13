@@ -16,6 +16,7 @@ use crate::modules::ResolutionKind;
 use crate::modules::loaders::ModuleLoadReferrer;
 use crate::modules::map::ModuleMap;
 use crate::source_map::SourceMapApplication;
+use crate::source_map::SourceMapper;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::Stream;
@@ -286,51 +287,12 @@ impl RecursiveModuleLoad {
               let visited_as_alias = self.visited_as_alias.clone();
               let referrer = code.and_then(|code| {
                 let source_offset = request.referrer_source_offset?;
-                // 1-based.
-                let (line_number, column_number) = code
-                  .as_bytes()
-                  .split_at_checked(source_offset as usize)?
-                  .0
-                  .iter()
-                  .enumerate()
-                  .filter(|(_, c)| **c as char == '\n')
-                  .enumerate()
-                  .last()
-                  .map(|(n, (i, _))| {
-                    (n as u32 + 2, source_offset as u32 - i as u32)
-                  })
-                  .unwrap_or_else(|| (1, source_offset as u32 + 1));
-                let (specifier, line_number, column_number) = match self
-                  .module_map_rc
-                  .source_mapper
-                  .borrow_mut()
-                  .apply_source_map(
-                    referrer.as_str(),
-                    line_number,
-                    column_number,
-                  ) {
-                  SourceMapApplication::Unchanged => {
-                    (referrer.clone(), line_number as _, column_number as _)
-                  }
-                  SourceMapApplication::LineAndColumn {
-                    line_number,
-                    column_number,
-                  } => (referrer.clone(), line_number as _, column_number as _),
-                  SourceMapApplication::LineAndColumnAndFileName {
-                    file_name,
-                    line_number,
-                    column_number,
-                  } => (
-                    ModuleSpecifier::parse(&file_name).ok()?,
-                    line_number as _,
-                    column_number as _,
-                  ),
-                };
-                Some(ModuleLoadReferrer {
-                  specifier,
-                  line_number,
-                  column_number,
-                })
+                source_mapped_module_load_referrer(
+                  &self.module_map_rc.source_mapper,
+                  referrer,
+                  code,
+                  source_offset,
+                )
               });
               let loader = self.loader.clone();
               let is_dynamic_import = self.is_dynamic_import();
@@ -459,4 +421,50 @@ impl Stream for RecursiveModuleLoad {
       LoadState::Done => Poll::Ready(None),
     }
   }
+}
+
+fn source_mapped_module_load_referrer(
+  source_mapper: &RefCell<SourceMapper>,
+  referrer: &ModuleSpecifier,
+  code: &ModuleSourceCode,
+  source_offset: i32,
+) -> Option<ModuleLoadReferrer> {
+  // 1-based.
+  let (line_number, column_number) = code
+    .as_bytes()
+    .split_at_checked(source_offset as usize)?
+    .0
+    .iter()
+    .enumerate()
+    .filter(|(_, c)| **c as char == '\n')
+    .enumerate()
+    .last()
+    .map(|(n, (i, _))| (n as u32 + 2, source_offset as u32 - i as u32))
+    .unwrap_or_else(|| (1, source_offset as u32 + 1));
+  let (specifier, line_number, column_number) = match source_mapper
+    .borrow_mut()
+    .apply_source_map(referrer.as_str(), line_number, column_number)
+  {
+    SourceMapApplication::Unchanged => {
+      (referrer.clone(), line_number as _, column_number as _)
+    }
+    SourceMapApplication::LineAndColumn {
+      line_number,
+      column_number,
+    } => (referrer.clone(), line_number as _, column_number as _),
+    SourceMapApplication::LineAndColumnAndFileName {
+      file_name,
+      line_number,
+      column_number,
+    } => (
+      ModuleSpecifier::parse(&file_name).ok()?,
+      line_number as _,
+      column_number as _,
+    ),
+  };
+  Some(ModuleLoadReferrer {
+    specifier,
+    line_number,
+    column_number,
+  })
 }
