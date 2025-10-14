@@ -39,6 +39,15 @@ pub enum ModuleLoadResponse {
   Async(Pin<Box<ModuleSourceFuture>>),
 }
 
+#[derive(Debug, Clone)]
+pub struct ModuleLoadReferrer {
+  pub specifier: ModuleSpecifier,
+  /// 1-based.
+  pub line_number: i64,
+  /// 1-based.
+  pub column_number: i64,
+}
+
 pub trait ModuleLoader {
   /// Returns an absolute URL.
   /// When implementing an spec-complaint VM, this should be exactly the
@@ -73,7 +82,7 @@ pub trait ModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
     is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse;
@@ -171,7 +180,7 @@ impl ModuleLoader for NoopModuleLoader {
   fn load(
     &self,
     _module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
@@ -270,7 +279,7 @@ impl ModuleLoader for ExtModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
@@ -348,7 +357,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
@@ -411,7 +420,7 @@ impl ModuleLoader for FsModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dynamic: bool,
     requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
@@ -514,7 +523,7 @@ impl ModuleLoader for StaticModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
@@ -604,7 +613,7 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
     is_dyn_import: bool,
     requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {

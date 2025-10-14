@@ -169,6 +169,7 @@ mod tests {
 
   use super::*;
   use crate::ModuleCodeString;
+  use crate::ModuleLoadReferrer;
   use crate::ModuleLoadResponse;
   use crate::ModuleSpecifier;
   use crate::RequestedModuleType;
@@ -198,7 +199,7 @@ mod tests {
     fn load(
       &self,
       _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
       _is_dyn_import: bool,
       _requested_module_type: RequestedModuleType,
     ) -> ModuleLoadResponse {

@@ -23,6 +23,7 @@ use crate::modules::ModuleId;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleName;
+use crate::modules::ModuleReference;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
@@ -33,6 +34,7 @@ use crate::runtime::JsRealm;
 use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
 use crate::runtime::exception_state::ExceptionState;
+use crate::source_map::SourceMapper;
 use capacity_builder::StringBuilder;
 use deno_error::JsErrorBox;
 use futures::StreamExt;
@@ -126,6 +128,7 @@ pub(crate) struct ModuleMap {
   // TODO(mmastrac): we should not be swapping this loader out
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
 
+  pub(crate) source_mapper: Rc<RefCell<SourceMapper>>,
   exception_state: Rc<ExceptionState>,
   dynamic_import_map: RefCell<HashMap<ModuleLoadId, DynImportState>>,
   preparing_dynamic_imports:
@@ -204,12 +207,14 @@ impl ModuleMap {
 
   pub(crate) fn new(
     loader: Rc<dyn ModuleLoader>,
+    source_mapper: Rc<RefCell<SourceMapper>>,
     exception_state: Rc<ExceptionState>,
     will_snapshot: bool,
   ) -> Self {
     Self {
       will_snapshot,
       loader: loader.into(),
+      source_mapper,
       exception_state,
       dyn_module_evaluate_idle_counter: Default::default(),
       dynamic_import_map: Default::default(),
@@ -390,14 +395,16 @@ impl ModuleMap {
         };
         self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
-      ModuleType::Json => {
-        let code = ModuleSource::get_string_source(code);
-        self.new_json_module(scope, module_url_found, code)?
-      }
-      ModuleType::Text => {
-        let code = ModuleSource::get_string_source(code);
-        self.new_text_module(scope, module_url_found, code)?
-      }
+      ModuleType::Json => self.new_json_module(
+        scope,
+        module_url_found,
+        ModuleSource::get_string_source(code),
+      )?,
+      ModuleType::Text => self.new_text_module(
+        scope,
+        module_url_found,
+        ModuleSource::get_string_source(code),
+      )?,
       ModuleType::Bytes => {
         let ModuleSourceCode::Bytes(code) = code else {
           return Err(ModuleError::Concrete(
@@ -733,9 +740,20 @@ impl ModuleMap {
       };
       let requested_module_type =
         get_requested_module_type_from_attributes(&attributes);
+      let referrer_source_offset = if let ModuleType::Wasm = module_type {
+        // Wasm sources will have been rendered to synthetic JS modules, so any
+        // `ModuleRequest::referrer:source_offset`s we get from v8 are not
+        // applicable to user code. Disregard it.
+        None
+      } else {
+        Some(module_request.get_source_offset())
+      };
       let request = ModuleRequest {
-        specifier: module_specifier,
-        requested_module_type,
+        reference: ModuleReference {
+          specifier: module_specifier,
+          requested_module_type,
+        },
+        referrer_source_offset,
       };
       requests.push(request);
     }
@@ -1692,12 +1710,12 @@ impl ModuleMap {
         match maybe_result {
           Some(load_stream_result) => {
             match load_stream_result {
-              Ok((request, info)) => {
+              Ok((reference, info)) => {
                 // A module (not necessarily the one dynamically imported) has been
                 // fetched. Create and register it, and if successful, poll for the
                 // next recursive-load event related to this dynamic import.
                 let register_result =
-                  load.register_and_recurse(scope, &request, info);
+                  load.register_and_recurse(scope, &reference, info);
 
                 match register_result {
                   Ok(()) => {

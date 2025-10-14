@@ -26,6 +26,7 @@ pub use loaders::ExtCodeCache;
 pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;
+pub use loaders::ModuleLoadReferrer;
 pub use loaders::ModuleLoadResponse;
 pub use loaders::ModuleLoader;
 pub use loaders::ModuleLoaderError;
@@ -53,6 +54,19 @@ impl ModuleSourceCode {
     match self {
       Self::String(s) => s.as_bytes(),
       Self::Bytes(b) => b.as_bytes(),
+    }
+  }
+
+  pub fn into_cheap_copy(self) -> (Self, Self) {
+    match self {
+      Self::String(s) => {
+        let (s1, s2) = s.into_cheap_copy();
+        (Self::String(s1), Self::String(s2))
+      }
+      Self::Bytes(b) => {
+        let (b1, b2) = b.into_cheap_copy();
+        (Self::Bytes(b1), Self::Bytes(b2))
+      }
     }
   }
 }
@@ -157,6 +171,28 @@ impl ModuleCodeBytes {
       ModuleCodeBytes::Static(s) => s.to_vec(),
       ModuleCodeBytes::Boxed(s) => s.to_vec(),
       ModuleCodeBytes::Arc(s) => s.to_vec(),
+    }
+  }
+
+  /// Creates a cheap copy of this [`ModuleCodeBytes`], potentially transmuting
+  /// it to a faster form. Note that this is not a clone operation as it
+  /// consumes the old [`ModuleCodeBytes`].
+  pub fn into_cheap_copy(self) -> (Self, Self) {
+    match self {
+      ModuleCodeBytes::Boxed(b) => {
+        let b = Arc::<[u8]>::from(b);
+        (Self::Arc(b.clone()), Self::Arc(b))
+      }
+      _ => (self.try_clone().unwrap(), self),
+    }
+  }
+
+  /// If this [`ModuleCodeBytes`] is cheaply cloneable, returns a clone.
+  pub fn try_clone(&self) -> Option<Self> {
+    match &self {
+      Self::Static(b) => Some(Self::Static(b)),
+      Self::Boxed(_) => None,
+      Self::Arc(b) => Some(Self::Arc(b.clone())),
     }
   }
 }
@@ -467,6 +503,12 @@ impl ModuleSource {
       }
     }
   }
+
+  pub fn into_cheap_copy_of_code(self) -> (Self, ModuleSourceCode) {
+    let (code, code_copy) = self.code.into_cheap_copy();
+    let copy = Self { code, ..self };
+    (copy, code_copy)
+  }
 }
 
 pub type ModuleSourceFuture =
@@ -632,9 +674,20 @@ impl std::fmt::Display for RequestedModuleType {
 /// import assertions explicitly constrains an import to JSON, in
 /// which case this will have a `RequestedModuleType::Json`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ModuleRequest {
+pub(crate) struct ModuleReference {
   pub specifier: ModuleSpecifier,
   pub requested_module_type: RequestedModuleType,
+}
+
+/// Describes a request for a module as parsed from the source code.
+/// Usually executable (`JavaScriptOrWasm`) is used, except when an
+/// import assertions explicitly constrains an import to JSON, in
+/// which case this will have a `RequestedModuleType::Json`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ModuleRequest {
+  pub reference: ModuleReference,
+  /// None if this is a root request.
+  pub referrer_source_offset: Option<i32>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
