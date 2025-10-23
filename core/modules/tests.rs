@@ -301,7 +301,7 @@ impl ModuleLoader for MockLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _is_dyn_import: bool,
     _requested_module_type: RequestedModuleType,
   ) -> ModuleLoadResponse {
@@ -379,27 +379,39 @@ fn test_recursive_load() {
     modules.get_requested_modules(a_id),
     Some(vec![
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(19),
       },
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(46),
       },
     ])
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     },])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     },])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
@@ -465,8 +477,11 @@ fn test_mods() {
     assert_eq!(
       imports,
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(29),
       },])
     );
 
@@ -571,7 +586,7 @@ fn test_json_text_bytes_modules() {
           assert(bytes.length === 3);
           assert(bytes[0] === 1);
           assert(bytes[1] === 2);
-          assert(bytes[2] === 3); 
+          assert(bytes[2] === 3);
         "#
         ),
         false,
@@ -584,16 +599,25 @@ fn test_json_text_bytes_modules() {
       imports,
       Some(vec![
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
-          requested_module_type: RequestedModuleType::Json,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
+            requested_module_type: RequestedModuleType::Json,
+          },
+          referrer_source_offset: Some(32),
         },
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///d.txt").unwrap(),
-          requested_module_type: RequestedModuleType::Text,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///d.txt").unwrap(),
+            requested_module_type: RequestedModuleType::Text,
+          },
+          referrer_source_offset: Some(165),
         },
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///e.bin").unwrap(),
-          requested_module_type: RequestedModuleType::Bytes,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///e.bin").unwrap(),
+            requested_module_type: RequestedModuleType::Bytes,
+          },
+          referrer_source_offset: Some(264),
         },
       ])
     );
@@ -1011,10 +1035,13 @@ export const foo = bytes;
       main: true,
       name: "file:///b.png".into_module_name(),
       requests: vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.png").unwrap(),
-        requested_module_type: RequestedModuleType::Other(
-          "foobar-synth".into()
-        )
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.png").unwrap(),
+          requested_module_type: RequestedModuleType::Other(
+            "foobar-synth".into()
+          ),
+        },
+        referrer_source_offset: Some(19),
       }],
       module_type: ModuleType::Other("foobar".into()),
     }
@@ -1212,16 +1239,22 @@ fn test_circular_load() {
     assert_eq!(
       modules.get_requested_modules(circular1_id),
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(8),
       }])
     );
 
     assert_eq!(
       modules.get_requested_modules(circular2_id),
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///circular3.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///circular3.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(8),
       }])
     );
 
@@ -1237,12 +1270,18 @@ fn test_circular_load() {
       modules.get_requested_modules(circular3_id),
       Some(vec![
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///circular1.js").unwrap(),
-          requested_module_type: RequestedModuleType::None,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///circular1.js").unwrap(),
+            requested_module_type: RequestedModuleType::None,
+          },
+          referrer_source_offset: Some(8),
         },
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
-          requested_module_type: RequestedModuleType::None,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
+            requested_module_type: RequestedModuleType::None,
+          },
+          referrer_source_offset: Some(32),
         }
       ])
     );
@@ -1490,27 +1529,39 @@ fn recursive_load_main_with_code() {
     modules.get_requested_modules(main_id),
     Some(vec![
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(23),
       },
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(54),
       }
     ])
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     }])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     }])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
@@ -1700,7 +1751,7 @@ async fn no_duplicate_loads() {
     fn load(
       &self,
       module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
       _is_dyn_import: bool,
       _requested_module_type: RequestedModuleType,
     ) -> ModuleLoadResponse {
@@ -1790,7 +1841,7 @@ async fn import_meta_resolve() {
     fn load(
       &self,
       _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
       _is_dyn_import: bool,
       _requested_module_type: RequestedModuleType,
     ) -> ModuleLoadResponse {

@@ -414,7 +414,7 @@ pub type CompiledWasmModuleStore = CrossIsolateStore<v8::CompiledWasmModule>;
 /// Internal state for JsRuntime which is stored in one of v8::Isolate's
 /// embedder slots.
 pub struct JsRuntimeState {
-  pub(crate) source_mapper: RefCell<SourceMapper>,
+  pub(crate) source_mapper: Rc<RefCell<SourceMapper>>,
   pub(crate) op_state: Rc<RefCell<OpState>>,
   pub(crate) shared_array_buffer_store: Option<SharedArrayBufferStore>,
   pub(crate) compiled_wasm_module_store: Option<CompiledWasmModuleStore>,
@@ -856,7 +856,7 @@ impl JsRuntime {
         .map(|cbs| (Some(cbs.0), Some(cbs.1)))
         .unwrap_or_default();
     let state_rc = Rc::new(JsRuntimeState {
-      source_mapper: RefCell::new(source_mapper),
+      source_mapper: Rc::new(RefCell::new(source_mapper)),
       shared_array_buffer_store: options.shared_array_buffer_store,
       compiled_wasm_module_store: options.compiled_wasm_module_store,
       wait_for_inspector_disconnect_callback: options
@@ -1069,6 +1069,7 @@ impl JsRuntime {
       let exception_state = context_state.exception_state.clone();
       let module_map = Rc::new(ModuleMap::new(
         loader,
+        state_rc.source_mapper.clone(),
         exception_state.clone(),
         will_snapshot,
       ));

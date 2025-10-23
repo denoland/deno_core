@@ -11,7 +11,6 @@ use crate::error::CoreErrorKind;
 use crate::error::ResourceError;
 use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
-use crate::error::format_file_name;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -62,7 +61,6 @@ builtin_ops! {
   op_write_all,
   op_write_type_error,
   op_shutdown,
-  op_format_file_name,
   op_str_byte_length,
   op_panic,
   op_cancel_handle,
@@ -436,12 +434,6 @@ async fn op_shutdown(
   resource.shutdown().await
 }
 
-#[op2]
-#[string]
-fn op_format_file_name(#[string] file_name: &str) -> String {
-  format_file_name(file_name)
-}
-
 #[op2(fast)]
 fn op_str_byte_length<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
@@ -490,9 +482,9 @@ async fn do_load_job<'s, 'i>(
   let mut load = ModuleMap::load_side(module_map_rc.clone(), specifier).await?;
 
   while let Some(load_result) = load.next().await {
-    let (request, info) = load_result?;
+    let (reference, info) = load_result?;
     load
-      .register_and_recurse(scope, &request, info)
+      .register_and_recurse(scope, &reference, info)
       .map_err(|e| e.into_error(scope, false, false))?;
   }
 
