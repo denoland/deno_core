@@ -67,7 +67,7 @@ impl InspectorIoDelegate {
   pub fn new_remote_session(
     &self,
     callback: InspectorSessionSend,
-    // TODO(bartlomieju): renamec
+    // TODO(bartlomieju): look for a better name
     rx: UnboundedReceiver<String>,
     kind: InspectorSessionKind,
   ) {
@@ -188,7 +188,6 @@ impl JsRuntimeInspectorState {
     self.poll_sessions_inner(&mut sessions, None);
   }
 
-  // TODO(bartlomieju): consider splitting further to avoid `Option<Context>`
   pub fn must_poll_sessions(&self, invoker_cx: Option<&mut Context>) {
     let mut sessions = self.sessions.borrow_mut();
     self.poll_sessions_inner(&mut sessions, invoker_cx);
@@ -306,12 +305,12 @@ impl JsRuntimeInspector {
 
     inspector.context_created(context, is_main_runtime);
 
-    // TODO(bartlomieju): feels like this could be abstracted awat
     {
       let state = inspector.state.clone();
       let mut sessions = state.sessions.borrow_mut();
       let waker_ref = task::waker_ref(&state.waker);
       let cx = &mut Context::from_waker(&waker_ref);
+      // Poll once to register context's waker with relevant task
       sessions.pump_messages_for_remote_sessions(cx);
       let state_ptr = &state as *const _ as *mut JsRuntimeInspectorState;
       state.waker.update(|w| {

@@ -1839,7 +1839,6 @@ impl JsRuntime {
     }
   }
 
-  // TODO(bartlomieju): make it get or init
   pub fn maybe_init_inspector(&mut self) {
     let inspector = &mut self.inner.state.inspector.borrow_mut();
     if inspector.is_some() {
