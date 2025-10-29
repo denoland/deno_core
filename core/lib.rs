@@ -101,6 +101,7 @@ pub use crate::io::ResourceHandleFd;
 pub use crate::io::ResourceHandleSocket;
 pub use crate::io::ResourceId;
 pub use crate::io::ResourceTable;
+pub use crate::io::TransferredResource;
 pub use crate::io::WriteOutcome;
 pub use crate::module_specifier::ModuleResolutionError;
 pub use crate::module_specifier::ModuleSpecifier;
