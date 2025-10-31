@@ -31,6 +31,7 @@ use std::io::Write;
 use std::io::stderr;
 use std::io::stdout;
 use std::rc::Rc;
+use v8::DisallowJavascriptExecutionScope;
 
 macro_rules! builtin_ops {
   ( $($op:ident $(:: $sub:ident)*),* ) => {
@@ -602,12 +603,23 @@ fn op_import_sync<'s>(
   let module_map_rc = JsRealm::module_map_from(scope);
 
   // no js execution within block_on
-  let module_id = futures::executor::block_on(do_load_job(
-    scope,
-    module_map_rc.clone(),
-    specifier,
-    code,
-  ))?;
+  let module_id = {
+    let scope = &mut v8::TryCatch::new(scope);
+    let module_id = futures::executor::block_on(do_load_job(
+      &mut DisallowJavascriptExecutionScope::new(
+        scope,
+        v8::OnFailure::ThrowOnFailure,
+      ),
+      module_map_rc.clone(),
+      specifier,
+      code,
+    ))?;
+    if let Some(exception) = scope.exception() {
+      return exception_to_err_result(scope, exception, false, false)
+        .map_err(|e| CoreErrorKind::Js(e).into_box());
+    }
+    module_id
+  };
 
   let module = module_map_rc
     .get_module(scope, module_id)
