@@ -22,7 +22,6 @@ use deno_core::ModuleSource;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
-use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
 use deno_core::error::ModuleLoaderError;

@@ -172,7 +172,6 @@ mod tests {
   use crate::ModuleLoadReferrer;
   use crate::ModuleLoadResponse;
   use crate::ModuleSpecifier;
-  use crate::RequestedModuleType;
   use crate::ResolutionKind;
   use crate::ascii_str;
   use crate::error::ModuleLoaderError;
