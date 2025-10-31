@@ -39,6 +39,13 @@ pub enum ModuleLoadResponse {
   Async(Pin<Box<ModuleSourceFuture>>),
 }
 
+pub struct ModuleLoadOptions {
+  pub is_dynamic_import: bool,
+  /// If this is a synchronous ES module load.
+  pub is_synchronous: bool,
+  pub requested_module_type: RequestedModuleType,
+}
+
 pub trait ModuleLoader {
   /// Returns an absolute URL.
   /// When implementing an spec-complaint VM, this should be exactly the
@@ -74,8 +81,7 @@ pub trait ModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
-    is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse;
 
   /// This hook can be used by implementors to do some preparation
@@ -90,8 +96,7 @@ pub trait ModuleLoader {
     &self,
     _module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -172,8 +177,7 @@ impl ModuleLoader for NoopModuleLoader {
     &self,
     _module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     ModuleLoadResponse::Sync(Err(JsErrorBox::generic(
       "Module loading is not supported.",
@@ -271,8 +275,7 @@ impl ModuleLoader for ExtModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut sources = self.sources.borrow_mut();
     let source = match sources.remove(specifier.as_str()) {
@@ -301,8 +304,7 @@ impl ModuleLoader for ExtModuleLoader {
     &self,
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -349,8 +351,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     &self,
     specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut sources = self.sources.borrow_mut();
     let source = match sources.remove(specifier.as_str()) {
@@ -374,8 +375,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     &self,
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -412,8 +412,7 @@ impl ModuleLoader for FsModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
     let fut = async move {
@@ -432,7 +431,7 @@ impl ModuleLoader for FsModuleLoader {
         } else if ext == "wasm" {
           ModuleType::Wasm
         } else {
-          match &requested_module_type {
+          match &options.requested_module_type {
             RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
             RequestedModuleType::Text => ModuleType::Text,
             RequestedModuleType::Bytes => ModuleType::Bytes,
@@ -446,7 +445,7 @@ impl ModuleLoader for FsModuleLoader {
       // If we loaded a JSON file, but the "requested_module_type" (that is computed from
       // import attributes) is not JSON we need to fail.
       if module_type == ModuleType::Json
-        && requested_module_type != RequestedModuleType::Json
+        && options.requested_module_type != RequestedModuleType::Json
       {
         return Err(JsErrorBox::generic("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."));
       }
@@ -515,8 +514,7 @@ impl ModuleLoader for StaticModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let res = if let Some(code) = self.map.get(module_specifier) {
       Ok(ModuleSource::new(
@@ -584,16 +582,12 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<String>,
-    is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     self.prepare_count.set(self.prepare_count.get() + 1);
-    self.loader.prepare_load(
-      module_specifier,
-      maybe_referrer,
-      is_dyn_import,
-      requested_module_type,
-    )
+    self
+      .loader
+      .prepare_load(module_specifier, maybe_referrer, options)
   }
 
   fn finish_load(&self) {
@@ -605,17 +599,11 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<&ModuleSpecifier>,
-    is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
-    self.loader.load(
-      module_specifier,
-      maybe_referrer,
-      is_dyn_import,
-      requested_module_type,
-    )
+    self.loader.load(module_specifier, maybe_referrer, options)
   }
 }
 

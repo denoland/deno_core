@@ -27,9 +27,17 @@ use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 
+use super::loaders::ModuleLoadOptions;
+
 type ModuleLoadFuture = dyn Future<
   Output = Result<Option<(ModuleRequest, ModuleSource)>, ModuleLoaderError>,
 >;
+
+#[derive(Debug, Copy, Clone)]
+pub enum SideModuleKind {
+  Async,
+  Sync,
+}
 
 /// Describes the entrypoint of a recursive module load.
 #[derive(Debug)]
@@ -37,7 +45,7 @@ enum LoadInit {
   /// Main module specifier.
   Main(String),
   /// Module specifier for side module.
-  Side(String),
+  Side(String, SideModuleKind),
   /// Dynamic import specifier with referrer and expected
   /// module type (which is determined by import assertion).
   DynamicImport(String, String, RequestedModuleType),
@@ -82,8 +90,12 @@ impl RecursiveModuleLoad {
   }
 
   /// Starts a new asynchronous load of the module graph for given specifier.
-  pub(crate) fn side(specifier: &str, module_map_rc: Rc<ModuleMap>) -> Self {
-    Self::new(LoadInit::Side(specifier.to_string()), module_map_rc)
+  pub(crate) fn side(
+    specifier: &str,
+    module_map_rc: Rc<ModuleMap>,
+    kind: SideModuleKind,
+  ) -> Self {
+    Self::new(LoadInit::Side(specifier.to_string(), kind), module_map_rc)
   }
 
   /// Starts a new asynchronous load of the module graph for given specifier
@@ -140,7 +152,7 @@ impl RecursiveModuleLoad {
           .module_map_rc
           .resolve(specifier, ".", ResolutionKind::MainModule)
       }
-      LoadInit::Side(ref specifier) => {
+      LoadInit::Side(ref specifier, _kind) => {
         self
           .module_map_rc
           .resolve(specifier, ".", ResolutionKind::Import)
@@ -152,23 +164,34 @@ impl RecursiveModuleLoad {
   }
 
   pub(crate) async fn prepare(&self) -> Result<(), CoreError> {
-    let (module_specifier, maybe_referrer, requested_module_type) = match self
-      .init
-    {
+    let (
+      module_specifier,
+      maybe_referrer,
+      requested_module_type,
+      is_synchronous,
+    ) = match self.init {
       LoadInit::Main(ref specifier) => {
         let spec = self.module_map_rc.resolve(
           specifier,
           ".",
           ResolutionKind::MainModule,
         )?;
-        (spec, None, RequestedModuleType::None)
+        (spec, None, RequestedModuleType::None, false)
       }
-      LoadInit::Side(ref specifier) => {
+      LoadInit::Side(ref specifier, kind) => {
         let spec =
           self
             .module_map_rc
             .resolve(specifier, ".", ResolutionKind::Import)?;
-        (spec, None, RequestedModuleType::None)
+        (
+          spec,
+          None,
+          RequestedModuleType::None,
+          match kind {
+            SideModuleKind::Async => false,
+            SideModuleKind::Sync => true,
+          },
+        )
       }
       LoadInit::DynamicImport(
         ref specifier,
@@ -184,6 +207,7 @@ impl RecursiveModuleLoad {
           spec,
           Some(referrer.to_string()),
           requested_module_type.clone(),
+          false,
         )
       }
     };
@@ -193,8 +217,11 @@ impl RecursiveModuleLoad {
       .prepare_load(
         &module_specifier,
         maybe_referrer,
-        self.is_dynamic_import(),
-        requested_module_type,
+        ModuleLoadOptions {
+          is_synchronous,
+          is_dynamic_import: self.is_dynamic_import(),
+          requested_module_type,
+        },
       )
       .await
       .map_err(|e| e.into())
@@ -208,6 +235,10 @@ impl RecursiveModuleLoad {
 
   fn is_dynamic_import(&self) -> bool {
     matches!(self.init, LoadInit::DynamicImport(..))
+  }
+
+  fn is_synchronous(&self) -> bool {
+    matches!(self.init, LoadInit::Side(_, SideModuleKind::Sync))
   }
 
   pub(crate) fn register_and_recurse(
@@ -281,6 +312,7 @@ impl RecursiveModuleLoad {
               let referrer = referrer.clone();
               let loader = self.loader.clone();
               let is_dynamic_import = self.is_dynamic_import();
+              let is_synchronous = self.is_synchronous();
               let requested_module_type = request.requested_module_type.clone();
               let fut = async move {
                 // `visited_as_alias` unlike `visited` is checked as late as
@@ -296,8 +328,11 @@ impl RecursiveModuleLoad {
                 let load_response = loader.load(
                   &request.specifier,
                   Some(&referrer),
-                  is_dynamic_import,
-                  requested_module_type,
+                  ModuleLoadOptions {
+                    is_dynamic_import,
+                    is_synchronous,
+                    requested_module_type,
+                  },
                 );
 
                 let load_result = match load_response {
@@ -369,13 +404,17 @@ impl Stream for RecursiveModuleLoad {
           };
           let loader = inner.loader.clone();
           let is_dynamic_import = inner.is_dynamic_import();
+          let is_synchronous = inner.is_synchronous();
           let requested_module_type = requested_module_type.clone();
           async move {
             let load_response = loader.load(
               &module_specifier,
               maybe_referrer.as_ref(),
-              is_dynamic_import,
-              requested_module_type,
+              ModuleLoadOptions {
+                is_dynamic_import,
+                is_synchronous,
+                requested_module_type,
+              },
             );
             let result = match load_response {
               ModuleLoadResponse::Sync(result) => result,

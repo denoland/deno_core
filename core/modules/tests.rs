@@ -18,6 +18,7 @@ use crate::modules::ModuleCodeBytes;
 use crate::modules::ModuleConcreteError;
 use crate::modules::ModuleError;
 use crate::modules::ModuleInfo;
+use crate::modules::ModuleLoadOptions;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleSourceCode;
 use crate::modules::RequestedModuleType;
@@ -302,8 +303,7 @@ impl ModuleLoader for MockLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut loads = self.loads.lock();
     loads.push(module_specifier.to_string());
@@ -1701,8 +1701,7 @@ async fn no_duplicate_loads() {
       &self,
       module_specifier: &ModuleSpecifier,
       _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-      _requested_module_type: RequestedModuleType,
+      _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
       let found_specifier =
         if module_specifier.as_str() == "https://example.com/foo.js" {
@@ -1791,8 +1790,7 @@ async fn import_meta_resolve() {
       &self,
       _module_specifier: &ModuleSpecifier,
       _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-      _requested_module_type: RequestedModuleType,
+      _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
       unreachable!();
     }

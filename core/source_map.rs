@@ -175,6 +175,7 @@ mod tests {
   use crate::ResolutionKind;
   use crate::ascii_str;
   use crate::error::ModuleLoaderError;
+  use crate::modules::ModuleLoadOptions;
 
   struct SourceMapLoaderContent {
     source_map: Option<ModuleCodeString>,
@@ -199,8 +200,7 @@ mod tests {
       &self,
       _module_specifier: &ModuleSpecifier,
       _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-      _requested_module_type: RequestedModuleType,
+      _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
       unreachable!()
     }

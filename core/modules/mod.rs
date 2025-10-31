@@ -26,6 +26,7 @@ pub use loaders::ExtCodeCache;
 pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;
+pub use loaders::ModuleLoadOptions;
 pub use loaders::ModuleLoadResponse;
 pub use loaders::ModuleLoader;
 pub use loaders::ModuleLoaderError;
@@ -35,6 +36,7 @@ pub(crate) use map::ModuleMap;
 pub(crate) use map::script_origin;
 pub(crate) use map::synthetic_module_evaluation_steps;
 pub(crate) use module_map_data::ModuleMapSnapshotData;
+pub(crate) use recursive_load::SideModuleKind;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;

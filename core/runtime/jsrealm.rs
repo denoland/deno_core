@@ -547,8 +547,12 @@ impl JsRealm {
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
-    let mut load =
-      ModuleMap::load_side(module_map_rc.clone(), &specifier).await?;
+    let mut load = ModuleMap::load_side(
+      module_map_rc.clone(),
+      &specifier,
+      crate::modules::SideModuleKind::Async,
+    )
+    .await?;
 
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
