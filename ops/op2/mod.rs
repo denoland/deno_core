@@ -133,8 +133,8 @@ pub(crate) fn generate_op2(
   }
   let signature =
     parse_signature(config.fake_async, func.attrs, func.sig.clone())?;
-  if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
-  {
+  for ident in &signature.lifetimes {
+    let ident = format_ident!("{ident}");
     op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
       LifetimeParam::new(Lifetime {
         apostrophe: op_fn.span(),
@@ -280,7 +280,11 @@ pub(crate) fn generate_op2(
       }
     };
 
-  let arg_count: usize = args.len() + is_async as usize;
+  let arg_count: usize = if let Some(required) = config.required {
+    required as usize
+  } else {
+    args.len() + is_async as usize
+  };
   let vis = func.vis;
   let generic = signature
     .generic_bounds

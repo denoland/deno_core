@@ -132,11 +132,11 @@ jobs:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
       RUST_BACKTRACE: full
-      # NOTE(bartlomieju): during upgrade to V8 14.0 we had to disable debug info
+        # NOTE(bartlomieju): during upgrade to V8 14.0 we had to disable debug info
       # because we were running into PDB errors.
       RUSTFLAGS: >-
-        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022' &&
-        '-Clink-arg=/DEBUG:NONE' || '' }}
+        -D warnings ${{ inputs.os == 'windows-2022' &&
+        '-Csymbol-mangling-version=v0' || '' }}
       RUSTDOCFLAGS: >-
-        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022' &&
-        '-Clink-arg=/DEBUG:NONE' || '' }}
+        -D warnings ${{ inputs.os == 'windows-2022' &&
+        '-Csymbol-mangling-version=v0' || '' }}

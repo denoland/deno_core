@@ -17,7 +17,6 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::poll_fn;
-use std::pin::pin;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
@@ -45,13 +44,13 @@ fn test_execute_script_return_value() {
   let mut runtime = JsRuntime::new(Default::default());
   let value_global = runtime.execute_script("a.js", "a = 1 + 2").unwrap();
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let value = value_global.open(scope);
     assert_eq!(value.integer_value(scope).unwrap(), 3);
   }
   let value_global = runtime.execute_script("b.js", "b = 'foobar'").unwrap();
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let value = value_global.open(scope);
     assert!(value.is_string());
     assert_eq!(
@@ -170,7 +169,7 @@ async fn test_resolve_promise(
   let out = runtime
     .with_event_loop_promise(resolve, PollEventLoopOptions::default())
     .await;
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
   match result {
     Ok(value) => {
       let out = v8::Local::new(scope, out.expect("expected success"));
@@ -267,7 +266,7 @@ async fn test_resolve_value_generic(
   } else {
     unreachable!()
   };
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
 
   match output {
     Ok(None) => {
@@ -411,7 +410,8 @@ async fn wasm_streaming_op_invocation_in_import() {
                             "#).unwrap();
   #[allow(deprecated)]
   let value = runtime.resolve_value(promise).await.unwrap();
-  let val = value.open(&mut runtime.handle_scope());
+  deno_core::scope!(scope, runtime);
+  let val = value.open(scope);
   assert!(val.is_object());
 }
 
@@ -454,9 +454,7 @@ async fn test_preserve_float_precision_from_local_inspector_evaluate(
     ..Default::default()
   });
 
-  let result = local_inspector_evaluate(&mut runtime, &format!("{}", input))
-    .await
-    .unwrap();
+  let result = local_inspector_evaluate(&mut runtime, &format!("{}", input));
 
   assert_eq!(
     result["result"]["value"],
@@ -464,40 +462,35 @@ async fn test_preserve_float_precision_from_local_inspector_evaluate(
   );
 }
 
-async fn local_inspector_evaluate(
+fn local_inspector_evaluate(
   runtime: &mut JsRuntime,
   expression: &str,
-) -> Result<Value, deno_core::InspectorPostMessageError> {
-  let session_options = inspector::InspectorSessionOptions {
-    kind: inspector::InspectorSessionKind::NonBlocking {
-      wait_for_disconnect: true,
-    },
+) -> Value {
+  let kind = inspector::InspectorSessionKind::NonBlocking {
+    wait_for_disconnect: false,
   };
 
-  let mut local_inspector_session = runtime
-    .inspector()
-    .borrow()
-    .create_local_session(session_options);
+  let inspector = runtime.inspector();
+  let (tx, rx) = std::sync::mpsc::channel();
+  let callback = Box::new(move |msg: InspectorMsg| {
+    if matches!(msg.kind, InspectorMsgKind::Message(1)) {
+      let value: serde_json::Value =
+        serde_json::from_str(&msg.content).unwrap();
+      let _ = tx.send(value["result"].clone());
+    }
+  });
+  let mut local_inspector_session =
+    JsRuntimeInspector::create_local_session(inspector, callback, kind);
 
-  let post_message_future = pin!(local_inspector_session.post_message(
+  local_inspector_session.post_message(
+    1,
     "Runtime.evaluate",
     Some(json!({
       "expression": expression,
     })),
-  ));
+  );
 
-  // https://chromedevtools.github.io/devtools-protocol/tot/Runtime/#type-RemoteObject
-  let remote_object_result = runtime
-    .with_event_loop_future(
-      post_message_future,
-      PollEventLoopOptions {
-        pump_v8_message_loop: false,
-        ..Default::default()
-      },
-    )
-    .await?;
-
-  Ok(remote_object_result)
+  rx.try_recv().unwrap()
 }
 
 #[test]
@@ -523,7 +516,7 @@ fn test_get_module_namespace() {
 
   let module_namespace = runtime.get_module_namespace(module_id).unwrap();
 
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
 
   let module_namespace = v8::Local::<v8::Object>::new(scope, module_namespace);
 
@@ -711,8 +704,8 @@ fn test_is_proxy() {
   "#,
     )
     .unwrap();
-  let mut scope = runtime.handle_scope();
-  let all_true = v8::Local::<v8::Value>::new(&mut scope, &all_true);
+  deno_core::scope!(scope, runtime);
+  let all_true = v8::Local::<v8::Value>::new(scope, &all_true);
   assert!(all_true.is_true());
 }
 
@@ -1117,6 +1110,74 @@ async fn tla_in_esm_extensions_panics() {
   });
 }
 
+#[tokio::test]
+async fn generic_in_extension_middleware() {
+  trait WelcomeWorld {
+    fn hello(&self) -> String;
+  }
+
+  struct English;
+
+  impl WelcomeWorld for English {
+    fn hello(&self) -> String {
+      "Hello World".to_string()
+    }
+  }
+
+  #[op2]
+  #[string]
+  fn say_greeting<W: WelcomeWorld + 'static>(state: &mut OpState) -> String {
+    let welcomer = state.borrow::<W>();
+
+    welcomer.hello()
+  }
+
+  #[op2]
+  #[string]
+  pub fn say_goodbye() -> String {
+    "Goodbye!".to_string()
+  }
+
+  deno_core::extension!(welcome_ext, parameters = [W: WelcomeWorld], ops = [say_greeting<W>, say_goodbye],
+    middleware = |op| {
+        match op.name {
+            "say_goodbye" => say_greeting::<W>(),
+            _ => op,
+        }
+    },
+
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![welcome_ext::init::<English>()],
+    ..Default::default()
+  });
+
+  {
+    let op_state = runtime.op_state();
+    let mut state = op_state.borrow_mut();
+
+    state.put(English);
+  }
+
+  let value_global = runtime
+    .execute_script(
+      "greet.js",
+      r#"
+        const greet = Deno.core.ops.say_greeting();
+        const bye = Deno.core.ops.say_goodbye();
+        greet + " and " + bye;
+      "#,
+    )
+    .unwrap();
+
+  // Check the result
+  deno_core::scope!(scope, &mut runtime);
+  let value = value_global.open(scope);
+
+  let result = value.to_rust_string_lossy(scope);
+  assert_eq!(result, "Hello World and Hello World");
+}
 // TODO(mmastrac): This is only fired in debug mode
 #[cfg(debug_assertions)]
 #[tokio::test]
@@ -1164,7 +1225,7 @@ fn create_spawner_runtime() -> JsRuntime {
   runtime
 }
 
-fn call_i32_function(scope: &mut v8::HandleScope) -> i32 {
+fn call_i32_function(scope: &mut v8::PinScope) -> i32 {
   let ctx = scope.get_current_context();
   let global = ctx.global(scope);
   let key = v8::String::new_external_onebyte_static(scope, b"f")
@@ -1317,7 +1378,7 @@ async fn global_template_middleware() {
   static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
   pub fn descriptor<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
@@ -1328,7 +1389,7 @@ async fn global_template_middleware() {
   }
 
   pub fn setter<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _value: v8::Local<'s, v8::Value>,
     _args: v8::PropertyCallbackArguments<'s>,
@@ -1339,7 +1400,7 @@ async fn global_template_middleware() {
   }
 
   fn definer<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _descriptor: &v8::PropertyDescriptor,
     _args: v8::PropertyCallbackArguments<'s>,
@@ -1350,7 +1411,7 @@ async fn global_template_middleware() {
   }
 
   pub fn gt_middleware<'s>(
-    _scope: &mut v8::HandleScope<'s, ()>,
+    _scope: &mut v8::PinScope<'s, '_, ()>,
     template: v8::Local<'s, v8::ObjectTemplate>,
   ) -> v8::Local<'s, v8::ObjectTemplate> {
     let mut config = v8::NamedPropertyHandlerConfiguration::new().flags(

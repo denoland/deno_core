@@ -11,7 +11,6 @@ use crate::error::CoreErrorKind;
 use crate::error::ResourceError;
 use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
-use crate::error::format_file_name;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -62,7 +61,6 @@ builtin_ops! {
   op_write_all,
   op_write_type_error,
   op_shutdown,
-  op_format_file_name,
   op_str_byte_length,
   op_panic,
   op_cancel_handle,
@@ -436,16 +434,10 @@ async fn op_shutdown(
   resource.shutdown().await
 }
 
-#[op2]
-#[string]
-fn op_format_file_name(#[string] file_name: &str) -> String {
-  format_file_name(file_name)
-}
-
 #[op2(fast)]
-fn op_str_byte_length(
-  scope: &mut v8::HandleScope,
-  value: v8::Local<v8::Value>,
+fn op_str_byte_length<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  value: v8::Local<'s, v8::Value>,
 ) -> u32 {
   if let Ok(string) = v8::Local::<v8::String>::try_from(value) {
     string.utf8_length(scope) as u32
@@ -475,8 +467,8 @@ fn op_is_terminal(state: &mut OpState, #[smi] rid: ResourceId) -> bool {
   }
 }
 
-async fn do_load_job(
-  scope: &mut v8::HandleScope<'_>,
+async fn do_load_job<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   module_map_rc: Rc<ModuleMap>,
   specifier: &str,
   code: Option<String>,
@@ -495,9 +487,9 @@ async fn do_load_job(
   .await?;
 
   while let Some(load_result) = load.next().await {
-    let (request, info) = load_result?;
+    let (reference, info) = load_result?;
     load
-      .register_and_recurse(scope, &request, info)
+      .register_and_recurse(scope, &reference, info)
       .map_err(|e| e.into_error(scope, false, false))?;
   }
 
@@ -547,8 +539,8 @@ async fn do_load_job(
 
 /// Wrap module with another module that also exports `__esModule=true` in order
 /// to maintain compat with node, which does this to maintain compat with babel.
-fn wrap_module<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn wrap_module<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   module: v8::Local<'s, v8::Module>,
 ) -> Option<v8::Local<'s, v8::Module>> {
   const SOURCE: &str = "
@@ -585,10 +577,10 @@ fn wrap_module<'s>(
     _: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     // SAFETY: It is safe to open a CallbackScope from a context in this callback.
-    let mut scope = unsafe { v8::CallbackScope::new(context) };
-    debug_assert_eq!(specifier.to_rust_string_lossy(&mut scope), "original");
+    v8::callback_scope!(unsafe scope, context);
+    debug_assert_eq!(specifier.to_rust_string_lossy(scope), "original");
     let module = scope.remove_slot::<v8::Global<v8::Module>>().unwrap();
-    Some(v8::Local::new(&mut scope, module))
+    Some(v8::Local::new(scope, module))
   }
 
   wrapper_module.instantiate_module(scope, resolve_callback)?;
@@ -599,8 +591,8 @@ fn wrap_module<'s>(
 }
 
 #[op2(reentrant)]
-fn op_import_sync<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn op_import_sync<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   #[string] specifier: &str,
   #[string] code: Option<String>,
 ) -> Result<v8::Local<'s, v8::Value>, CoreError> {
@@ -650,7 +642,7 @@ fn op_import_sync<'s>(
 
   let namespace = module.get_module_namespace().cast::<v8::Object>();
 
-  let scope = &mut v8::TryCatch::new(scope);
+  v8::tc_scope!(let scope, scope);
 
   let default = v8_static_strings::DEFAULT.v8_string(scope).unwrap();
   let es_module = v8_static_strings::ESMODULE.v8_string(scope).unwrap();

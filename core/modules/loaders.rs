@@ -46,6 +46,15 @@ pub struct ModuleLoadOptions {
   pub requested_module_type: RequestedModuleType,
 }
 
+#[derive(Debug, Clone)]
+pub struct ModuleLoadReferrer {
+  pub specifier: ModuleSpecifier,
+  /// 1-based.
+  pub line_number: i64,
+  /// 1-based.
+  pub column_number: i64,
+}
+
 pub trait ModuleLoader {
   /// Returns an absolute URL.
   /// When implementing an spec-complaint VM, this should be exactly the
@@ -80,7 +89,7 @@ pub trait ModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
     options: ModuleLoadOptions,
   ) -> ModuleLoadResponse;
 
@@ -150,9 +159,9 @@ pub trait ModuleLoader {
   /// Implementors can attach arbitrary data to scripts and modules
   /// by implementing this method. V8 currently requires that the
   /// returned data be a `v8::PrimitiveArray`.
-  fn get_host_defined_options<'s>(
+  fn get_host_defined_options<'s, 'i>(
     &self,
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, 'i>,
     _name: &str,
   ) -> Option<v8::Local<'s, v8::Data>> {
     None
@@ -176,7 +185,7 @@ impl ModuleLoader for NoopModuleLoader {
   fn load(
     &self,
     _module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     ModuleLoadResponse::Sync(Err(JsErrorBox::generic(
@@ -274,7 +283,7 @@ impl ModuleLoader for ExtModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut sources = self.sources.borrow_mut();
@@ -350,7 +359,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut sources = self.sources.borrow_mut();
@@ -411,7 +420,7 @@ impl ModuleLoader for FsModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
@@ -513,7 +522,7 @@ impl ModuleLoader for StaticModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let res = if let Some(code) = self.map.get(module_specifier) {
@@ -598,7 +607,7 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
     options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     self.load_count.set(self.load_count.get() + 1);

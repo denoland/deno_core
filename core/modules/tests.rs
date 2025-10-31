@@ -302,7 +302,7 @@ impl ModuleLoader for MockLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
     _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut loads = self.loads.lock();
@@ -379,27 +379,39 @@ fn test_recursive_load() {
     modules.get_requested_modules(a_id),
     Some(vec![
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(19),
       },
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(46),
       },
     ])
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     },])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     },])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
@@ -443,7 +455,7 @@ fn test_mods() {
   let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b) = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let mod_a = module_map
       .new_es_module(
         scope,
@@ -465,8 +477,11 @@ fn test_mods() {
     assert_eq!(
       imports,
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(29),
       },])
     );
 
@@ -552,7 +567,7 @@ fn test_json_text_bytes_modules() {
   let module_map = runtime.module_map().clone();
 
   let (mod_b, mod_c, mod_d, mod_e) = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_b = ascii_str!("file:///b.js");
 
     let mod_b = module_map
@@ -571,7 +586,7 @@ fn test_json_text_bytes_modules() {
           assert(bytes.length === 3);
           assert(bytes[0] === 1);
           assert(bytes[1] === 2);
-          assert(bytes[2] === 3); 
+          assert(bytes[2] === 3);
         "#
         ),
         false,
@@ -584,16 +599,25 @@ fn test_json_text_bytes_modules() {
       imports,
       Some(vec![
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
-          requested_module_type: RequestedModuleType::Json,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
+            requested_module_type: RequestedModuleType::Json,
+          },
+          referrer_source_offset: Some(32),
         },
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///d.txt").unwrap(),
-          requested_module_type: RequestedModuleType::Text,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///d.txt").unwrap(),
+            requested_module_type: RequestedModuleType::Text,
+          },
+          referrer_source_offset: Some(165),
         },
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///e.bin").unwrap(),
-          requested_module_type: RequestedModuleType::Bytes,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///e.bin").unwrap(),
+            requested_module_type: RequestedModuleType::Bytes,
+          },
+          referrer_source_offset: Some(264),
         },
       ])
     );
@@ -654,7 +678,7 @@ fn test_validate_import_attributes_default() {
   });
 
   let module_map_rc = runtime.module_map().clone();
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
   module_map_rc
     .new_es_module(
       scope,
@@ -684,7 +708,7 @@ fn test_validate_import_attributes_callback() {
   // attributes.
 
   fn validate_import_attributes(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     assertions: &HashMap<String, String>,
   ) {
     for (key, value) in assertions {
@@ -717,7 +741,7 @@ fn test_validate_import_attributes_callback() {
   let module_map_rc = runtime.module_map().clone();
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -742,7 +766,7 @@ fn test_validate_import_attributes_callback() {
   }
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -770,7 +794,7 @@ fn test_validate_import_attributes_callback() {
 #[test]
 fn test_validate_import_attributes_callback2() {
   fn validate_import_attrs(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     _attrs: &HashMap<String, String>,
   ) {
     let msg = v8::String::new(scope, "boom!").unwrap();
@@ -788,7 +812,7 @@ fn test_validate_import_attributes_callback2() {
   let module_map = runtime.module_map().clone();
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map
       .new_es_module(
         scope,
@@ -821,7 +845,7 @@ fn test_custom_module_type_default() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -850,7 +874,7 @@ fn test_custom_module_type_default() {
 #[test]
 fn test_custom_module_type_callback_synthetic() {
   fn custom_eval_cb(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
@@ -886,7 +910,7 @@ fn test_custom_module_type_callback_synthetic() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -912,7 +936,7 @@ fn test_custom_module_type_callback_synthetic() {
   };
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
@@ -934,7 +958,7 @@ fn test_custom_module_type_callback_synthetic() {
 #[test]
 fn test_custom_module_type_callback_computed() {
   fn custom_eval_cb(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,
@@ -983,7 +1007,7 @@ export const foo = bytes;
   let module_map = runtime.module_map().clone();
 
   let mod_id = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
@@ -1011,10 +1035,13 @@ export const foo = bytes;
       main: true,
       name: "file:///b.png".into_module_name(),
       requests: vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.png").unwrap(),
-        requested_module_type: RequestedModuleType::Other(
-          "foobar-synth".into()
-        )
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.png").unwrap(),
+          requested_module_type: RequestedModuleType::Other(
+            "foobar-synth".into()
+          ),
+        },
+        referrer_source_offset: Some(19),
       }],
       module_type: ModuleType::Other("foobar".into()),
     }
@@ -1212,16 +1239,22 @@ fn test_circular_load() {
     assert_eq!(
       modules.get_requested_modules(circular1_id),
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(8),
       }])
     );
 
     assert_eq!(
       modules.get_requested_modules(circular2_id),
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///circular3.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///circular3.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(8),
       }])
     );
 
@@ -1237,12 +1270,18 @@ fn test_circular_load() {
       modules.get_requested_modules(circular3_id),
       Some(vec![
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///circular1.js").unwrap(),
-          requested_module_type: RequestedModuleType::None,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///circular1.js").unwrap(),
+            requested_module_type: RequestedModuleType::None,
+          },
+          referrer_source_offset: Some(8),
         },
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
-          requested_module_type: RequestedModuleType::None,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
+            requested_module_type: RequestedModuleType::None,
+          },
+          referrer_source_offset: Some(32),
         }
       ])
     );
@@ -1490,27 +1529,39 @@ fn recursive_load_main_with_code() {
     modules.get_requested_modules(main_id),
     Some(vec![
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(23),
       },
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(54),
       }
     ])
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     }])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     }])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
@@ -1700,7 +1751,7 @@ async fn no_duplicate_loads() {
     fn load(
       &self,
       module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
       _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
       let found_specifier =
@@ -1789,7 +1840,7 @@ async fn import_meta_resolve() {
     fn load(
       &self,
       _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
       _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
       unreachable!();

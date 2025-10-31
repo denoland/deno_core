@@ -367,7 +367,8 @@ impl Arg {
         Special::FastApiCallbackOptions
         | Special::OpState
         | Special::JsRuntimeState
-        | Special::HandleScope,
+        | Special::HandleScope
+        | Special::Isolate,
       ) => true,
       Self::RcRefCell(
         Special::FastApiCallbackOptions
@@ -729,8 +730,8 @@ pub struct ParsedSignature {
   pub names: Vec<String>,
   // The parsed return value
   pub ret_val: RetVal,
-  // One and only one lifetime allowed
-  pub lifetime: Option<String>,
+  // Lifetimes
+  pub lifetimes: Vec<String>,
   // Generic bounds: each generic must have one and only simple trait bound
   pub generic_bounds: BTreeMap<String, String>,
   // Metadata keys and values
@@ -847,8 +848,6 @@ pub enum SignatureError {
   ArgError(String, #[source] ArgError),
   #[error("Invalid return type")]
   RetError(#[from] RetError),
-  #[error("Only one lifetime is permitted")]
-  TooManyLifetimes,
   #[error(
     "Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)"
   )]
@@ -1070,7 +1069,7 @@ pub fn parse_signature(
     parse_attributes(&attributes).map_err(RetError::AttributeError)?,
     &signature.output,
   )?;
-  let lifetime = parse_lifetime(&signature.generics)?;
+  let lifetimes = parse_lifetimes(&signature.generics)?;
   let generic_bounds = parse_generics(&signature.generics)?;
 
   let mut has_opstate = false;
@@ -1119,7 +1118,7 @@ pub fn parse_signature(
     args,
     names,
     ret_val,
-    lifetime,
+    lifetimes,
     generic_bounds,
     metadata,
   })
@@ -1127,10 +1126,8 @@ pub fn parse_signature(
 
 /// Extract one lifetime from the [`syn::Generics`], ensuring that the lifetime is valid
 /// and has no bounds.
-fn parse_lifetime(
-  generics: &Generics,
-) -> Result<Option<String>, SignatureError> {
-  let mut res = None;
+fn parse_lifetimes(generics: &Generics) -> Result<Vec<String>, SignatureError> {
+  let mut res = Vec::new();
   for param in &generics.params {
     if let GenericParam::Lifetime(lt) = param {
       if !lt.bounds.is_empty() {
@@ -1138,10 +1135,7 @@ fn parse_lifetime(
           lt.lifetime.to_string(),
         ));
       }
-      if res.is_some() {
-        return Err(SignatureError::TooManyLifetimes);
-      }
-      res = Some(lt.lifetime.ident.to_string());
+      res.push(lt.lifetime.ident.to_string());
     }
   }
   Ok(res)
@@ -1445,7 +1439,7 @@ fn parse_type_path(
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
       ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
-      ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
+      ( v8 :: PinScope $( < $_scope:lifetime , $_i:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
       ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
@@ -1483,9 +1477,12 @@ fn parse_type_path(
   // the easiest way to work with the 'rules!' macro above.
   match res {
     // OpState and JsRuntimeState appears in both ways
-    CBare(TSpecial(
-      Special::OpState | Special::JsRuntimeState | Special::Isolate,
-    )) => {}
+    CBare(TSpecial(Special::OpState | Special::JsRuntimeState)) => {}
+    CBare(TSpecial(Special::Isolate)) => {
+      if ctx != TypePathContext::Ref {
+        return Err(ArgError::MissingReference(stringify_token(tp)));
+      }
+    }
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {
@@ -1891,11 +1888,15 @@ pub(crate) fn parse_type(
         _ => Err(ArgError::InvalidType(stringify_token(ty), "for pointer")),
       }
     }
-    Type::Path(of) => Arg::from_parsed(
-      parse_type_path(position, attrs.clone(), TypePathContext::None, of)?,
-      attrs,
-    )
-    .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path")),
+    Type::Path(of) => {
+      let typath =
+        parse_type_path(position, attrs.clone(), TypePathContext::None, of)?;
+      if let CBare(TSpecial(Special::Isolate)) = typath {
+        return Ok(Arg::Special(Special::Isolate));
+      }
+      Arg::from_parsed(typath, attrs)
+        .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
+    }
     _ => Err(ArgError::InvalidType(
       stringify_token(ty),
       "for top-level type",
@@ -1969,7 +1970,7 @@ mod tests {
     println!("Raw parsed signatures = {sig:?}");
 
     let mut generics_res = vec![];
-    if let Some(lifetime) = sig.lifetime {
+    for lifetime in sig.lifetimes {
       generics_res.push(format!("'{lifetime}"));
     }
     for (name, bounds) in sig.generic_bounds {
@@ -2114,7 +2115,7 @@ mod tests {
     (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void, false)
   );
   test!(
-    fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
+    fn op_v8_scope<'s>(scope: &mut v8::PinScope<'s, '_>);
     <'s> (Ref(Mut, HandleScope)) -> Infallible(Void, false)
   );
   test!(
@@ -2168,9 +2169,18 @@ mod tests {
     fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
     (Rc(JsRuntimeState)) -> Infallible(Void, false)
   );
+  expect_fail!(
+    op_isolate_bare,
+    ArgError("isolate".into(), MissingReference("v8::Isolate".into())),
+    fn f(isolate: v8::Isolate) {}
+  );
   test!(
-    fn op_isolate(isolate: *mut v8::Isolate);
-    (Special(Isolate)) -> Infallible(Void, false)
+    fn op_isolate_ref(isolate: &v8::Isolate);
+    (Ref(Ref, Isolate)) -> Infallible(Void, false)
+  );
+  test!(
+    fn op_isolate_mut(isolate: &mut v8::Isolate);
+    (Ref(Mut, Isolate)) -> Infallible(Void, false)
   );
   test!(
     #[serde]
@@ -2307,7 +2317,6 @@ mod tests {
 
   // Generics
 
-  expect_fail!(op_with_two_lifetimes, TooManyLifetimes, fn f<'a, 'b>() {});
   expect_fail!(
     op_with_lifetime_bounds,
     LifetimesMayNotHaveBounds("'a".into()),

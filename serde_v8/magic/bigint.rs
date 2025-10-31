@@ -30,10 +30,10 @@ impl DerefMut for BigInt {
 }
 
 impl ToV8 for BigInt {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     let (sign, words) = self.0.to_u64_digits();
     let sign_bit = sign == num_bigint::Sign::Minus;
     let v = v8::BigInt::new_from_words(scope, sign_bit, &words).unwrap();
@@ -42,9 +42,9 @@ impl ToV8 for BigInt {
 }
 
 impl FromV8 for BigInt {
-  fn from_v8(
-    _scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    _scope: &mut v8::PinScope,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     let v8bigint = v8::Local::<v8::BigInt>::try_from(value)
       .map_err(|_| Error::ExpectedBigInt(value.type_repr()))?;

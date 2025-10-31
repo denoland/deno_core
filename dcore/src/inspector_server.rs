@@ -2,18 +2,15 @@
 
 // Alias for the future `!` type.
 use core::convert::Infallible as Never;
+use deno_core::InspectorIoDelegate;
 use deno_core::InspectorMsg;
 use deno_core::InspectorSessionKind;
-use deno_core::InspectorSessionOptions;
-use deno_core::InspectorSessionProxy;
-use deno_core::JsRuntime;
+use deno_core::JsRuntimeInspector;
 use deno_core::anyhow::Context;
 use deno_core::futures::channel::mpsc;
 use deno_core::futures::channel::mpsc::UnboundedReceiver;
 use deno_core::futures::channel::mpsc::UnboundedSender;
-use deno_core::futures::channel::oneshot;
 use deno_core::futures::prelude::*;
-use deno_core::futures::select;
 use deno_core::futures::stream::StreamExt;
 use deno_core::serde_json::Value;
 use deno_core::serde_json::json;
@@ -30,6 +27,7 @@ use std::net::SocketAddr;
 use std::pin::pin;
 use std::process;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::task::Poll;
 use std::thread;
 use tokio::net::TcpListener;
@@ -89,20 +87,13 @@ impl InspectorServer {
   pub fn register_inspector(
     &self,
     module_url: String,
-    js_runtime: &mut JsRuntime,
+    inspector: Rc<JsRuntimeInspector>,
     wait_for_session: bool,
   ) {
-    let inspector_rc = js_runtime.inspector();
-    let mut inspector = inspector_rc.borrow_mut();
-    let session_sender = inspector.get_session_sender();
-    let deregister_rx = inspector.add_deregister_handler();
-    let info = InspectorInfo::new(
-      self.host,
-      session_sender,
-      deregister_rx,
-      module_url,
-      wait_for_session,
-    );
+    let io_delegate = inspector.create_io_delegate();
+
+    let info =
+      InspectorInfo::new(self.host, io_delegate, module_url, wait_for_session);
     self.register_inspector_tx.unbounded_send(info).unwrap();
   }
 }
@@ -134,16 +125,16 @@ fn handle_ws_request(
     .strip_prefix("/ws/")
     .and_then(|s| Uuid::parse_str(s).ok());
 
-  if maybe_uuid.is_none() {
+  let Some(uuid) = maybe_uuid else {
     return http::Response::builder()
       .status(http::StatusCode::BAD_REQUEST)
       .body(Box::new(Bytes::from("Malformed inspector UUID").into()));
-  }
+  };
 
   // run in a block to not hold borrow to `inspector_map` for too long
-  let new_session_tx = {
+  let io_delegate = {
     let inspector_map = inspector_map_rc.borrow();
-    let maybe_inspector_info = inspector_map.get(&maybe_uuid.unwrap());
+    let maybe_inspector_info = inspector_map.get(&uuid);
 
     if maybe_inspector_info.is_none() {
       return http::Response::builder()
@@ -152,33 +143,24 @@ fn handle_ws_request(
     }
 
     let info = maybe_inspector_info.unwrap();
-    info.new_session_tx.clone()
+    info.io_delegate.clone()
   };
   let (parts, _) = req.into_parts();
   let mut req = http::Request::from_parts(parts, body);
 
-  let (resp, fut) = match fastwebsockets::upgrade::upgrade(&mut req) {
-    Ok((resp, fut)) => {
-      let (parts, _body) = resp.into_parts();
-      let resp = http::Response::from_parts(
-        parts,
-        Box::new(http_body_util::Full::new(Bytes::new())),
-      );
-      (resp, fut)
-    }
-    _ => {
-      return http::Response::builder()
-        .status(http::StatusCode::BAD_REQUEST)
-        .body(Box::new(
-          Bytes::from("Not a valid Websocket Request").into(),
-        ));
-    }
+  let Ok((resp, upgrade_fut)) = fastwebsockets::upgrade::upgrade(&mut req)
+  else {
+    return http::Response::builder()
+      .status(http::StatusCode::BAD_REQUEST)
+      .body(Box::new(
+        Bytes::from("Not a valid Websocket Request").into(),
+      ));
   };
 
   // spawn a task that will wait for websocket connection and then pump messages between
   // the socket and inspector proxy
   spawn(async move {
-    let websocket = match fut.await {
+    let websocket = match upgrade_fut.await {
       Ok(w) => w,
       Err(err) => {
         eprintln!(
@@ -194,21 +176,26 @@ fn handle_ws_request(
     // The 'inbound' channel carries messages received from the websocket.
     let (inbound_tx, inbound_rx) = mpsc::unbounded();
 
-    let inspector_session_proxy = InspectorSessionProxy {
-      tx: outbound_tx,
-      rx: inbound_rx,
-      options: InspectorSessionOptions {
-        kind: InspectorSessionKind::NonBlocking {
-          wait_for_disconnect: true,
-        },
-      },
-    };
-
+    let session_cb = Box::new(move |msg| {
+      let _ = outbound_tx.unbounded_send(msg);
+    });
     eprintln!("Debugger session started.");
-    let _ = new_session_tx.unbounded_send(inspector_session_proxy);
+    io_delegate.new_remote_session(
+      session_cb,
+      inbound_rx,
+      InspectorSessionKind::NonBlocking {
+        wait_for_disconnect: true,
+      },
+    );
     pump_websocket_messages(websocket, inbound_tx, outbound_rx).await;
+    // TODO(bartlomieju): does this deregister inspector from `JsRuntime` correctly?
   });
 
+  let (parts, _body) = resp.into_parts();
+  let resp = http::Response::from_parts(
+    parts,
+    Box::new(http_body_util::Full::new(Bytes::new())),
+  );
   Ok(resp)
 }
 
@@ -252,34 +239,19 @@ async fn server(
     Rc::new(RefCell::new(HashMap::<Uuid, InspectorInfo>::new()));
 
   let inspector_map = Rc::clone(&inspector_map_);
-  let mut register_inspector_handler = pin!(
-    register_inspector_rx
-      .map(|info| {
-        eprintln!(
-          "Debugger listening on {}",
-          info.get_websocket_debugger_url(&info.host.to_string())
-        );
-        eprintln!("Visit chrome://inspect to connect to the debugger.");
-        if info.wait_for_session {
-          eprintln!("Deno is waiting for debugger to connect.");
-        }
-        if inspector_map.borrow_mut().insert(info.uuid, info).is_some() {
-          panic!("Inspector UUID already in map");
-        }
-      })
-      .collect::<()>()
-  );
+  let register_inspector_handler =
+    listen_for_new_inspectors(register_inspector_rx, inspector_map.clone())
+      .boxed_local();
 
   let inspector_map = Rc::clone(&inspector_map_);
-  let mut deregister_inspector_handler = pin!(
-    future::poll_fn(|cx| {
-      inspector_map
-        .borrow_mut()
-        .retain(|_, info| info.deregister_rx.poll_unpin(cx) == Poll::Pending);
-      Poll::<Never>::Pending
-    })
-    .fuse()
-  );
+  let deregister_inspector_handler = future::poll_fn(|cx| {
+    // TODO(bartlomieju): this should be simplified
+    inspector_map.borrow_mut().retain(|_, info| {
+      info.io_delegate.poll_deregister_rx(cx) == Poll::Pending
+    });
+    Poll::<Never>::Pending
+  })
+  .boxed_local();
 
   let json_version_response = json!({
     "Browser": name,
@@ -296,99 +268,116 @@ async fn server(
     }
   };
 
-  let mut server_handler = pin!(
-    deno_core::unsync::spawn(async move {
-      loop {
-        let mut rx = shutdown_server_rx.resubscribe();
-        let mut shutdown_rx = pin!(rx.recv());
-        let mut accept = pin!(listener.accept());
+  let server_handler = async move {
+    loop {
+      let mut rx = shutdown_server_rx.resubscribe();
+      let shutdown_rx_fut = &mut rx.recv().boxed_local();
+      let accept_fut = &mut listener.accept().boxed_local();
 
-        let stream = tokio::select! {
-          accept_result = &mut accept => {
-            match accept_result {
-              Ok((s, _)) => s,
-              Err(err) => {
-                eprintln!("Failed to accept inspector connection: {:?}", err);
-                continue;
+      let stream = tokio::select! {
+        accept_result = accept_fut => {
+          match accept_result {
+            Ok((s, _)) => s,
+            Err(err) => {
+              eprintln!("Failed to accept inspector connection: {:?}", err);
+              continue;
+            }
+          }
+        },
+
+        _ = shutdown_rx_fut => {
+          break;
+        }
+      };
+      let io = TokioIo::new(stream);
+
+      let inspector_map = Rc::clone(&inspector_map_);
+      let json_version_response = json_version_response.clone();
+      let mut shutdown_server_rx = shutdown_server_rx.resubscribe();
+
+      let service = hyper::service::service_fn(
+        move |req: http::Request<hyper::body::Incoming>| {
+          future::ready({
+            // If the host header can make a valid URL, use it
+            let host = req
+              .headers()
+              .get("host")
+              .and_then(|host| host.to_str().ok())
+              .and_then(|host| Url::parse(&format!("http://{host}")).ok())
+              .and_then(|url| match (url.host(), url.port()) {
+                (Some(host), Some(port)) => Some(format!("{host}:{port}")),
+                (Some(host), None) => Some(format!("{host}")),
+                _ => None,
+              });
+            match (req.method(), req.uri().path()) {
+              (&http::Method::GET, path) if path.starts_with("/ws/") => {
+                handle_ws_request(req, inspector_map.clone())
               }
+              (&http::Method::GET, "/json/version") => {
+                handle_json_version_request(json_version_response.clone())
+              }
+              (&http::Method::GET, "/json") => {
+                handle_json_request(inspector_map.clone(), host)
+              }
+              (&http::Method::GET, "/json/list") => {
+                handle_json_request(inspector_map.clone(), host)
+              }
+              _ => http::Response::builder()
+                .status(http::StatusCode::NOT_FOUND)
+                .body(Box::new(http_body_util::Full::new(Bytes::from(
+                  "Not Found",
+                )))),
+            }
+          })
+        },
+      );
+
+      deno_core::unsync::spawn(async move {
+        let server = hyper::server::conn::http1::Builder::new();
+
+        let mut conn =
+          pin!(server.serve_connection(io, service).with_upgrades());
+        let mut shutdown_rx = pin!(shutdown_server_rx.recv());
+
+        tokio::select! {
+          result = conn.as_mut() => {
+            if let Err(err) = result {
+              eprintln!("Failed to serve connection: {:?}", err);
             }
           },
-
           _ = &mut shutdown_rx => {
-            break;
+            conn.as_mut().graceful_shutdown();
+            let _ = conn.await;
           }
-        };
-        let io = TokioIo::new(stream);
+        }
+      });
+    }
+  }
+  .boxed_local();
 
-        let inspector_map = Rc::clone(&inspector_map_);
-        let json_version_response = json_version_response.clone();
-        let mut shutdown_server_rx = shutdown_server_rx.resubscribe();
-
-        let service = hyper::service::service_fn(
-          move |req: http::Request<hyper::body::Incoming>| {
-            future::ready({
-              // If the host header can make a valid URL, use it
-              let host = req
-                .headers()
-                .get("host")
-                .and_then(|host| host.to_str().ok())
-                .and_then(|host| Url::parse(&format!("http://{host}")).ok())
-                .and_then(|url| match (url.host(), url.port()) {
-                  (Some(host), Some(port)) => Some(format!("{host}:{port}")),
-                  (Some(host), None) => Some(format!("{host}")),
-                  _ => None,
-                });
-              match (req.method(), req.uri().path()) {
-                (&http::Method::GET, path) if path.starts_with("/ws/") => {
-                  handle_ws_request(req, Rc::clone(&inspector_map))
-                }
-                (&http::Method::GET, "/json/version") => {
-                  handle_json_version_request(json_version_response.clone())
-                }
-                (&http::Method::GET, "/json") => {
-                  handle_json_request(Rc::clone(&inspector_map), host)
-                }
-                (&http::Method::GET, "/json/list") => {
-                  handle_json_request(Rc::clone(&inspector_map), host)
-                }
-                _ => http::Response::builder()
-                  .status(http::StatusCode::NOT_FOUND)
-                  .body(Box::new(http_body_util::Full::new(Bytes::from(
-                    "Not Found",
-                  )))),
-              }
-            })
-          },
-        );
-
-        deno_core::unsync::spawn(async move {
-          let server = hyper::server::conn::http1::Builder::new();
-
-          let mut conn =
-            pin!(server.serve_connection(io, service).with_upgrades());
-          let mut shutdown_rx = pin!(shutdown_server_rx.recv());
-
-          tokio::select! {
-            result = conn.as_mut() => {
-              if let Err(err) = result {
-                eprintln!("Failed to serve connection: {:?}", err);
-              }
-            },
-            _ = &mut shutdown_rx => {
-              conn.as_mut().graceful_shutdown();
-              let _ = conn.await;
-            }
-          }
-        });
-      }
-    })
-    .fuse()
-  );
-
-  select! {
+  tokio::select! {
     _ = register_inspector_handler => {},
     _ = deregister_inspector_handler => unreachable!(),
     _ = server_handler => {},
+  }
+}
+
+async fn listen_for_new_inspectors(
+  mut register_inspector_rx: UnboundedReceiver<InspectorInfo>,
+  inspector_map: Rc<RefCell<HashMap<Uuid, InspectorInfo>>>,
+) {
+  while let Some(info) = register_inspector_rx.next().await {
+    eprintln!(
+      "Debugger listening on {}",
+      info.get_websocket_debugger_url(&info.host.to_string())
+    );
+    eprintln!("Visit chrome://inspect to connect to the debugger.");
+    if info.wait_for_session {
+      eprintln!("Deno is waiting for debugger to connect.");
+    }
+    if inspector_map.borrow_mut().insert(info.uuid, info).is_some() {
+      panic!("Inspector UUID already in map");
+    }
   }
 }
 
@@ -411,31 +400,31 @@ async fn pump_websocket_messages(
 ) {
   'pump: loop {
     tokio::select! {
-        Some(msg) = outbound_rx.next() => {
-            let msg = Frame::text(msg.content.into_bytes().into());
-            let _ = websocket.write_frame(msg).await;
-        }
-        Ok(msg) = websocket.read_frame() => {
-            match msg.opcode {
-                OpCode::Text => {
-                    if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
-                      let _ = inbound_tx.unbounded_send(s);
-                    }
-                }
-                OpCode::Close => {
-                    // Users don't care if there was an error coming from debugger,
-                    // just about the fact that debugger did disconnect.
-                    eprintln!("Debugger session ended");
-                    break 'pump;
-                }
-                _ => {
-                    // Ignore other messages.
-                }
+      Some(msg) = outbound_rx.next() => {
+        let msg = Frame::text(msg.content.into_bytes().into());
+        let _ = websocket.write_frame(msg).await;
+      }
+      Ok(msg) = websocket.read_frame() => {
+        match msg.opcode {
+          OpCode::Text => {
+            if let Ok(s) = String::from_utf8(msg.payload.to_vec()) {
+              let _ = inbound_tx.unbounded_send(s);
             }
+          }
+          OpCode::Close => {
+            // Users don't care if there was an error coming from debugger,
+            // just about the fact that debugger did disconnect.
+            eprintln!("Debugger session ended");
+            break 'pump;
+          }
+          _ => {
+              // Ignore other messages.
+          }
         }
-        else => {
-          break 'pump;
-        }
+      }
+      else => {
+        break 'pump;
+      }
     }
   }
 }
@@ -446,8 +435,7 @@ pub struct InspectorInfo {
   pub host: SocketAddr,
   pub uuid: Uuid,
   pub thread_name: Option<String>,
-  pub new_session_tx: UnboundedSender<InspectorSessionProxy>,
-  pub deregister_rx: oneshot::Receiver<()>,
+  pub io_delegate: Arc<InspectorIoDelegate>,
   pub url: String,
   pub wait_for_session: bool,
 }
@@ -455,8 +443,7 @@ pub struct InspectorInfo {
 impl InspectorInfo {
   pub fn new(
     host: SocketAddr,
-    new_session_tx: mpsc::UnboundedSender<InspectorSessionProxy>,
-    deregister_rx: oneshot::Receiver<()>,
+    io_delegate: Arc<InspectorIoDelegate>,
     url: String,
     wait_for_session: bool,
   ) -> Self {
@@ -464,8 +451,7 @@ impl InspectorInfo {
       host,
       uuid: Uuid::new_v4(),
       thread_name: thread::current().name().map(|n| n.to_owned()),
-      new_session_tx,
-      deregister_rx,
+      io_delegate,
       url,
       wait_for_session,
     }

@@ -9,6 +9,7 @@ use deno_core::RuntimeOptions;
 use deno_core_testing::create_runtime_from_snapshot;
 
 use std::net::SocketAddr;
+use std::rc::Rc;
 
 use anyhow::Context;
 use std::sync::Arc;
@@ -79,6 +80,16 @@ fn main() -> Result<(), Error> {
       (None, runtime, worker_host_side)
     };
 
+  js_runtime
+    .op_state()
+    .borrow_mut()
+    .put(deno_core::error::InitialCwd(Rc::new(
+      deno_core::url::Url::from_directory_path(
+        std::env::current_dir().context("Unable to get CWD")?,
+      )
+      .unwrap(),
+    )));
+
   let runtime = tokio::runtime::Builder::new_current_thread()
     .enable_all()
     .build()?;
@@ -91,7 +102,7 @@ fn main() -> Result<(), Error> {
   if let Some(inspector_server) = inspector_server.clone() {
     inspector_server.register_inspector(
       main_module.to_string(),
-      &mut js_runtime,
+      js_runtime.inspector(),
       matches!(maybe_inspect_mode.unwrap(), InspectMode::WaitForConnection),
     );
   }
