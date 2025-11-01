@@ -423,7 +423,8 @@ struct SerializeDeserialize<'a> {
   host_objects: Option<v8::Local<'a, v8::Array>>,
   error_callback: Option<v8::Local<'a, v8::Function>>,
   for_storage: bool,
-  host_object_brand: Option<v8::Global<v8::Symbol>>,
+  host_object_brand: Option<v8::Local<'a, v8::Symbol>>,
+  deserializers: Option<v8::Local<'a, v8::Object>>,
 }
 
 impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
@@ -488,7 +489,7 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
   }
 
   fn has_custom_host_object(&self, _isolate: &v8::Isolate) -> bool {
-    true
+    self.host_object_brand.is_some()
   }
 
   fn is_host_object<'s, 'i>(
@@ -496,11 +497,8 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
     scope: &mut v8::PinScope<'s, 'i>,
     object: v8::Local<'s, v8::Object>,
   ) -> Option<bool> {
-    match &self.host_object_brand {
-      Some(symbol) => {
-        let key = v8::Local::new(scope, symbol);
-        object.has_own_property(scope, key.into())
-      }
+    match self.host_object_brand {
+      Some(symbol) => object.has(scope, symbol.into()),
       _ => Some(false),
     }
   }
@@ -511,6 +509,15 @@ impl v8::ValueSerializerImpl for SerializeDeserialize<'_> {
     object: v8::Local<'s, v8::Object>,
     value_serializer: &dyn v8::ValueSerializerHelper,
   ) -> Option<bool> {
+    if let Some(host_object_brand) = self.host_object_brand {
+      let value = object.get(scope, host_object_brand.into())?;
+      if let Ok(func) = value.try_cast::<v8::Function>() {
+        let result = func.call(scope, object.into(), &[])?;
+        value_serializer.write_uint32(u32::MAX);
+        value_serializer.write_value(scope.get_current_context(), result);
+        return Some(true);
+      }
+    }
     if let Some(host_objects) = self.host_objects {
       for i in 0..host_objects.length() {
         let value = host_objects.get_index(scope, i).unwrap();
@@ -570,11 +577,29 @@ impl v8::ValueDeserializerImpl for SerializeDeserialize<'_> {
     scope: &mut v8::PinScope<'s, 'i>,
     value_deserializer: &dyn v8::ValueDeserializerHelper,
   ) -> Option<v8::Local<'s, v8::Object>> {
-    if let Some(host_objects) = self.host_objects {
-      let mut i = 0;
-      if !value_deserializer.read_uint32(&mut i) {
-        return None;
+    let mut i = 0;
+    if !value_deserializer.read_uint32(&mut i) {
+      return None;
+    }
+    if i == u32::MAX {
+      if let Some(deserializers) = self.deserializers
+        && let Some(value) =
+          value_deserializer.read_value(scope.get_current_context())
+        && let Some(object) = value.to_object(scope)
+      {
+        let key = crate::runtime::v8_static_strings::TYPE
+          .v8_string(scope)
+          .unwrap();
+        let ty = object.get(scope, key.into())?;
+        let func = deserializers.get(scope, ty)?;
+        let recv = v8::null(scope).into();
+        let scope =
+          std::pin::pin!(v8::AllowJavascriptExecutionScope::new(scope));
+        let scope = &mut scope.init();
+        let res = func.cast::<v8::Function>().call(scope, recv, &[value])?;
+        return res.to_object(scope);
       }
+    } else if let Some(host_objects) = self.host_objects {
       let maybe_value = host_objects.get_index(scope, i);
       if let Some(value) = maybe_value {
         return value.to_object(scope);
@@ -625,13 +650,14 @@ pub fn op_serialize<'s, 'i>(
 
   let key = v8_static_strings::HOST_OBJECT.v8_string(scope).unwrap();
   let symbol = v8::Symbol::for_key(scope, key);
-  let host_object_brand = Some(v8::Global::new(scope, symbol));
+  let host_object_brand = Some(symbol);
 
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback,
     for_storage,
     host_object_brand,
+    deserializers: None,
   });
   let value_serializer = v8::ValueSerializer::new(scope, serialize_deserialize);
   value_serializer.write_header();
@@ -692,6 +718,7 @@ pub fn op_deserialize<'s, 'i>(
   #[buffer] zero_copy: JsBuffer,
   host_objects: Option<v8::Local<'s, v8::Value>>,
   transferred_array_buffers: Option<v8::Local<'s, v8::Value>>,
+  deserializers: Option<v8::Local<'s, v8::Value>>,
   for_storage: bool,
 ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
   let host_objects = match host_objects {
@@ -709,12 +736,20 @@ pub fn op_deserialize<'s, 'i>(
     }
     None => None,
   };
+  let deserializers = match deserializers {
+    Some(value) => Some(
+      v8::Local::<v8::Object>::try_from(value)
+        .map_err(|_| JsErrorBox::type_error("deserializers not an object"))?,
+    ),
+    None => None,
+  };
 
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects,
     error_callback: None,
     for_storage,
     host_object_brand: None,
+    deserializers,
   });
   let value_deserializer =
     v8::ValueDeserializer::new(scope, serialize_deserialize, &zero_copy);
@@ -768,16 +803,18 @@ pub fn op_deserialize<'s, 'i>(
 pub fn op_structured_clone<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
   value: v8::Local<'s, v8::Value>,
+  deserializers: Option<v8::Local<'s, v8::Object>>,
 ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
   let key = v8_static_strings::HOST_OBJECT.v8_string(scope).unwrap();
   let symbol = v8::Symbol::for_key(scope, key);
-  let host_object_brand = Some(v8::Global::new(scope, symbol));
+  let host_object_brand = Some(symbol);
 
   let serialize_deserialize = Box::new(SerializeDeserialize {
     host_objects: None,
     error_callback: None,
     for_storage: false,
     host_object_brand: host_object_brand.clone(),
+    deserializers: None,
   });
   let value_serializer = v8::ValueSerializer::new(scope, serialize_deserialize);
   value_serializer.write_header();
@@ -803,6 +840,7 @@ pub fn op_structured_clone<'s, 'i>(
     error_callback: None,
     for_storage: false,
     host_object_brand: host_object_brand.clone(),
+    deserializers,
   });
   let value_deserializer =
     v8::ValueDeserializer::new(scope, serialize_deserialize, &vector);

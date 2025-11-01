@@ -35,6 +35,7 @@ v8_static_strings!(
   RESOLVE = "resolve",
   SET_UP_ASYNC_STUB = "setUpAsyncStub",
   STACK = "stack",
+  TYPE = "type",
   URL = "url",
   WASM_INSTANCE = "WasmInstance",
   WEBASSEMBLY = "WebAssembly",
