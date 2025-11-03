@@ -2088,3 +2088,92 @@ fn invalid_utf8_module() {
     FastString::from_static("// \u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}")
   );
 }
+
+#[tokio::test]
+async fn evaluate_already_evaluated_module() {
+  // This test verifies that calling mod_evaluate on an already-evaluated module
+  // doesn't panic, but instead returns Ok(()) immediately. This can happen when
+  // the same module is specified both as a preload module and as the main module.
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///main.js").unwrap(),
+    ascii_str!(
+      "globalThis.executionCount = (globalThis.executionCount || 0) + 1;"
+    ),
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///main.js").unwrap();
+
+  // Load and evaluate the module for the first time
+  let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
+  let receiver = runtime.mod_evaluate(mod_id);
+  runtime.run_event_loop(Default::default()).await.unwrap();
+  receiver.await.unwrap();
+
+  // Verify it executed once
+  runtime
+    .execute_script("check1", "if (globalThis.executionCount !== 1) throw new Error('Expected 1 execution')")
+    .unwrap();
+
+  // Try to evaluate the same module again - this should not panic
+  let receiver2 = runtime.mod_evaluate(mod_id);
+  runtime.run_event_loop(Default::default()).await.unwrap();
+  receiver2.await.unwrap();
+
+  // Verify it still only executed once (module was not re-executed)
+  runtime
+    .execute_script("check2", "if (globalThis.executionCount !== 1) throw new Error('Expected still 1 execution')")
+    .unwrap();
+}
+
+#[tokio::test]
+async fn evaluate_already_evaluated_module_sync() {
+  // This test verifies that calling mod_evaluate_sync on an already-evaluated module
+  // doesn't panic, but instead returns Ok(()) immediately.
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///main.js").unwrap(),
+    ascii_str!(
+      "globalThis.syncExecutionCount = (globalThis.syncExecutionCount || 0) + 1;"
+    ),
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///main.js").unwrap();
+
+  // Load the module
+  let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
+
+  // Evaluate synchronously using scope
+  {
+    let module_map = runtime.module_map();
+    deno_core::scope!(scope, runtime);
+    module_map.mod_evaluate_sync(scope, mod_id).unwrap();
+  }
+
+  // Verify it executed once
+  runtime
+    .execute_script("check1", "if (globalThis.syncExecutionCount !== 1) throw new Error('Expected 1 execution')")
+    .unwrap();
+
+  // Try to evaluate the same module again synchronously - should not panic
+  {
+    let module_map = runtime.module_map();
+    deno_core::scope!(scope, runtime);
+    module_map.mod_evaluate_sync(scope, mod_id).unwrap();
+  }
+
+  // Verify it still only executed once (module was not re-executed)
+  runtime
+    .execute_script("check2", "if (globalThis.syncExecutionCount !== 1) throw new Error('Expected still 1 execution')")
+    .unwrap();
+}
