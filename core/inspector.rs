@@ -42,12 +42,13 @@ pub struct InspectorMsg {
 
 // TODO(bartlomieju): remove this
 type NewSessionTxMsg = (
-  InspectorSessionSend,
+  RemoteInspectorSessionSend,
   UnboundedReceiver<String>,
   InspectorSessionKind,
 );
 
-pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg) + Send>;
+pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
+pub type RemoteInspectorSessionSend = Box<dyn Fn(InspectorMsg) + Send>;
 
 #[derive(Clone, Copy, Debug)]
 enum PollState {
@@ -66,7 +67,7 @@ pub struct InspectorIoDelegate {
 impl InspectorIoDelegate {
   pub fn new_remote_session(
     &self,
-    callback: InspectorSessionSend,
+    callback: RemoteInspectorSessionSend,
     // TODO(bartlomieju): look for a better name
     rx: UnboundedReceiver<String>,
     kind: InspectorSessionKind,

@@ -91,6 +91,7 @@ pub use crate::inspector::InspectorSessionKind;
 pub use crate::inspector::InspectorSessionSend;
 pub use crate::inspector::JsRuntimeInspector;
 pub use crate::inspector::LocalInspectorSession;
+pub use crate::inspector::RemoteInspectorSessionSend;
 pub use crate::inspector::SessionContainer;
 pub use crate::io::AsyncResult;
 pub use crate::io::BufMutView;
