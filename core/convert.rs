@@ -2,7 +2,7 @@
 
 use crate::runtime::ops;
 use deno_error::JsErrorBox;
-use std::convert::Infallible;
+use std::{convert::Infallible, mem::MaybeUninit};
 
 /// A conversion from a rust value to a v8 value.
 ///
@@ -400,4 +400,95 @@ where
       T::from_v8(scope, value).map(|v| OptionUndefined(Some(v)))
     }
   }
+}
+
+impl<'a, T> ToV8<'a> for Vec<T>
+where
+  T: ToV8<'a>,
+{
+  type Error = T::Error;
+
+  fn to_v8(
+    self,
+    scope: &mut v8::PinScope<'a, '_>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    let buf = self
+      .into_iter()
+      .map(|v| v.to_v8(scope))
+      .collect::<Result<Vec<_>, _>>()?;
+    Ok(v8::Array::new_with_elements(scope, &buf).into())
+  }
+}
+
+impl<'a, T> FromV8<'a> for Vec<T>
+where
+  T: FromV8<'a>,
+{
+  type Error = JsErrorBox;
+
+  fn from_v8(
+    scope: &mut v8::PinScope<'a, '_>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    let arr = v8::Local::<v8::Array>::try_from(value).map_err(|e| {
+      JsErrorBox::type_error(format!("Failed to convert from V8: {e}"))
+    })?;
+    let len = arr.length() as usize;
+
+    let mut out = maybe_uninit_vec::<T>(len);
+
+    for i in 0..len {
+      let v = arr.get_index(scope, i as u32).unwrap();
+      match T::from_v8(scope, v) {
+        Ok(v) => {
+          out[i].write(v);
+        }
+        Err(e) => {
+          // need to drop the elements we've already written
+          for elem in out.iter_mut().take(i) {
+            // SAFETY: we've initialized these elements
+            unsafe {
+              elem.assume_init_drop();
+            }
+          }
+          return Err(JsErrorBox::generic(e.to_string()));
+        }
+      }
+    }
+
+    // SAFETY: all elements have been initialized, and `MaybeUninit<T>`
+    // is transmutable to `T`
+    let out = unsafe { transmute_vec::<MaybeUninit<T>, T>(out) };
+
+    Ok(out)
+  }
+}
+
+fn maybe_uninit_vec<T>(len: usize) -> Vec<std::mem::MaybeUninit<T>> {
+  let mut v = Vec::with_capacity(len);
+  // SAFETY: `MaybeUninit` is allowed to be uninitialized and
+  // the length is the same as the capacity.
+  unsafe {
+    v.set_len(len);
+  }
+  v
+}
+
+/// Transmutes a `Vec` of one type to a `Vec` of another type.
+///
+/// # Safety
+/// `T` must be transmutable to `U`
+unsafe fn transmute_vec<T, U>(v: Vec<T>) -> Vec<U> {
+  debug_assert!(std::mem::size_of::<T>() == std::mem::size_of::<U>());
+  debug_assert!(std::mem::align_of::<T>() == std::mem::align_of::<U>());
+
+  // make sure the original vector is not dropped
+  let mut v = std::mem::ManuallyDrop::new(v);
+  let len = v.len();
+  let cap = v.capacity();
+  let ptr = v.as_mut_ptr();
+
+  // SAFETY: the original vector is not dropped, the caller upholds the
+  // transmutability invariants, and the length and capacity are not changed.
+  unsafe { Vec::from_raw_parts(ptr as *mut U, len, cap) }
 }
