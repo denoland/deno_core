@@ -3,7 +3,9 @@
 use super::IntoModuleCodeString;
 use super::IntoModuleName;
 use super::ModuleConcreteError;
+use super::loaders::ModuleLoadOptions;
 use super::module_map_data::ModuleMapSnapshotData;
+use super::recursive_load::SideModuleKind;
 use crate::FastStaticString;
 use crate::JsRuntime;
 use crate::ModuleCodeBytes;
@@ -1064,9 +1066,13 @@ impl ModuleMap {
   pub(crate) async fn load_side(
     module_map_rc: Rc<ModuleMap>,
     specifier: impl AsRef<str>,
+    kind: SideModuleKind,
   ) -> Result<RecursiveModuleLoad, CoreError> {
-    let load =
-      RecursiveModuleLoad::side(specifier.as_ref(), module_map_rc.clone());
+    let load = RecursiveModuleLoad::side(
+      specifier.as_ref(),
+      module_map_rc.clone(),
+      kind,
+    );
     load.prepare().await?;
     Ok(load)
   }
@@ -2003,8 +2009,15 @@ impl ModuleMap {
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
 
-    let load_response =
-      loader.load(&specifier, None, false, RequestedModuleType::None);
+    let load_response = loader.load(
+      &specifier,
+      None,
+      ModuleLoadOptions {
+        is_dynamic_import: false,
+        is_synchronous: false,
+        requested_module_type: RequestedModuleType::None,
+      },
+    );
 
     let source = match load_response {
       ModuleLoadResponse::Sync(result) => result,
