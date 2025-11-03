@@ -38,6 +38,7 @@ use crate::source_map::SourceMapper;
 use capacity_builder::StringBuilder;
 use deno_error::JsErrorBox;
 use futures::StreamExt;
+use futures::future::Either;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
@@ -1157,15 +1158,16 @@ impl ModuleMap {
       .map(|handle| v8::Local::new(tc_scope, handle))
       .expect("ModuleInfo not found");
     let mut status = module.get_status();
+
+    // If the module is already evaluated, return early as there's nothing to do
+    if status == v8::ModuleStatus::Evaluated {
+      return Either::Left(futures::future::ready(Ok(())));
+    }
+
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
-      "{} {} ({})",
-      if status == v8::ModuleStatus::Evaluated {
-        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
-      } else {
-        "Module not instantiated"
-      },
+      "Module not instantiated: {} ({})",
       self.get_name_by_id(id).unwrap(),
       id,
     );
@@ -1185,7 +1187,7 @@ impl ModuleMap {
       } else {
         debug_assert_eq!(module.get_status(), v8::ModuleStatus::Errored);
       }
-      return receiver;
+      return Either::Right(receiver);
     };
 
     self.pending_mod_evaluation.set(true);
@@ -1312,7 +1314,7 @@ impl ModuleMap {
       tc_scope.perform_microtask_checkpoint();
     }
 
-    receiver
+    Either::Right(receiver)
   }
 
   /// Helper function that allows to evaluate a module and ensure it's fully
@@ -1331,15 +1333,16 @@ impl ModuleMap {
       .map(|handle| v8::Local::new(tc_scope, handle))
       .expect("ModuleInfo not found");
     let status = module.get_status();
+
+    // If the module is already evaluated, return early as there's nothing to do
+    if status == v8::ModuleStatus::Evaluated {
+      return Ok(());
+    }
+
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
-      "{} {} ({})",
-      if status == v8::ModuleStatus::Evaluated {
-        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
-      } else {
-        "Module not instantiated"
-      },
+      "Module not instantiated: {} ({})",
       self.get_name_by_id(id).unwrap(),
       id,
     );
