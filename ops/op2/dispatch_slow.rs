@@ -694,6 +694,10 @@ pub fn from_arg(
         v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
+    
+    #[cfg(feature = "disable_serde_v8")]
+    Arg::SerdeV8(class) => panic!("{class} tries to use serde_v8"),
+    #[cfg(not(feature = "disable_serde_v8"))]
     Arg::SerdeV8(_class) => {
       *needs_scope = true;
       let scope = scope.clone();
