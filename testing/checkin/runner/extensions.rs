@@ -50,6 +50,7 @@ deno_core::extension!(
     ops_worker::op_worker_parent,
     ops_worker::op_worker_await_close,
     ops_worker::op_worker_terminate,
+    ops::op_thingy,
   ],
   objects = [
     ops::DOMPointReadOnly,

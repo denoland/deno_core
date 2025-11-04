@@ -402,6 +402,163 @@ where
   }
 }
 
+fn bytes_to_uint8array<'a>(
+  scope: &mut v8::PinScope<'a, '_>,
+  buf: Vec<u8>,
+) -> v8::Local<'a, v8::Value> {
+  let len = buf.len();
+  let backing = v8::ArrayBuffer::new_backing_store_from_vec(buf);
+  let backing_shared = backing.make_shared();
+  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_shared);
+  v8::Uint8Array::new(scope, ab, 0, len).unwrap().into()
+}
+
+impl<'a> ToV8<'a> for Vec<u8> {
+  type Error = Infallible;
+
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    Ok(bytes_to_uint8array(scope, self))
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u8> {
+  type Error = JsErrorBox;
+
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_uint8_array() {
+      unsafe { abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>()) }
+    } else {
+      Err(JsErrorBox::type_error("Expected Uint8Array"))
+    }
+  }
+}
+
+unsafe fn abview_to_vec<T>(
+  ab_view: v8::Local<v8::ArrayBufferView>,
+) -> Result<Vec<T>, JsErrorBox> {
+  let data = ab_view.data();
+  let data = unsafe { data.add(ab_view.byte_offset()) };
+  let len = ab_view.byte_length() / std::mem::size_of::<T>();
+  let mut out = maybe_uninit_vec::<T>(len);
+  unsafe {
+    std::ptr::copy_nonoverlapping(
+      data.cast::<T>(),
+      out.as_mut_ptr().cast::<T>(),
+      len,
+    );
+    let out = transmute_vec::<MaybeUninit<T>, T>(out);
+    Ok(out)
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u16> {
+  type Error = JsErrorBox;
+
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_uint16_array() {
+      unsafe { abview_to_vec::<u16>(value.cast::<v8::ArrayBufferView>()) }
+    } else {
+      Err(JsErrorBox::type_error("Expected Uint16Array"))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u32> {
+  type Error = JsErrorBox;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_uint32_array() {
+      unsafe { abview_to_vec::<u32>(value.cast::<v8::ArrayBufferView>()) }
+    } else {
+      Err(JsErrorBox::type_error("Expected Uint32Array"))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u64> {
+  type Error = JsErrorBox;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_big_uint64_array() {
+      unsafe { abview_to_vec::<u64>(value.cast::<v8::ArrayBufferView>()) }
+    } else {
+      Err(JsErrorBox::type_error("Expected BigUint64Array"))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<i32> {
+  type Error = JsErrorBox;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_int32_array() {
+      unsafe { abview_to_vec::<i32>(value.cast::<v8::ArrayBufferView>()) }
+    } else {
+      Err(JsErrorBox::type_error("Expected Int32Array"))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<i64> {
+  type Error = JsErrorBox;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_big_int64_array() {
+      unsafe { abview_to_vec::<i64>(value.cast::<v8::ArrayBufferView>()) }
+    } else {
+      Err(JsErrorBox::type_error("Expected BigInt64Array"))
+    }
+  }
+}
+
+macro_rules! typedarray_to_v8 {
+  ($ty:ty, $v8ty:ident) => {
+    impl<'a> ToV8<'a> for Vec<$ty> {
+      type Error = JsErrorBox;
+
+      fn to_v8<'i>(
+        self,
+        scope: &mut v8::PinScope<'a, 'i>,
+      ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+        let len = self.len();
+        if self.is_empty() {
+          return Ok(v8::ArrayBuffer::new(scope, 0).into());
+        }
+        let bytes = self.into_boxed_slice();
+        let backing = v8::ArrayBuffer::new_backing_store_from_bytes(bytes);
+        let backing_shared = backing.make_shared();
+        let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_shared);
+        v8::$v8ty::new(scope, ab, 0, len)
+          .ok_or_else(|| JsErrorBox::generic("Failed to create typed array"))
+          .map(|v| v.into())
+      }
+    }
+  };
+}
+
+typedarray_to_v8!(u16, Uint16Array);
+typedarray_to_v8!(u32, Uint32Array);
+typedarray_to_v8!(u64, BigUint64Array);
+typedarray_to_v8!(i32, Int32Array);
+typedarray_to_v8!(i64, BigInt64Array);
+
 impl<'a, T> ToV8<'a> for Vec<T>
 where
   T: ToV8<'a>,
