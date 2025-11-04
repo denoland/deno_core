@@ -18,13 +18,6 @@ fn op_buffers(#[buffer] _a: &[u8], #[buffer(copy)] _b: Vec<u8>) {}
 struct Something {}
 
 #[op2(fast)]
-fn op_state_rc(
-  #[state] _arg: &Something,
-  #[state] _arg_opt: Option<&Something>,
-) {
-}
-
-#[op2(fast)]
 fn op_v8_1(_s: v8::Local<v8::String>) {}
 
 #[op2(fast)]

@@ -293,8 +293,6 @@ pub enum Arg {
   V8Ref(RefType, V8Arg),
   Numeric(NumericArg, NumericFlag),
   SerdeV8(String),
-  State(RefType, String),
-  OptionState(RefType, String),
   CppGcResource(bool, String),
   OptionCppGcResource(String),
   CppGcProtochain(Vec<String>),
@@ -376,7 +374,6 @@ impl Arg {
         | Special::JsRuntimeState
         | Special::HandleScope,
       ) => true,
-      Self::State(..) | Self::OptionState(..) => true,
       Self::This | Self::VarArgs => true,
       _ => false,
     }
@@ -417,7 +414,6 @@ impl Arg {
         | Arg::Option(..)
         | Arg::OptionString(..)
         | Arg::OptionBuffer(..)
-        | Arg::OptionState(..)
         | Arg::OptionCppGcResource(..)
     )
   }
@@ -432,7 +428,6 @@ impl Arg {
       Arg::Option(t) => Arg::Special(t.clone()),
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
-      Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
       Arg::OptionCppGcResource(t) => Arg::CppGcResource(false, t.clone()),
       _ => return None,
     })
@@ -791,8 +786,6 @@ pub enum AttributeModifier {
   Smi,
   /// #[string], for strings.
   String(StringMode),
-  /// #[state], for automatic OpState extraction.
-  State,
   /// #[buffer], for buffers.
   Buffer(BufferMode, BufferSource),
   /// #[global], for [`v8::Global`]s
@@ -829,7 +822,6 @@ impl AttributeModifier {
       AttributeModifier::Serde => "serde",
       AttributeModifier::WebIDL { .. } => "webidl",
       AttributeModifier::String(_) => "string",
-      AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
       AttributeModifier::CppGcProto => "proto",
@@ -870,10 +862,6 @@ pub enum SignatureError {
     "Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)"
   )]
   InvalidWherePredicate(String),
-  #[error(
-    "State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s"
-  )]
-  InvalidOpStateCombination,
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
   #[error("Invalid metadata attribute: {0}")]
@@ -920,8 +908,6 @@ pub enum ArgError {
   InternalError(String),
   #[error("Missing a #[{0}] attribute for type: {1}")]
   MissingAttribute(&'static str, String),
-  #[error("Invalid #[state] type '{0}'")]
-  InvalidStateType(String),
   #[error("Argument attribute error")]
   AttributeError(#[from] AttributeError),
   #[error("The type '{0}' is not allowed in this position")]
@@ -1072,26 +1058,10 @@ pub fn parse_signature(
   let lifetimes = parse_lifetimes(&signature.generics)?;
   let generic_bounds = parse_generics(&signature.generics)?;
 
-  let mut has_opstate = false;
-  let mut has_mut_state = false;
-  let mut has_ref_state = false;
-
   let mut jsruntimestate_count = 0;
 
   for (arg, _) in &args {
     match arg {
-      Arg::RcRefCell(Special::OpState) | Arg::Ref(_, Special::OpState) => {
-        has_opstate = true
-      }
-      Arg::State(RefType::Ref, _) | Arg::OptionState(RefType::Ref, _) => {
-        has_ref_state = true
-      }
-      Arg::State(RefType::Mut, _) | Arg::OptionState(RefType::Mut, _) => {
-        if has_mut_state {
-          return Err(SignatureError::InvalidOpStateCombination);
-        }
-        has_mut_state = true;
-      }
       Arg::Ref(_, Special::JsRuntimeState) => {
         jsruntimestate_count += 1;
       }
@@ -1100,11 +1070,6 @@ pub fn parse_signature(
       }
       _ => {}
     }
-  }
-
-  // Ensure that either zero or one and only one of these are true
-  if has_opstate as u8 + has_mut_state as u8 + has_ref_state as u8 > 1 {
-    return Err(SignatureError::InvalidOpStateCombination);
   }
 
   // Ensure that there is at most one JsRuntimeState
@@ -1319,7 +1284,6 @@ fn parse_attribute(
       (#[smi]) => Some(AttributeModifier::Smi),
       (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
       (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
-      (#[state]) => Some(AttributeModifier::State),
       (#[varargs]) => Some(AttributeModifier::VarArgs),
       (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::TypedArray)),
       (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::TypedArray)),
@@ -1525,32 +1489,6 @@ fn parse_type_special(
   }
 }
 
-fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
-  let s = match ty {
-    Type::Path(of) => {
-      let inner_type = std::panic::catch_unwind(|| {
-        rules!(of.into_token_stream() => {
-          (Option< $ty:ty $(,)? >) => ty,
-        })
-      })
-      .map_err(|_| ArgError::InvalidStateType(stringify_token(ty)))?;
-      match parse_type_state(&inner_type)? {
-        Arg::State(reftype, state) => Arg::OptionState(reftype, state),
-        _ => return Err(ArgError::InvalidStateType(stringify_token(ty))),
-      }
-    }
-    Type::Reference(of) => {
-      if of.mutability.is_some() {
-        Arg::State(RefType::Mut, stringify_token(&of.elem))
-      } else {
-        Arg::State(RefType::Ref, stringify_token(&of.elem))
-      }
-    }
-    _ => return Err(ArgError::InvalidStateType(stringify_token(ty))),
-  };
-  Ok(s)
-}
-
 fn parse_cppgc(
   position: Position,
   ty: &Type,
@@ -1727,9 +1665,6 @@ pub(crate) fn parse_type(
         }
       }
 
-      AttributeModifier::State => {
-        return parse_type_state(ty);
-      }
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
       | AttributeModifier::Bigint
@@ -2125,10 +2060,6 @@ mod tests {
   test!(
     fn op_state_ref(state: &OpState);
     (Ref(Ref, OpState)) -> Infallible(Void, false)
-  );
-  test!(
-    fn op_state_attr(#[state] something: &Something, #[state] another: Option<&Something>);
-    (State(Ref, Something), OptionState(Ref, Something)) -> Infallible(Void, false)
   );
   test!(
     #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes,

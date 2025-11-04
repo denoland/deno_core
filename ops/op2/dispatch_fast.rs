@@ -762,42 +762,6 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
     }
-    Arg::State(RefType::Ref, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = ::std::cell::RefCell::borrow(&#opctx.state);
-        let #arg_ident = deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
-      }
-    }
-    Arg::State(RefType::Mut, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = ::std::cell::RefCell::borrow_mut(&#opctx.state);
-        let #arg_ident = deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
-      }
-    }
-    Arg::OptionState(RefType::Ref, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = &::std::cell::RefCell::borrow(&#opctx.state);
-        let #arg_ident = #arg_ident.try_borrow::<#state>();
-      }
-    }
-    Arg::OptionState(RefType::Mut, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);
-        let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
-      }
-    }
     Arg::VarArgs => quote!(let #arg_ident = None;),
     Arg::This => {
       *needs_fast_isolate = true;
@@ -924,11 +888,9 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(RefType::Mut, Special::HandleScope)
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
-    | Arg::State(..)
     | Arg::VarArgs
     | Arg::This
-    | Arg::Ref(_, Special::Isolate)
-    | Arg::OptionState(..) => V8FastCallType::Virtual,
+    | Arg::Ref(_, Special::Isolate) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
     | Arg::Option(_)

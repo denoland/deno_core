@@ -105,14 +105,6 @@ macro_rules! try_bignum {
   };
 }
 
-pub fn opstate_borrow<T: 'static>(state: &OpState) -> &T {
-  state.borrow()
-}
-
-pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
-  state.borrow_mut()
-}
-
 pub fn to_u32_option(number: &v8::Value) -> Option<u32> {
   try_integer_some!(number Integer is_uint32);
   try_integer_some!(number Int32 is_int32);
@@ -615,8 +607,6 @@ mod tests {
       op_state_rc,
       op_state_ref,
       op_state_mut,
-      op_state_mut_attr,
-      op_state_multi_attr,
       op_buffer_slice,
       op_buffer_jsbuffer,
       op_buffer_ptr,
@@ -1463,23 +1453,6 @@ mod tests {
     *state.borrow_mut() = value;
   }
 
-  #[op2(fast)]
-  pub fn op_state_mut_attr(#[state] value: &mut u32, new_value: u32) -> u32 {
-    let old_value = *value;
-    *value = new_value;
-    old_value
-  }
-
-  #[op2(fast)]
-  pub fn op_state_multi_attr(
-    #[state] value32: &u32,
-    #[state] value16: &u16,
-    #[state] value8: Option<&u8>,
-  ) -> u32 {
-    assert_eq!(value8, None);
-    *value32 + *value16 as u32
-  }
-
   #[tokio::test]
   pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
@@ -1487,21 +1460,11 @@ mod tests {
       "op_state_rc",
       "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
     )?;
-    run_test2(
-      JIT_ITERATIONS,
-      "op_state_mut_attr",
-      "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
-    )?;
     run_test2(JIT_ITERATIONS, "op_state_mut", "op_state_mut(__index__)")?;
     run_test2(
       JIT_ITERATIONS,
       "op_state_ref",
       "assert(op_state_ref() == 1234)",
-    )?;
-    run_test2(
-      JIT_ITERATIONS,
-      "op_state_multi_attr",
-      "assert(op_state_multi_attr() == 11234)",
     )?;
     Ok(())
   }

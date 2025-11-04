@@ -25,9 +25,9 @@ pub fn op_log_debug(#[string] s: &str) {
 }
 
 #[op2(fast)]
-pub fn op_log_info(#[state] output: &mut Output, #[string] s: String) {
+pub fn op_log_info(state: &mut OpState, #[string] s: String) {
   println!("{s}");
-  output.line(s);
+  state.borrow_mut::<Output>().line(s);
 }
 
 #[op2(fast)]
@@ -45,9 +45,10 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
 #[op2]
 #[serde]
 pub fn op_stats_dump(
+  state: &OpState,
   #[string] name: String,
-  #[state] test_data: &mut TestData,
 ) -> RuntimeActivitySnapshot {
+  let test_data = state.borrow::<TestData>();
   let stats = test_data.get::<RuntimeActivityStats>(name);
   stats.dump()
 }
@@ -55,21 +56,21 @@ pub fn op_stats_dump(
 #[op2]
 #[serde]
 pub fn op_stats_diff(
+  state: &OpState,
   #[string] before: String,
   #[string] after: String,
-  #[state] test_data: &mut TestData,
 ) -> RuntimeActivityDiff {
+  let test_data = state.borrow::<TestData>();
   let before = test_data.get::<RuntimeActivityStats>(before);
   let after = test_data.get::<RuntimeActivityStats>(after);
   RuntimeActivityStats::diff(before, after)
 }
 
 #[op2(fast)]
-pub fn op_stats_delete(
-  #[string] name: String,
-  #[state] test_data: &mut TestData,
-) {
-  test_data.take::<RuntimeActivityStats>(name);
+pub fn op_stats_delete(state: &mut OpState, #[string] name: String) {
+  state
+    .borrow_mut::<TestData>()
+    .take::<RuntimeActivityStats>(name);
 }
 
 pub struct TestObjectWrap {}
