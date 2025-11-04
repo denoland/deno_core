@@ -479,8 +479,10 @@ fn maybe_uninit_vec<T>(len: usize) -> Vec<std::mem::MaybeUninit<T>> {
 /// # Safety
 /// `T` must be transmutable to `U`
 unsafe fn transmute_vec<T, U>(v: Vec<T>) -> Vec<U> {
-  debug_assert!(std::mem::size_of::<T>() == std::mem::size_of::<U>());
-  debug_assert!(std::mem::align_of::<T>() == std::mem::align_of::<U>());
+  const {
+    assert!(std::mem::size_of::<T>() == std::mem::size_of::<U>());
+    assert!(std::mem::align_of::<T>() == std::mem::align_of::<U>());
+  }
 
   // make sure the original vector is not dropped
   let mut v = std::mem::ManuallyDrop::new(v);
@@ -492,3 +494,66 @@ unsafe fn transmute_vec<T, U>(v: Vec<T>) -> Vec<U> {
   // transmutability invariants, and the length and capacity are not changed.
   unsafe { Vec::from_raw_parts(ptr as *mut U, len, cap) }
 }
+
+macro_rules! impl_tuple {
+  ($(($($name: ident $(,)?),+)),+ $(,)?) => {
+    $(
+      impl<'a, $($name),+> ToV8<'a> for ($($name,)+)
+      where
+        $($name: ToV8<'a>,)+
+      {
+        type Error = deno_error::JsErrorBox;
+        fn to_v8(self, scope: &mut v8::PinScope<'a, '_>) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+          #[allow(non_snake_case)]
+          let ($($name,)+) = self;
+          let elements = &[$($name.to_v8(scope).map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?),+];
+          Ok(v8::Array::new_with_elements(scope, elements).into())
+        }
+      }
+      impl<'a, $($name),+> FromV8<'a> for ($($name,)+)
+      where
+        $($name: FromV8<'a>,)+
+      {
+        type Error = deno_error::JsErrorBox;
+
+        fn from_v8(
+          scope: &mut v8::PinScope<'a, '_>,
+          value: v8::Local<'a, v8::Value>,
+        ) -> Result<Self, Self::Error> {
+          let array = v8::Local::<v8::Array>::try_from(value)
+            .map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?;
+          let mut i = 0;
+          #[allow(non_snake_case)]
+          let ($($name,)+) = (
+            $(
+              {
+                let element = array.get_index(scope, i).unwrap();
+                let res = $name::from_v8(scope, element).map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?;
+                #[allow(unused)]
+                {
+                  i += 1;
+                }
+                res
+              },
+            )+
+          );
+          Ok(($($name,)+))
+        }
+      }
+    )+
+  };
+}
+
+impl_tuple!(
+  (A,),
+  (A, B),
+  (A, B, C),
+  (A, B, C, D),
+  (A, B, C, D, E),
+  (A, B, C, D, E, F),
+  (A, B, C, D, E, F, G),
+  (A, B, C, D, E, F, G, H),
+  (A, B, C, D, E, F, G, H, I),
+  (A, B, C, D, E, F, G, H, I, J),
+  (A, B, C, D, E, F, G, H, I, J, K),
+);
