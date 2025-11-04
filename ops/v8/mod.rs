@@ -47,10 +47,10 @@ mod tests {
   fn test_proc_macro_sync(input: PathBuf) {
     crate::infra::run_macro_expansion_test(input, |file| {
       file.items.into_iter().filter_map(|item| {
-        if let Item::Struct(struct_item) = item {
-          if derives_v8(&struct_item.attrs) {
-            return Some(expand_v8(struct_item));
-          }
+        if let Item::Struct(struct_item) = item
+          && derives_v8(&struct_item.attrs)
+        {
+          return Some(expand_v8(struct_item));
         }
 
         None
