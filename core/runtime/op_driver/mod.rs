@@ -151,10 +151,14 @@ mod tests {
   use deno_error::JsErrorBox;
   use rstest::rstest;
   use std::future::poll_fn;
+  use std::marker::PhantomData;
 
   struct TestMappingContext {}
-  impl<'s> OpMappingContextLifetime<'s> for TestMappingContext {
-    type Context = ();
+  impl<'s, 'i> OpMappingContextLifetime<'s, 'i> for TestMappingContext {
+    type Context
+      = PhantomData<&'s mut &'i mut ()>
+    where
+      'i: 's;
     type Result = String;
     type MappingError = anyhow::Error;
 
@@ -178,11 +182,11 @@ mod tests {
       f as _
     }
 
-    fn unerase_mapping_fn<'s, R: 'static>(
+    fn unerase_mapping_fn<'s, 'i, R: 'static>(
       f: *const fn(),
-      _context: &mut <Self as OpMappingContextLifetime<'s>>::Context,
+      _context: &mut <Self as OpMappingContextLifetime<'s, 'i>>::Context,
       r: R,
-    ) -> UnmappedResult<'s, Self> {
+    ) -> UnmappedResult<'s, 'i, Self> {
       let f: Self::MappingFn<R> = unsafe { std::mem::transmute(f) };
       f(r)
     }
@@ -232,7 +236,7 @@ mod tests {
     let (promise_id, op_id, result) = poll_fn(|cx| driver.poll_ready(cx)).await;
     assert!(bitset.insert(promise_id as usize));
     assert_eq!(1234, op_id);
-    assert_eq!(expected, &(result.unwrap(&mut ()).unwrap()));
+    assert_eq!(expected, &(result.unwrap(&mut PhantomData).unwrap()));
   }
 
   #[rstest]

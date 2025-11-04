@@ -3,13 +3,13 @@
 use std::env::current_dir;
 use std::rc::Rc;
 
-use deno_core::anyhow;
-use deno_core::extension;
-use deno_core::op2;
 use deno_core::FsModuleLoader;
 use deno_core::JsRuntime;
 use deno_core::PollEventLoopOptions;
 use deno_core::RuntimeOptions;
+use deno_core::anyhow;
+use deno_core::extension;
+use deno_core::op2;
 
 fn main() {
   let runtime = tokio::runtime::Builder::new_current_thread()
@@ -35,7 +35,7 @@ async fn run_js(file_path: &str) -> Result<(), anyhow::Error> {
   let mut js_runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(FsModuleLoader)),
     startup_snapshot: Some(RUNTIME_SNAPSHOT),
-    extensions: vec![runjs_extension::init_ops()],
+    extensions: vec![runjs_extension::init()],
     ..Default::default()
   });
 

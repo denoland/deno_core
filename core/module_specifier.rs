@@ -164,8 +164,8 @@ mod tests {
 
   #[test]
   fn test_resolve_import_error() {
-    use url::ParseError::*;
     use ModuleResolutionError::*;
+    use url::ParseError::*;
 
     let tests = vec![
       (

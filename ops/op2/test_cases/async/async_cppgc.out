@@ -34,7 +34,10 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -159,7 +162,10 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -180,7 +186,7 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
                 };
                 arg0.root();
                 async move {
-                    let arg0 = &*arg0;
+                    let arg0 = unsafe { arg0.as_ref() };
                     Self::call(arg0).await
                 }
             };
@@ -277,7 +283,10 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -302,7 +311,7 @@ const fn op_use_optional_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     return 1;
                 };
                 async move {
-                    let arg0 = arg0.as_deref();
+                    let arg0 = unsafe { arg0.as_ref().map(|a| a.as_ref()) };
                     Self::call(arg0).await
                 }
             };

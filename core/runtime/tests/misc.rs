@@ -1,26 +1,28 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::modules::StaticModuleLoader;
-use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
+use crate::runtime::tests::setup;
 use crate::*;
 use cooked_waker::IntoWaker;
 use cooked_waker::Wake;
 use cooked_waker::WakeRef;
 use deno_error::JsErrorBox;
-use futures::future::poll_fn;
 use parking_lot::Mutex;
 use rstest::rstest;
+use serde_json::Value;
+use serde_json::json;
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::collections::HashSet;
+use std::future::poll_fn;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicI8;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use std::time::Duration;
@@ -42,13 +44,13 @@ fn test_execute_script_return_value() {
   let mut runtime = JsRuntime::new(Default::default());
   let value_global = runtime.execute_script("a.js", "a = 1 + 2").unwrap();
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let value = value_global.open(scope);
     assert_eq!(value.integer_value(scope).unwrap(), 3);
   }
   let value_global = runtime.execute_script("b.js", "b = 'foobar'").unwrap();
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let value = value_global.open(scope);
     assert!(value.is_string());
     assert_eq!(
@@ -100,7 +102,7 @@ async fn test_wakers_for_async_ops() {
 
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -150,8 +152,10 @@ async fn test_wakers_for_async_ops() {
   "Promise.reject(new Error('fail'))",
   Err("Error: fail\n    at a.js:1:16")
 )]
-#[case("new Promise(resolve => {})",
-  Err("Promise resolution is still pending but the event loop has already resolved"
+#[case(
+  "new Promise(resolve => {})",
+  Err(
+    "Promise resolution is still pending but the event loop has already resolved"
   )
 )]
 #[tokio::test]
@@ -165,7 +169,7 @@ async fn test_resolve_promise(
   let out = runtime
     .with_event_loop_promise(resolve, PollEventLoopOptions::default())
     .await;
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
   match result {
     Ok(value) => {
       let out = v8::Local::new(scope, out.expect("expected success"));
@@ -228,7 +232,9 @@ async fn test_resolve_promise(
   "() => { Deno.core.reportUnhandledException(new Error('fail')); return 1; }",
   Ok(Some(1))
 )]
-#[case("call", "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
+#[case(
+  "call",
+  "() => { Deno.core.reportUnhandledException(new Error('fail')); willNotCall(); }",
   Err("Uncaught Error: fail")
 )]
 #[tokio::test]
@@ -260,7 +266,7 @@ async fn test_resolve_value_generic(
   } else {
     unreachable!()
   };
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
 
   match output {
     Ok(None) => {
@@ -284,7 +290,7 @@ async fn test_resolve_value_generic(
           value.to_rust_string_lossy(scope)
         );
       };
-      let CoreError::Js(js_err) = err else {
+      let CoreErrorKind::Js(js_err) = err.into_kind() else {
         unreachable!()
       };
       assert_eq!(e, js_err.exception_message);
@@ -404,7 +410,8 @@ async fn wasm_streaming_op_invocation_in_import() {
                             "#).unwrap();
   #[allow(deprecated)]
   let value = runtime.resolve_value(promise).await.unwrap();
-  let val = value.open(&mut runtime.handle_scope());
+  deno_core::scope!(scope, runtime);
+  let val = value.open(scope);
   assert!(val.is_object());
 }
 
@@ -433,6 +440,59 @@ fn inspector() {
   runtime.execute_script("check.js", "null").unwrap();
 }
 
+#[rstest]
+// https://github.com/denoland/deno/issues/29059
+#[case(0.9999999999999999)]
+#[case(31.245270191439438)]
+#[case(117.63331139400017)]
+#[tokio::test]
+async fn test_preserve_float_precision_from_local_inspector_evaluate(
+  #[case] input: f64,
+) {
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    inspector: true,
+    ..Default::default()
+  });
+
+  let result = local_inspector_evaluate(&mut runtime, &format!("{}", input));
+
+  assert_eq!(
+    result["result"]["value"],
+    Value::Number(serde_json::Number::from_f64(input).unwrap()),
+  );
+}
+
+fn local_inspector_evaluate(
+  runtime: &mut JsRuntime,
+  expression: &str,
+) -> Value {
+  let kind = inspector::InspectorSessionKind::NonBlocking {
+    wait_for_disconnect: false,
+  };
+
+  let inspector = runtime.inspector();
+  let (tx, rx) = std::sync::mpsc::channel();
+  let callback = Box::new(move |msg: InspectorMsg| {
+    if matches!(msg.kind, InspectorMsgKind::Message(1)) {
+      let value: serde_json::Value =
+        serde_json::from_str(&msg.content).unwrap();
+      let _ = tx.send(value["result"].clone());
+    }
+  });
+  let mut local_inspector_session =
+    JsRuntimeInspector::create_local_session(inspector, callback, kind);
+
+  local_inspector_session.post_message(
+    1,
+    "Runtime.evaluate",
+    Some(json!({
+      "expression": expression,
+    })),
+  );
+
+  rx.try_recv().unwrap()
+}
+
 #[test]
 fn test_get_module_namespace() {
   let mut runtime = JsRuntime::new(RuntimeOptions {
@@ -456,7 +516,7 @@ fn test_get_module_namespace() {
 
   let module_namespace = runtime.get_module_namespace(module_id).unwrap();
 
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
 
   let module_namespace = v8::Local::<v8::Object>::new(scope, module_namespace);
 
@@ -505,15 +565,12 @@ fn test_heap_limits() {
     cb_handle.terminate_execution();
     current_limit * 2
   });
-  let err = runtime
+  let js_err = runtime
     .execute_script(
       "script name",
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
-  let CoreError::Js(js_err) = err else {
-    unreachable!()
-  };
   assert_eq!(
     "Uncaught Error: execution terminated",
     js_err.exception_message
@@ -557,15 +614,12 @@ fn test_heap_limit_cb_multiple() {
     current_limit * 2
   });
 
-  let err = runtime
+  let js_err = runtime
     .execute_script(
       "script name",
       r#"let s = ""; while(true) { s += "Hello"; }"#,
     )
     .expect_err("script should fail");
-  let CoreError::Js(js_err) = err else {
-    unreachable!()
-  };
   assert_eq!(
     "Uncaught Error: execution terminated",
     js_err.exception_message
@@ -650,8 +704,8 @@ fn test_is_proxy() {
   "#,
     )
     .unwrap();
-  let mut scope = runtime.handle_scope();
-  let all_true = v8::Local::<v8::Value>::new(&mut scope, &all_true);
+  deno_core::scope!(scope, runtime);
+  let all_true = v8::Local::<v8::Value>::new(scope, &all_true);
   assert!(all_true.is_true());
 }
 
@@ -666,7 +720,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
 
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -723,7 +777,7 @@ fn test_has_tick_scheduled() {
 
   deno_core::extension!(test_ext, ops = [op_macrotask, op_next_tick]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -831,7 +885,7 @@ async fn test_promise_rejection_handler_generic(
   }
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -886,7 +940,7 @@ async fn test_promise_rejection_handler_generic(
   let res = runtime.run_event_loop(Default::default()).await;
   if let Some(error) = error {
     let err = res.expect_err("Expected a failure");
-    let CoreError::Js(js_error) = err else {
+    let CoreErrorKind::Js(js_error) = err.into_kind() else {
       panic!("Expected a JsError");
     };
     assert_eq!(js_error.exception_message, error);
@@ -960,7 +1014,7 @@ async fn test_stalled_tla() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let CoreError::Js(js_error) = error else {
+  let CoreErrorKind::Js(js_error) = error.into_kind() else {
     unreachable!()
   };
   assert_eq!(
@@ -996,7 +1050,7 @@ async fn test_dynamic_import_module_error_stack() {
     ),
   ]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     module_loader: Some(Rc::new(loader)),
     ..Default::default()
   });
@@ -1012,7 +1066,7 @@ async fn test_dynamic_import_module_error_stack() {
     .run_event_loop(Default::default())
     .await
     .unwrap_err();
-  let CoreError::Js(js_error) = error else {
+  let CoreErrorKind::Js(js_error) = error.into_kind() else {
     unreachable!()
   };
   assert_eq!(
@@ -1051,11 +1105,79 @@ async fn tla_in_esm_extensions_panics() {
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(StaticModuleLoader::default())),
-    extensions: vec![test_ext::init_ops_and_esm()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 }
 
+#[tokio::test]
+async fn generic_in_extension_middleware() {
+  trait WelcomeWorld {
+    fn hello(&self) -> String;
+  }
+
+  struct English;
+
+  impl WelcomeWorld for English {
+    fn hello(&self) -> String {
+      "Hello World".to_string()
+    }
+  }
+
+  #[op2]
+  #[string]
+  fn say_greeting<W: WelcomeWorld + 'static>(state: &mut OpState) -> String {
+    let welcomer = state.borrow::<W>();
+
+    welcomer.hello()
+  }
+
+  #[op2]
+  #[string]
+  pub fn say_goodbye() -> String {
+    "Goodbye!".to_string()
+  }
+
+  deno_core::extension!(welcome_ext, parameters = [W: WelcomeWorld], ops = [say_greeting<W>, say_goodbye],
+    middleware = |op| {
+        match op.name {
+            "say_goodbye" => say_greeting::<W>(),
+            _ => op,
+        }
+    },
+
+  );
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    extensions: vec![welcome_ext::init::<English>()],
+    ..Default::default()
+  });
+
+  {
+    let op_state = runtime.op_state();
+    let mut state = op_state.borrow_mut();
+
+    state.put(English);
+  }
+
+  let value_global = runtime
+    .execute_script(
+      "greet.js",
+      r#"
+        const greet = Deno.core.ops.say_greeting();
+        const bye = Deno.core.ops.say_goodbye();
+        greet + " and " + bye;
+      "#,
+    )
+    .unwrap();
+
+  // Check the result
+  deno_core::scope!(scope, &mut runtime);
+  let value = value_global.open(scope);
+
+  let result = value.to_rust_string_lossy(scope);
+  assert_eq!(result, "Hello World and Hello World");
+}
 // TODO(mmastrac): This is only fired in debug mode
 #[cfg(debug_assertions)]
 #[tokio::test]
@@ -1088,7 +1210,7 @@ async fn esm_extensions_throws() {
   // Panics
   let _runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(StaticModuleLoader::default())),
-    extensions: vec![test_ext::init_ops_and_esm()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 }
@@ -1103,7 +1225,7 @@ fn create_spawner_runtime() -> JsRuntime {
   runtime
 }
 
-fn call_i32_function(scope: &mut v8::HandleScope) -> i32 {
+fn call_i32_function(scope: &mut v8::PinScope) -> i32 {
   let ctx = scope.get_current_context();
   let global = ctx.global(scope);
   let key = v8::String::new_external_onebyte_static(scope, b"f")
@@ -1210,7 +1332,7 @@ async fn terminate_execution_run_event_loop_js() {
   }
   deno_core::extension!(test_ext, ops = [op_async_sleep]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -1250,50 +1372,46 @@ async fn terminate_execution_run_event_loop_js() {
 
 #[tokio::test]
 async fn global_template_middleware() {
+  use parking_lot::Mutex;
   use v8::MapFnTo;
 
-  static mut CALLS: Vec<String> = Vec::new();
+  static CALLS: Mutex<Vec<String>> = Mutex::new(Vec::new());
 
   pub fn descriptor<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("descriptor".to_string());
-    }
+    CALLS.lock().push("descriptor".to_string());
+
     v8::Intercepted::No
   }
 
   pub fn setter<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _value: v8::Local<'s, v8::Value>,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("setter".to_string());
-    }
+    CALLS.lock().push("setter".to_string());
     v8::Intercepted::No
   }
 
   fn definer<'s>(
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, '_>,
     _key: v8::Local<'s, v8::Name>,
     _descriptor: &v8::PropertyDescriptor,
     _args: v8::PropertyCallbackArguments<'s>,
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
-    unsafe {
-      CALLS.push("definer".to_string());
-    }
+    CALLS.lock().push("definer".to_string());
     v8::Intercepted::No
   }
 
   pub fn gt_middleware<'s>(
-    _scope: &mut v8::HandleScope<'s, ()>,
+    _scope: &mut v8::PinScope<'s, '_, ()>,
     template: v8::Local<'s, v8::ObjectTemplate>,
   ) -> v8::Local<'s, v8::ObjectTemplate> {
     let mut config = v8::NamedPropertyHandlerConfiguration::new().flags(
@@ -1312,7 +1430,7 @@ async fn global_template_middleware() {
 
   deno_core::extension!(test_ext, global_template_middleware = gt_middleware);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -1324,8 +1442,11 @@ async fn global_template_middleware() {
     )
     .unwrap();
 
-  let calls_set =
-    unsafe { CALLS.clone().into_iter().collect::<HashSet<String>>() };
+  let calls_set = CALLS
+    .lock()
+    .clone()
+    .into_iter()
+    .collect::<HashSet<String>>();
   assert!(calls_set.contains("definer"));
   assert!(calls_set.contains("setter"));
   assert!(calls_set.contains("descriptor"));

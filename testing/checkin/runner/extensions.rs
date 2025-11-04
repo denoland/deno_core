@@ -1,13 +1,13 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::checkin::runner::Output;
+use crate::checkin::runner::TestData;
 use crate::checkin::runner::ops;
 use crate::checkin::runner::ops_async;
 use crate::checkin::runner::ops_buffer;
 use crate::checkin::runner::ops_error;
 use crate::checkin::runner::ops_io;
 use crate::checkin::runner::ops_worker;
-use crate::checkin::runner::Output;
-use crate::checkin::runner::TestData;
 
 pub trait SomeType {}
 
@@ -36,6 +36,7 @@ deno_core::extension!(
     ops_async::op_async_get_cppgc_resource,
     ops_async::op_async_never_resolves,
     ops_async::op_async_fake,
+    ops_async::op_async_promise_id,
     ops_error::op_async_throw_error_eager,
     ops_error::op_async_throw_error_lazy,
     ops_error::op_async_throw_error_deferred,
@@ -51,6 +52,7 @@ deno_core::extension!(
     ops_worker::op_worker_terminate,
   ],
   objects = [
+    ops::DOMPointReadOnly,
     ops::DOMPoint,
     ops::TestObjectWrap,
     ops::TestEnumWrap
@@ -66,6 +68,7 @@ deno_core::extension!(
     "checkin:timers" = "timers.ts",
     "checkin:worker" = "worker.ts",
     "checkin:throw" = "throw.ts",
+    "checkin:callsite" = "callsite.ts",
   ],
   state = |state| {
     state.put(TestData::default());

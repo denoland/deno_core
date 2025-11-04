@@ -1,30 +1,33 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use super::create_runtime;
-use super::run_async;
 use super::Output;
+use super::Snapshot;
+use super::create_runtime_from_snapshot;
+use super::run_async;
 use anyhow::anyhow;
-use deno_core::op2;
-use deno_core::url::Url;
-use deno_core::v8::IsolateHandle;
 use deno_core::GarbageCollected;
 use deno_core::JsRuntime;
 use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
+use deno_core::op2;
+use deno_core::url::Url;
+use deno_core::v8;
+use deno_core::v8::IsolateHandle;
 use deno_error::JsErrorBox;
 use std::cell::RefCell;
 use std::future::poll_fn;
 use std::rc::Rc;
-use std::sync::mpsc::channel;
 use std::sync::Arc;
+use std::sync::mpsc::channel;
 use std::task::Poll;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::Mutex;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::watch;
-use tokio::sync::Mutex;
 
 /// Our cppgc object.
+#[derive(Debug)]
 pub struct WorkerControl {
   worker_channel: WorkerChannel,
   close_watcher: WorkerCloseWatcher,
@@ -32,18 +35,26 @@ pub struct WorkerControl {
   shutdown_flag: Option<UnboundedSender<()>>,
 }
 
-impl GarbageCollected for WorkerControl {}
+unsafe impl GarbageCollected for WorkerControl {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
 
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"WorkerControl"
+  }
+}
+
+#[derive(Debug)]
 pub struct WorkerChannel {
   tx: UnboundedSender<String>,
   rx: Mutex<UnboundedReceiver<String>>,
 }
 
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct WorkerCloseWatcher {
   watcher: Arc<Mutex<watch::Receiver<bool>>>,
 }
 
+#[derive(Debug)]
 pub struct Worker {
   _close_send: watch::Sender<bool>,
   pub(crate) close_watcher: WorkerCloseWatcher,
@@ -92,16 +103,22 @@ pub fn worker_create(
 pub fn op_worker_spawn(
   #[state] this_worker: &Worker,
   #[state] output: &Output,
+  #[state] snapshot: &Snapshot,
   #[string] base_url: String,
   #[string] main_script: String,
 ) -> Result<WorkerControl, std::sync::mpsc::RecvError> {
   let output = output.clone();
+  let snapshot = snapshot.0;
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();
   let (shutdown_tx, shutdown_rx) = unbounded_channel();
   std::thread::spawn(move || {
-    let (mut runtime, worker_host_side) =
-      create_runtime(Some(close_watcher), vec![]);
+    let (mut runtime, worker_host_side) = create_runtime_from_snapshot(
+      snapshot,
+      false,
+      Some(close_watcher),
+      vec![],
+    );
     runtime.op_state().borrow_mut().put(output.clone());
     init_send
       .send(WorkerControl {
@@ -147,11 +164,21 @@ async fn run_worker_task(
     let state = state.borrow();
     let output: &Output = state.borrow();
     for line in e.to_string().split('\n') {
+      println!("[ERR] {line}");
+      output.line(format!("[ERR] {line}"));
+    }
+    return Ok(());
+  } else if let Err(e) = f.await {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
+    for line in e.to_string().split('\n') {
+      println!("[ERR] {line}");
       output.line(format!("[ERR] {line}"));
     }
     return Ok(());
   }
-  _ = f.await;
+
   Ok(())
 }
 

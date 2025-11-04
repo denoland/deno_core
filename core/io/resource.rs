@@ -6,17 +6,17 @@
 // resources. Resources may or may not correspond to a real operating system
 // file descriptor (hence the different name).
 
+use crate::ResourceHandle;
+use crate::ResourceHandleFd;
 use crate::io::AsyncResult;
 use crate::io::BufMutView;
 use crate::io::BufView;
 use crate::io::WriteOutcome;
-use crate::ResourceHandle;
-use crate::ResourceHandleFd;
 use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
-use std::any::type_name;
 use std::any::Any;
 use std::any::TypeId;
+use std::any::type_name;
 use std::borrow::Cow;
 use std::rc::Rc;
 
@@ -70,7 +70,7 @@ pub trait Resource: Any + 'static {
   /// to JavaScript code through `op_resources`. The default implementation
   /// returns the Rust type name, but specific resource types may override this
   /// trait method.
-  fn name(&self) -> Cow<str> {
+  fn name(&self) -> Cow<'_, str> {
     type_name::<Self>().into()
   }
 
@@ -85,7 +85,7 @@ pub trait Resource: Any + 'static {
   /// implement `read_byob()`.
   fn read(self: Rc<Self>, limit: usize) -> AsyncResult<BufView> {
     _ = limit;
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Read a single chunk of data from the resource into the provided `BufMutView`.
@@ -111,7 +111,7 @@ pub trait Resource: Any + 'static {
 
   /// Write an error state to this resource, if the resource supports it.
   fn write_error(self: Rc<Self>, _error: &dyn JsErrorClass) -> AsyncResult<()> {
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Write a single chunk of data to the resource. The operation may not be
@@ -123,7 +123,7 @@ pub trait Resource: Any + 'static {
   /// with a "not supported" error.
   fn write(self: Rc<Self>, buf: BufView) -> AsyncResult<WriteOutcome> {
     _ = buf;
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Write an entire chunk of data to the resource. Unlike `write()`, this will
@@ -175,7 +175,7 @@ pub trait Resource: Any + 'static {
   /// If this method is not implemented, the default implementation will error
   /// with a "not supported" error.
   fn shutdown(self: Rc<Self>) -> AsyncResult<()> {
-    Box::pin(futures::future::err(JsErrorBox::not_supported()))
+    Box::pin(std::future::ready(Err(JsErrorBox::not_supported())))
   }
 
   /// Resources may implement the `close()` trait method if they need to do
@@ -199,6 +199,12 @@ pub trait Resource: Any + 'static {
 
   fn size_hint(&self) -> (u64, Option<u64>) {
     (0, None)
+  }
+
+  fn transfer(
+    self: Rc<Self>,
+  ) -> Result<Box<dyn TransferredResource>, JsErrorBox> {
+    Err(JsErrorBox::not_supported())
   }
 }
 
@@ -293,3 +299,9 @@ macro_rules! impl_writable {
     $crate::impl_writable!(__write_all);
   };
 }
+
+pub trait TransferredResource: Send {
+  fn receive(self: Box<Self>) -> Rc<dyn Resource>;
+}
+
+impl dyn TransferredResource {}

@@ -6,14 +6,16 @@ use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
 use std::iter::zip;
-use syn::parse2;
-use syn::parse_str;
-use syn::spanned::Spanned;
 use syn::FnArg;
 use syn::ItemFn;
 use syn::Lifetime;
 use syn::LifetimeParam;
 use syn::Type;
+use syn::parse::Parser;
+use syn::parse_str;
+use syn::parse2;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use thiserror::Error;
 
 use self::config::MacroConfig;
@@ -21,11 +23,11 @@ use self::dispatch_async::generate_dispatch_async;
 use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
-use self::signature::is_attribute_special;
-use self::signature::parse_signature;
 use self::signature::Arg;
 use self::signature::RetVal;
 use self::signature::SignatureError;
+use self::signature::is_attribute_special;
+use self::signature::parse_signature;
 
 pub mod config;
 pub mod dispatch_async;
@@ -39,12 +41,12 @@ pub mod signature_retval;
 
 #[derive(Debug, Error)]
 pub enum Op2Error {
-  #[error("Failed to match a pattern for '{0}': (input was '{1}')")]
-  PatternMatchFailed(&'static str, String),
-  #[error("Invalid attribute: '{0}'")]
-  InvalidAttribute(String),
   #[error("Failed to parse syntax tree")]
-  ParseError(#[from] syn::Error),
+  ParseError(
+    #[from]
+    #[source]
+    syn::Error,
+  ),
   #[error("Failed to map signature to V8")]
   V8SignatureMappingError(#[from] V8SignatureMappingError),
   #[error("Failed to parse signature")]
@@ -59,10 +61,6 @@ pub enum Op2Error {
   ShouldBeAsync,
   #[error("This op is not async and should not be marked as (async)")]
   ShouldNotBeAsync,
-  #[error("Only one fast alternative is supported in fast(...) at this time")]
-  TooManyFastAlternatives,
-  #[error("The flags for this attribute were not sorted alphabetically. They should be listed as '({0})'.")]
-  ImproperlySortedAttribute(String),
   #[error("Only one constructor is allowed per object")]
   MultipleConstructors,
 }
@@ -71,9 +69,9 @@ pub enum Op2Error {
 #[allow(clippy::enum_variant_names)]
 pub enum V8SignatureMappingError {
   #[error("Unable to map return value {1:?} to {0}")]
-  NoRetValMapping(V8MappingError, RetVal),
+  NoRetValMapping(V8MappingError, Box<RetVal>),
   #[error("Unable to map argument {1:?} to {0}")]
-  NoArgMapping(V8MappingError, Arg),
+  NoArgMapping(V8MappingError, Box<Arg>),
 }
 
 pub type V8MappingError = &'static str;
@@ -85,10 +83,19 @@ pub(crate) fn op2(
 ) -> Result<TokenStream, Op2Error> {
   let Ok(func) = parse2::<ItemFn>(item.clone()) else {
     let impl_block = parse2::<syn::ItemImpl>(item)?;
-    return object_wrap::generate_impl_ops(impl_block);
+    return object_wrap::generate_impl_ops(attr, impl_block);
   };
 
-  let config = MacroConfig::from_tokens(attr)?;
+  let span = attr.span();
+
+  let metas =
+    Punctuated::<config::CustomMeta, syn::Token![,]>::parse_terminated
+      .parse2(attr)?
+      .into_iter()
+      .collect::<Vec<_>>();
+
+  let config = MacroConfig::from_metas(span, metas)?;
+
   generate_op2(config, func)
 }
 
@@ -126,8 +133,8 @@ pub(crate) fn generate_op2(
   }
   let signature =
     parse_signature(config.fake_async, func.attrs, func.sig.clone())?;
-  if let Some(ident) = signature.lifetime.as_ref().map(|s| format_ident!("{s}"))
-  {
+  for ident in &signature.lifetimes {
+    let ident = format_ident!("{ident}");
     op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
       LifetimeParam::new(Lifetime {
         apostrophe: op_fn.span(),
@@ -193,7 +200,6 @@ pub(crate) fn generate_op2(
     needs_retval: false,
     needs_scope: false,
     needs_fast_isolate: false,
-    needs_fast_scope: false,
     needs_isolate: false,
     needs_opctx: false,
     needs_opstate: false,
@@ -202,12 +208,23 @@ pub(crate) fn generate_op2(
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),
     use_this_cppgc: config.constructor,
+    use_proto_cppgc: config.use_proto_cppgc,
+    try_unwrap_cppgc: if config.use_proto_cppgc {
+      format_ident!("try_unwrap_cppgc_proto_object")
+    } else {
+      format_ident!("try_unwrap_cppgc_object")
+    },
   };
 
   let mut slow_generator_state = base_generator_state.clone();
 
   let rust_name = func.sig.ident;
-  let name = orig_name;
+  let name = config
+    .rename
+    .as_deref()
+    .unwrap_or(&orig_name.to_string())
+    .to_string();
+  let name = format_ident!("{}", name);
 
   let slow_fn = if signature.ret_val.is_async() {
     generate_dispatch_async(&config, &mut slow_generator_state, &signature)?
@@ -235,7 +252,7 @@ pub(crate) fn generate_op2(
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast
           && !config.nofast
-          && config.fast_alternatives.is_empty()
+          && config.fast_alternative.is_none()
           && !config.getter
           && !config.setter
         {
@@ -263,7 +280,11 @@ pub(crate) fn generate_op2(
       }
     };
 
-  let arg_count: usize = args.len() + is_async as usize;
+  let arg_count: usize = if let Some(required) = config.required {
+    required as usize
+  } else {
+    args.len() + is_async as usize
+  };
   let vis = func.vis;
   let generic = signature
     .generic_bounds
@@ -472,7 +493,9 @@ mod tests {
     let readme = std::fs::read_to_string("op2/README.md").unwrap();
     let (header, remainder) = split_readme(&readme, separator, end_separator);
 
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n");
+    let mut actual = format!(
+      "{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>v8</th></tr>\n"
+    );
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
@@ -503,7 +526,13 @@ mod tests {
         )
         .expect("Failed to generate op");
       }
-      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, v8, notes);
+      actual += &format!(
+        "<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n",
+        type_param,
+        if fast { "✅" } else { "" },
+        v8,
+        notes
+      );
     });
     actual += "</table>\n";
     actual += end_separator;
@@ -529,7 +558,9 @@ mod tests {
     let end_separator = "\n<!-- END RV -->\n";
     let readme = std::fs::read_to_string("op2/README.md").unwrap();
     let (header, remainder) = split_readme(&readme, separator, end_separator);
-    let mut actual = format!("{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>\n");
+    let mut actual = format!(
+      "{header}{separator}<table><tr><th>Rust</th><th>Fastcall</th><th>Async</th><th>v8</th></tr>\n"
+    );
 
     parse_md(md, |line, components| {
       let type_param = components.first().unwrap().to_owned();
@@ -583,7 +614,14 @@ mod tests {
           .expect("Failed to generate op");
         }
       }
-      actual += &format!("<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n", type_param, if fast { "✅" } else { "" }, if async_support { "✅" } else { "" }, v8, notes);
+      actual += &format!(
+        "<tr>\n<td>\n\n```text\n{}\n```\n\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td><td>\n{}\n</td></tr>\n",
+        type_param,
+        if fast { "✅" } else { "" },
+        if async_support { "✅" } else { "" },
+        v8,
+        notes
+      );
     });
 
     actual += "</table>\n";

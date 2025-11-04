@@ -11,7 +11,7 @@
   "exec": {
     "cwd": "${configDir}",
     "commands": [{
-      "command": "rustfmt --config imports_granularity=item",
+      "command": "rustfmt",
       "exts": ["rs"]
     }]
   },

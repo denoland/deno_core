@@ -3,9 +3,9 @@
 use super::buffer::JsBuffer;
 use super::transl8::FromV8;
 use super::transl8::ToV8;
-use crate::magic::transl8::impl_magic;
 use crate::Error;
 use crate::ToJsBuffer;
+use crate::magic::transl8::impl_magic;
 use num_bigint::BigInt;
 
 /// An untagged enum type that can be any of number, string, bool, bigint, or
@@ -23,10 +23,10 @@ pub enum AnyValue {
 impl_magic!(AnyValue);
 
 impl ToV8 for AnyValue {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     match self {
       Self::RustBuffer(buf) => crate::to_v8(scope, buf),
       Self::V8Buffer(_) => unreachable!(),
@@ -41,9 +41,9 @@ impl ToV8 for AnyValue {
 }
 
 impl FromV8 for AnyValue {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope<'scope, 'i>,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     if value.is_string() {
       let string = crate::from_v8(scope, value)?;

@@ -34,7 +34,10 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -95,7 +98,7 @@ const fn op_slow() -> ::deno_core::_ops::OpDecl {
     }
     impl op_slow {
         #[allow(clippy::too_many_arguments)]
-        fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
+        fn call(_scope: &v8::PinScope<'_, '_>, a: u32, b: u32) -> u32 {
             a + b
         }
     }
@@ -128,19 +131,16 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                         ],
@@ -156,22 +156,19 @@ const fn op_fast() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
-                            CType::CallbackOptions.scalar(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),
@@ -341,7 +338,10 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -402,7 +402,7 @@ const fn op_slow_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
     }
     impl<T: Trait> op_slow_generic<T> {
         #[allow(clippy::too_many_arguments)]
-        fn call(_scope: &v8::HandleScope, a: u32, b: u32) -> u32 {
+        fn call(_scope: &v8::PinScope<'_, '_>, a: u32, b: u32) -> u32 {
             a + b
         }
     }
@@ -435,19 +435,16 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                         ],
@@ -463,22 +460,19 @@ const fn op_fast_generic<T: Trait>() -> ::deno_core::_ops::OpDecl {
                     &deno_core::v8::fast_api::CFunctionInfo::new(
                         v8::fast_api::CTypeInfo::new(
                             CType::Uint32,
-                            v8::fast_api::SequenceType::Scalar,
                             v8::fast_api::Flags::Clamp,
                         ),
                         &[
-                            CType::V8Value.scalar(),
+                            CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Uint32,
-                                v8::fast_api::SequenceType::Scalar,
                                 v8::fast_api::Flags::Clamp,
                             ),
-                            CType::CallbackOptions.scalar(),
+                            CType::CallbackOptions.as_info(),
                         ],
                         deno_core::v8::fast_api::Int64Representation::BigInt,
                     ),

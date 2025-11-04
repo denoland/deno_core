@@ -274,6 +274,8 @@ export namespace core {
 
   function deserialize(buffer: Uint8Array, options?: any): any;
 
+  function structuredClone<T>(value: T): T;
+
   /**
    * Adds a callback for the given Promise event. If this function is called
    * multiple times, the callbacks are called in the order they were added.
@@ -1225,7 +1227,9 @@ export namespace primordials {
   export const SymbolPrototypeGetDescription: (symbol: symbol) => string;
   export const SymbolFor: typeof Symbol.for;
   export const SymbolKeyFor: typeof Symbol.keyFor;
+  export const SymbolAsyncDispose: typeof Symbol.asyncDispose;
   export const SymbolAsyncIterator: typeof Symbol.asyncIterator;
+  export const SymbolDispose: typeof Symbol.dispose;
   export const SymbolHasInstance: typeof Symbol.hasInstance;
   export const SymbolIsConcatSpreadable: typeof Symbol.isConcatSpreadable;
   export const SymbolIterator: typeof Symbol.iterator;

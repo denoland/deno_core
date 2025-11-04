@@ -11,11 +11,10 @@ use std::rc::Rc;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::ModuleLoaderError;
-use deno_core::resolve_import;
-use deno_core::url::Url;
 use deno_core::ModuleCodeBytes;
 use deno_core::ModuleCodeString;
+use deno_core::ModuleLoadOptions;
+use deno_core::ModuleLoadReferrer;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
 use deno_core::ModuleName;
@@ -26,6 +25,9 @@ use deno_core::ModuleType;
 use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::SourceMapData;
+use deno_core::error::ModuleLoaderError;
+use deno_core::resolve_import;
+use deno_core::url::Url;
 use deno_error::JsErrorBox;
 
 // TODO(bartlomieju): this is duplicated in `core/examples/ts_modules_loader.rs`.
@@ -56,15 +58,14 @@ impl ModuleLoader for TypescriptModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(
@@ -83,10 +84,20 @@ impl ModuleLoader for TypescriptModuleLoader {
       } else {
         root.join(Path::new(&module_specifier.path()[start..]))
       };
-      if let RequestedModuleType::Other(type_) = requested_module_type {
-        let bytes = fs::read(path)?;
+      if matches!(
+        requested_module_type,
+        RequestedModuleType::Bytes
+          | RequestedModuleType::Text
+          | RequestedModuleType::Other(_)
+      ) {
+        let bytes = fs::read(path).map_err(JsErrorBox::from_err)?;
         return Ok(ModuleSource::new(
-          ModuleType::Other(type_),
+          match requested_module_type {
+            RequestedModuleType::Bytes => ModuleType::Bytes,
+            RequestedModuleType::Text => ModuleType::Text,
+            RequestedModuleType::Other(ty) => ModuleType::Other(ty),
+            _ => unreachable!(),
+          },
           ModuleSourceCode::Bytes(ModuleCodeBytes::Boxed(bytes.into())),
           module_specifier,
           None,
@@ -112,13 +123,10 @@ impl ModuleLoader for TypescriptModuleLoader {
           if path.extension().unwrap_or_default() == "nocompile" {
             (ModuleType::JavaScript, false)
           } else {
-            return Err(
-              JsErrorBox::generic(format!(
-                "Unknown extension {:?}",
-                path.extension()
-              ))
-              .into(),
-            );
+            return Err(JsErrorBox::generic(format!(
+              "Unknown extension {:?}",
+              path.extension()
+            )));
           }
         }
       };
@@ -177,11 +185,11 @@ impl ModuleLoader for TypescriptModuleLoader {
     ModuleLoadResponse::Sync(load(
       source_maps,
       module_specifier,
-      requested_module_type,
+      options.requested_module_type,
     ))
   }
 
-  fn get_source_map(&self, specifier: &str) -> Option<Cow<[u8]>> {
+  fn get_source_map(&self, specifier: &str) -> Option<Cow<'_, [u8]>> {
     self
       .source_maps
       .borrow()

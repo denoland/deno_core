@@ -1,13 +1,13 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use proc_macro_rules::rules;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
-use proc_macro_rules::rules;
-use quote::format_ident;
-use quote::quote;
 use quote::ToTokens;
 use quote::TokenStreamExt;
+use quote::format_ident;
+use quote::quote;
 use std::collections::BTreeMap;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
@@ -193,7 +193,7 @@ impl BufferType {
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::Any),
         )*]
       };
-      (extra = $t:expr, $($mode:ident),*) => {
+      (extra = $t:expr_2021, $($mode:ident),*) => {
         &[$t, $(
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::TypedArray),
           AttributeModifier::Buffer(BufferMode::$mode, BufferSource::ArrayBuffer),
@@ -273,6 +273,7 @@ impl Eq for WebIDLDefault {}
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum Arg {
   Void,
+  VoidUndefined,
   Special(Special),
   String(Strings),
   Buffer(BufferType, BufferMode, BufferSource),
@@ -294,8 +295,9 @@ pub enum Arg {
   SerdeV8(String),
   State(RefType, String),
   OptionState(RefType, String),
-  CppGcResource(String),
+  CppGcResource(bool, String),
   OptionCppGcResource(String),
+  CppGcProtochain(Vec<String>),
   FromV8(String),
   ToV8(String),
   WebIDL(String, Vec<WebIDLPairs>, Option<WebIDLDefault>),
@@ -365,7 +367,8 @@ impl Arg {
         Special::FastApiCallbackOptions
         | Special::OpState
         | Special::JsRuntimeState
-        | Special::HandleScope,
+        | Special::HandleScope
+        | Special::Isolate,
       ) => true,
       Self::RcRefCell(
         Special::FastApiCallbackOptions
@@ -430,7 +433,7 @@ impl Arg {
       Arg::OptionString(t) => Arg::String(*t),
       Arg::OptionBuffer(t, m, s) => Arg::Buffer(*t, *m, *s),
       Arg::OptionState(r, t) => Arg::State(*r, t.clone()),
-      Arg::OptionCppGcResource(t) => Arg::CppGcResource(t.clone()),
+      Arg::OptionCppGcResource(t) => Arg::CppGcResource(false, t.clone()),
       _ => return None,
     })
   }
@@ -438,54 +441,60 @@ impl Arg {
   /// This must be kept in sync with the `RustToV8`/`RustToV8Fallible` implementations in `deno_core`. If
   /// this falls out of sync, you will see compile errors.
   pub fn slow_retval(&self) -> ArgSlowRetval {
-    if let Some(some) = self.some_type() {
-      // If this is an optional return value, we use the same return type as the underlying object.
-      match some.slow_retval() {
-        // We need a scope in the case of an option so we can allocate a null
-        ArgSlowRetval::V8LocalNoScope => ArgSlowRetval::RetVal,
-        rv => rv,
+    match self.some_type() {
+      Some(some) => {
+        // If this is an optional return value, we use the same return type as the underlying object.
+        match some.slow_retval() {
+          // We need a scope in the case of an option so we can allocate a null
+          ArgSlowRetval::V8LocalNoScope => ArgSlowRetval::RetVal,
+          rv => rv,
+        }
       }
-    } else {
-      match self {
-        Arg::Numeric(
-          NumericArg::i64
-          | NumericArg::u64
-          | NumericArg::isize
-          | NumericArg::usize,
-          NumericFlag::None,
-        ) => ArgSlowRetval::V8Local,
-        Arg::Numeric(
-          NumericArg::i64
-          | NumericArg::u64
-          | NumericArg::isize
-          | NumericArg::usize,
-          NumericFlag::Number,
-        ) => ArgSlowRetval::RetVal,
-        Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
-        Arg::External(_) => ArgSlowRetval::V8Local,
-        // Fast return value path for empty strings
-        Arg::String(_) => ArgSlowRetval::RetValFallible,
-        Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
-        Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
-        // No scope required for these
-        Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
-        Arg::V8Global(_) => ArgSlowRetval::V8Local,
-        // ArrayBuffer is infallible
-        Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
-        // TypedArray is fallible
-        Arg::Buffer(.., BufferSource::TypedArray) => {
-          ArgSlowRetval::V8LocalFalliable
+      _ => {
+        match self {
+          Arg::Numeric(
+            NumericArg::i64
+            | NumericArg::u64
+            | NumericArg::isize
+            | NumericArg::usize,
+            NumericFlag::None,
+          ) => ArgSlowRetval::V8Local,
+          Arg::Numeric(
+            NumericArg::i64
+            | NumericArg::u64
+            | NumericArg::isize
+            | NumericArg::usize,
+            NumericFlag::Number,
+          ) => ArgSlowRetval::RetVal,
+          Arg::VoidUndefined => ArgSlowRetval::V8LocalNoScope,
+          Arg::Void | Arg::Numeric(..) => ArgSlowRetval::RetVal,
+          Arg::External(_) => ArgSlowRetval::V8Local,
+          // Fast return value path for empty strings
+          Arg::String(_) => ArgSlowRetval::RetValFallible,
+          Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
+          Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
+          // No scope required for these
+          Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
+          Arg::V8Global(_) => ArgSlowRetval::V8Local,
+          // ArrayBuffer is infallible
+          Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
+          // TypedArray is fallible
+          Arg::Buffer(.., BufferSource::TypedArray) => {
+            ArgSlowRetval::V8LocalFalliable
+          }
+          // ArrayBuffer is infallible
+          Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
+            ArgSlowRetval::V8Local
+          }
+          // TypedArray is fallible
+          Arg::OptionBuffer(.., BufferSource::TypedArray) => {
+            ArgSlowRetval::V8LocalFalliable
+          }
+          Arg::CppGcResource(..) | Arg::CppGcProtochain(_) => {
+            ArgSlowRetval::V8Local
+          }
+          _ => ArgSlowRetval::None,
         }
-        // ArrayBuffer is infallible
-        Arg::OptionBuffer(.., BufferSource::ArrayBuffer) => {
-          ArgSlowRetval::V8Local
-        }
-        // TypedArray is fallible
-        Arg::OptionBuffer(.., BufferSource::TypedArray) => {
-          ArgSlowRetval::V8LocalFalliable
-        }
-        Arg::CppGcResource(_) => ArgSlowRetval::V8Local,
-        _ => ArgSlowRetval::None,
       }
     }
   }
@@ -500,8 +509,11 @@ impl Arg {
       Arg::SerdeV8(_) => ArgMarker::Serde,
       Arg::Numeric(NumericArg::__SMI__, _) => ArgMarker::Smi,
       Arg::Numeric(_, NumericFlag::Number) => ArgMarker::Number,
-      Arg::CppGcResource(_) | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
+      Arg::CppGcProtochain(_)
+      | Arg::CppGcResource(..)
+      | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
       Arg::ToV8(_) => ArgMarker::ToV8,
+      Arg::VoidUndefined => ArgMarker::Undefined,
       _ => ArgMarker::None,
     }
   }
@@ -542,6 +554,8 @@ pub enum ArgMarker {
   Cppgc,
   /// This type should be converted with `ToV8``
   ToV8,
+  /// This unit type should be a undefined.
+  Undefined,
 }
 
 #[derive(Debug)]
@@ -634,7 +648,7 @@ impl ParsedTypeContainer {
             return Err(ArgError::MissingAttribute(
               attr[0].name(),
               stringify_token(tp),
-            ))
+            ));
           }
           Some(primary) => {
             if !attr.contains(&primary) {
@@ -711,13 +725,13 @@ impl RetVal {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedSignature {
   // The parsed arguments
-  pub args: Vec<Arg>,
+  pub args: Vec<(Arg, Attributes)>,
   // The argument names
   pub names: Vec<String>,
   // The parsed return value
   pub ret_val: RetVal,
-  // One and only one lifetime allowed
-  pub lifetime: Option<String>,
+  // Lifetimes
+  pub lifetimes: Vec<String>,
   // Generic bounds: each generic must have one and only simple trait bound
   pub generic_bounds: BTreeMap<String, String>,
   // Metadata keys and values
@@ -789,12 +803,18 @@ pub enum AttributeModifier {
   Number,
   /// #[cppgc], for a resource backed managed by cppgc.
   CppGcResource,
+  /// #[proto]
+  CppGcProto,
   /// Any attribute that we may want to omit if not syntactically valid.
   Ignore,
   /// Varaible-length arguments.
   VarArgs,
   /// The `this` receiver.
   This,
+  /// `undefined`
+  Undefined,
+  /// Custom validator.
+  Validate(Path),
 }
 
 impl AttributeModifier {
@@ -812,9 +832,12 @@ impl AttributeModifier {
       AttributeModifier::State => "state",
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
+      AttributeModifier::CppGcProto => "proto",
       AttributeModifier::Ignore => "ignore",
       AttributeModifier::VarArgs => "varargs",
       AttributeModifier::This => "this",
+      AttributeModifier::Undefined => "undefined",
+      AttributeModifier::Validate(_) => "validate",
     }
   }
 }
@@ -825,21 +848,31 @@ pub enum SignatureError {
   ArgError(String, #[source] ArgError),
   #[error("Invalid return type")]
   RetError(#[from] RetError),
-  #[error("Only one lifetime is permitted")]
-  TooManyLifetimes,
-  #[error("Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)")]
+  #[error(
+    "Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)"
+  )]
   GenericBoundCardinality(String),
-  #[error("Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)")]
+  #[error(
+    "Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)"
+  )]
   WherePredicateMustAppearInGenerics(String),
-  #[error("All generics must appear only once in the generics parameter list or where clause")]
+  #[error(
+    "All generics must appear only once in the generics parameter list or where clause"
+  )]
   DuplicateGeneric(String),
   #[error("Generic lifetime '{0}' may not have bounds (eg: <'a: 'b>)")]
   LifetimesMayNotHaveBounds(String),
-  #[error("Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)")]
+  #[error(
+    "Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)"
+  )]
   InvalidGeneric(String),
-  #[error("Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)")]
+  #[error(
+    "Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)"
+  )]
   InvalidWherePredicate(String),
-  #[error("State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s")]
+  #[error(
+    "State may be either a single OpState parameter, one mutable #[state], or multiple immultiple #[state]s"
+  )]
   InvalidOpStateCombination,
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
@@ -851,7 +884,9 @@ pub enum SignatureError {
 pub enum AttributeError {
   #[error("Unknown or invalid attribute '{0}'")]
   InvalidAttribute(String),
-  #[error("Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead.")]
+  #[error(
+    "Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead."
+  )]
   InvalidInnerAttribute,
 }
 
@@ -891,7 +926,9 @@ pub enum ArgError {
   AttributeError(#[from] AttributeError),
   #[error("The type '{0}' is not allowed in this position")]
   NotAllowedInThisPosition(String),
-  #[error("Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position.")]
+  #[error(
+    "Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position."
+  )]
   InvalidDenoCorePrefix(String, String, String),
   #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
   ExpectedCppGcReference(String),
@@ -909,9 +946,10 @@ pub enum RetError {
   AttributeError(#[from] AttributeError),
 }
 
-#[derive(Clone, Default)]
+#[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub(crate) struct Attributes {
   primary: Option<AttributeModifier>,
+  pub(crate) rest: Vec<AttributeModifier>,
 }
 
 /// Where is this type defined?
@@ -927,6 +965,7 @@ impl Attributes {
   pub fn string() -> Self {
     Self {
       primary: Some(AttributeModifier::String(StringMode::Default)),
+      rest: vec![],
     }
   }
 }
@@ -1030,7 +1069,7 @@ pub fn parse_signature(
     parse_attributes(&attributes).map_err(RetError::AttributeError)?,
     &signature.output,
   )?;
-  let lifetime = parse_lifetime(&signature.generics)?;
+  let lifetimes = parse_lifetimes(&signature.generics)?;
   let generic_bounds = parse_generics(&signature.generics)?;
 
   let mut has_opstate = false;
@@ -1039,7 +1078,7 @@ pub fn parse_signature(
 
   let mut jsruntimestate_count = 0;
 
-  for arg in &args {
+  for (arg, _) in &args {
     match arg {
       Arg::RcRefCell(Special::OpState) | Arg::Ref(_, Special::OpState) => {
         has_opstate = true
@@ -1079,7 +1118,7 @@ pub fn parse_signature(
     args,
     names,
     ret_val,
-    lifetime,
+    lifetimes,
     generic_bounds,
     metadata,
   })
@@ -1087,10 +1126,8 @@ pub fn parse_signature(
 
 /// Extract one lifetime from the [`syn::Generics`], ensuring that the lifetime is valid
 /// and has no bounds.
-fn parse_lifetime(
-  generics: &Generics,
-) -> Result<Option<String>, SignatureError> {
-  let mut res = None;
+fn parse_lifetimes(generics: &Generics) -> Result<Vec<String>, SignatureError> {
+  let mut res = Vec::new();
   for param in &generics.params {
     if let GenericParam::Lifetime(lt) = param {
       if !lt.bounds.is_empty() {
@@ -1098,10 +1135,7 @@ fn parse_lifetime(
           lt.lifetime.to_string(),
         ));
       }
-      if res.is_some() {
-        return Err(SignatureError::TooManyLifetimes);
-      }
-      res = Some(lt.lifetime.ident.to_string());
+      res.push(lt.lifetime.ident.to_string());
     }
   }
   Ok(res)
@@ -1232,11 +1266,19 @@ fn parse_attributes(
     }
   }
 
+  if attrs.len() == 1 && matches!(attrs[0], AttributeModifier::Validate(_)) {
+    return Ok(Attributes {
+      primary: None,
+      rest: attrs,
+    });
+  }
+
   if attrs.is_empty() {
     return Ok(Attributes::default());
   }
   Ok(Attributes {
-    primary: Some((*attrs.first().unwrap()).clone()),
+    primary: Some((*attrs.last().unwrap()).clone()),
+    rest: attrs[..attrs.len() - 1].to_vec(),
   })
 }
 
@@ -1246,6 +1288,7 @@ pub fn is_attribute_special(attr: &Attribute) -> bool {
       .unwrap_or_default()
       .and_then(|attr| match attr {
         AttributeModifier::Ignore => None,
+        AttributeModifier::Validate(_) => None,
         _ => Some(()),
       })
       .is_some()
@@ -1268,7 +1311,9 @@ fn parse_attribute(
     rules!(tokens => {
       (#[bigint]) => Some(AttributeModifier::Bigint),
       (#[number]) => Some(AttributeModifier::Number),
+      (#[undefined]) => Some(AttributeModifier::Undefined),
       (#[serde]) => Some(AttributeModifier::Serde),
+      (#[validate($value:path)]) => Some(AttributeModifier::Validate(value)),
       (#[webidl]) => Some(AttributeModifier::WebIDL { options: vec![],default: None }),
       (#[webidl($(default = $default:expr)?$($(, )?options($($key:ident = $value:expr),*))?)]) => Some(AttributeModifier::WebIDL { options: key.map(|key| key.into_iter().zip(value.unwrap().into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect()).unwrap_or_default(), default: default.map(WebIDLDefault) }),
       (#[smi]) => Some(AttributeModifier::Smi),
@@ -1291,6 +1336,7 @@ fn parse_attribute(
       (#[global]) => Some(AttributeModifier::Global),
       (#[this]) => Some(AttributeModifier::This),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
+      (#[proto]) => Some(AttributeModifier::CppGcProto),
       (#[to_v8]) => Some(AttributeModifier::ToV8),
       (#[from_v8]) => Some(AttributeModifier::FromV8),
       (#[required ($_attr:literal)]) => Some(AttributeModifier::Ignore),
@@ -1354,10 +1400,10 @@ fn parse_type_path(
   use ParsedTypeContainer::*;
 
   let tokens = tp.clone().into_token_stream();
-  let res = if let Ok(numeric) = parse_numeric_type(&tp.path) {
-    CBare(TNumeric(numeric))
-  } else {
-    std::panic::catch_unwind(|| {
+  let res = match parse_numeric_type(&tp.path) {
+    Ok(numeric) => CBare(TNumeric(numeric)),
+    _ => {
+      std::panic::catch_unwind(|| {
       rules!(tokens => {
       ( $( std :: str  :: )? String ) => {
         Ok(CBare(TString(Strings::String)))
@@ -1393,7 +1439,7 @@ fn parse_type_path(
       ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
       ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
       ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
-      ( v8 :: HandleScope $( < $_scope:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
+      ( v8 :: PinScope $( < $_scope:lifetime , $_i:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
       ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
       ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
       ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
@@ -1424,6 +1470,7 @@ fn parse_type_path(
       }
     })
     }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
+    }
   };
 
   // Ensure that we have the correct reference state. This is a bit awkward but it's
@@ -1431,6 +1478,11 @@ fn parse_type_path(
   match res {
     // OpState and JsRuntimeState appears in both ways
     CBare(TSpecial(Special::OpState | Special::JsRuntimeState)) => {}
+    CBare(TSpecial(Special::Isolate)) => {
+      if ctx != TypePathContext::Ref {
+        return Err(ArgError::MissingReference(stringify_token(tp)));
+      }
+    }
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {
@@ -1499,11 +1551,17 @@ fn parse_type_state(ty: &Type) -> Result<Arg, ArgError> {
   Ok(s)
 }
 
-fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
+fn parse_cppgc(
+  position: Position,
+  ty: &Type,
+  proto: bool,
+) -> Result<Arg, ArgError> {
   match (position, ty) {
     (Position::Arg, Type::Reference(of)) if of.mutability.is_none() => {
       match &*of.elem {
-        Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+        Type::Path(of) => {
+          Ok(Arg::CppGcResource(proto, stringify_token(&of.path)))
+        }
         _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
       }
     }
@@ -1534,8 +1592,12 @@ fn parse_cppgc(position: Position, ty: &Type) -> Result<Arg, ArgError> {
             _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
           }
         }
+        ( ($sup:ty, $ty:ty) ) => match (sup, &ty) {
+           (Type::Path(sup), Type::Path(ty)) => Ok(Arg::CppGcProtochain(vec![stringify_token(&sup.path), stringify_token(&ty.path)])),
+           _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+        },
         ( $ty:ty ) => match ty {
-          Type::Path(of) => Ok(Arg::CppGcResource(stringify_token(&of.path))),
+          Type::Path(of) => Ok(Arg::CppGcResource(proto, stringify_token(&of.path))),
           _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
         },
       })
@@ -1571,8 +1633,17 @@ pub(crate) fn parse_type(
 
   if let Some(primary) = attrs.clone().primary {
     match primary {
-      AttributeModifier::Ignore => {
+      AttributeModifier::Ignore | AttributeModifier::Validate(_) => {
         unreachable!();
+      }
+      AttributeModifier::Undefined => {
+        if position == Position::Arg {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "return value",
+          ));
+        }
+        return Ok(Arg::VoidUndefined);
       }
       AttributeModifier::VarArgs => {
         if position == Position::RetVal {
@@ -1584,18 +1655,21 @@ pub(crate) fn parse_type(
 
         return Ok(Arg::VarArgs);
       }
-      AttributeModifier::CppGcResource => return parse_cppgc(position, ty),
+      AttributeModifier::CppGcResource => {
+        return parse_cppgc(position, ty, false);
+      }
+      AttributeModifier::CppGcProto => return parse_cppgc(position, ty, true),
       AttributeModifier::FromV8 if position == Position::RetVal => {
         return Err(ArgError::InvalidAttributePosition(
           primary.name(),
           "argument",
-        ))
+        ));
       }
       AttributeModifier::ToV8 if position == Position::Arg => {
         return Err(ArgError::InvalidAttributePosition(
           primary.name(),
           "return value",
-        ))
+        ));
       }
       AttributeModifier::Serde
       | AttributeModifier::FromV8
@@ -1694,12 +1768,14 @@ pub(crate) fn parse_type(
             _ => {
               return Err(ArgError::InvalidNumberAttributeType(
                 stringify_token(ty),
-              ))
+              ));
             }
           }
         }
         _ => {
-          return Err(ArgError::InvalidNumberAttributeType(stringify_token(ty)))
+          return Err(ArgError::InvalidNumberAttributeType(stringify_token(
+            ty,
+          )));
         }
       },
       AttributeModifier::Smi => match ty {
@@ -1738,24 +1814,19 @@ pub(crate) fn parse_type(
       match &*of.elem {
         // Note that we only allow numeric slices here -- if we decide to allow slices of things like v8 values,
         // this branch will need to be re-written.
-        Type::Slice(of) => {
-          if let Type::Path(path) = &*of.elem {
-            match parse_numeric_type(&path.path)? {
-              NumericArg::__VOID__ => {
-                Ok(Arg::External(External::Ptr(mut_type)))
-              }
-              numeric => {
-                let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
-                res.validate_attributes(position, attrs.clone(), &of)?;
-                Arg::from_parsed(res, attrs.clone()).map_err(|_| {
-                  ArgError::InvalidType(stringify_token(ty), "for slice")
-                })
-              }
+        Type::Slice(of) => match &*of.elem {
+          Type::Path(path) => match parse_numeric_type(&path.path)? {
+            NumericArg::__VOID__ => Ok(Arg::External(External::Ptr(mut_type))),
+            numeric => {
+              let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
+              res.validate_attributes(position, attrs.clone(), &of)?;
+              Arg::from_parsed(res, attrs.clone()).map_err(|_| {
+                ArgError::InvalidType(stringify_token(ty), "for slice")
+              })
             }
-          } else {
-            Err(ArgError::InvalidType(stringify_token(ty), "for slice"))
-          }
-        }
+          },
+          _ => Err(ArgError::InvalidType(stringify_token(ty), "for slice")),
+        },
         Type::Path(of) => {
           match parse_type_path(
             position,
@@ -1817,11 +1888,15 @@ pub(crate) fn parse_type(
         _ => Err(ArgError::InvalidType(stringify_token(ty), "for pointer")),
       }
     }
-    Type::Path(of) => Arg::from_parsed(
-      parse_type_path(position, attrs.clone(), TypePathContext::None, of)?,
-      attrs,
-    )
-    .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path")),
+    Type::Path(of) => {
+      let typath =
+        parse_type_path(position, attrs.clone(), TypePathContext::None, of)?;
+      if let CBare(TSpecial(Special::Isolate)) = typath {
+        return Ok(Arg::Special(Special::Isolate));
+      }
+      Arg::from_parsed(typath, attrs)
+        .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
+    }
     _ => Err(ArgError::InvalidType(
       stringify_token(ty),
       "for top-level type",
@@ -1829,18 +1904,20 @@ pub(crate) fn parse_type(
   }
 }
 
-fn parse_arg(arg: FnArg) -> Result<Arg, ArgError> {
+fn parse_arg(arg: FnArg) -> Result<(Arg, Attributes), ArgError> {
   let FnArg::Typed(typed) = arg else {
     return Err(ArgError::InvalidSelf);
   };
-  parse_type(Position::Arg, parse_attributes(&typed.attrs)?, &typed.ty)
+  let attrs = parse_attributes(&typed.attrs)?;
+  let ty = parse_type(Position::Arg, attrs.clone(), &typed.ty)?;
+  Ok((ty, attrs))
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
-  use syn::parse_str;
   use syn::ItemFn;
+  use syn::parse_str;
 
   // We can't test pattern args :/
   // https://github.com/rust-lang/rfcs/issues/2688
@@ -1862,7 +1939,7 @@ mod tests {
       $( where $($trait:ident : $bounds:ty),* )?
       ;
       // Expected return value
-      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:ty )* >)? ( $( $arg_res:expr ),* ) -> $ret_res:expr ) => {
+      $( < $( $lifetime_res:lifetime )? $(, $generic_res:ident : $bounds_res:ty )* >)? ( $( $arg_res:expr_2021 ),* ) -> $ret_res:expr_2021 ) => {
       #[test]
       fn $($name1)? $($name2)? () {
         test(
@@ -1893,7 +1970,7 @@ mod tests {
     println!("Raw parsed signatures = {sig:?}");
 
     let mut generics_res = vec![];
-    if let Some(lifetime) = sig.lifetime {
+    for lifetime in sig.lifetimes {
       generics_res.push(format!("'{lifetime}"));
     }
     for (name, bounds) in sig.generic_bounds {
@@ -1905,9 +1982,11 @@ mod tests {
         format!("< {} >", generics_res.join(", "))
       );
     }
+
+    let arg_ty = sig.args.iter().map(|a| a.0.clone()).collect::<Vec<_>>();
     assert_eq!(
       args_expected.replace('\n', " "),
-      format!("{:?}", sig.args)
+      format!("{:?}", arg_ty)
         .trim_matches(|c| c == '[' || c == ']')
         .replace('\n', " ")
         .replace('"', "")
@@ -1924,7 +2003,7 @@ mod tests {
   }
 
   macro_rules! expect_fail {
-    ($name:ident, $error:expr, $f:item) => {
+    ($name:ident, $error:expr_2021, $f:item) => {
       #[test]
       pub fn $name() {
         #[allow(unused)]
@@ -2036,7 +2115,7 @@ mod tests {
     (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void, false)
   );
   test!(
-    fn op_v8_scope<'s>(scope: &mut v8::HandleScope<'s>);
+    fn op_v8_scope<'s>(scope: &mut v8::PinScope<'s, '_>);
     <'s> (Ref(Mut, HandleScope)) -> Infallible(Void, false)
   );
   test!(
@@ -2090,9 +2169,18 @@ mod tests {
     fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
     (Rc(JsRuntimeState)) -> Infallible(Void, false)
   );
+  expect_fail!(
+    op_isolate_bare,
+    ArgError("isolate".into(), MissingReference("v8::Isolate".into())),
+    fn f(isolate: v8::Isolate) {}
+  );
   test!(
-    fn op_isolate(isolate: *mut v8::Isolate);
-    (Special(Isolate)) -> Infallible(Void, false)
+    fn op_isolate_ref(isolate: &v8::Isolate);
+    (Ref(Ref, Isolate)) -> Infallible(Void, false)
+  );
+  test!(
+    fn op_isolate_mut(isolate: &mut v8::Isolate);
+    (Ref(Mut, Isolate)) -> Infallible(Void, false)
   );
   test!(
     #[serde]
@@ -2229,7 +2317,6 @@ mod tests {
 
   // Generics
 
-  expect_fail!(op_with_two_lifetimes, TooManyLifetimes, fn f<'a, 'b>() {});
   expect_fail!(
     op_with_lifetime_bounds,
     LifetimesMayNotHaveBounds("'a".into()),

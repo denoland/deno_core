@@ -4,14 +4,9 @@ use super::kw;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::ext::IdentExt;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
 use syn::DataStruct;
 use syn::Error;
 use syn::Expr;
@@ -21,6 +16,11 @@ use syn::LitStr;
 use syn::MetaNameValue;
 use syn::Token;
 use syn::Type;
+use syn::ext::IdentExt;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 
 pub fn get_body(
   ident_string: String,
@@ -33,10 +33,10 @@ pub fn get_body(
       return Err(Error::new(
         span,
         "Unnamed fields are currently not supported",
-      ))
+      ));
     }
     Fields::Unit => {
-      return Err(Error::new(span, "Unit fields are currently not supported"))
+      return Err(Error::new(span, "Unit fields are currently not supported"));
     }
   };
 
@@ -114,9 +114,9 @@ pub fn get_body(
       quote!()
     };
 
-    let required_or_default = if let Some(default) = field.default_value {
+    let required_or_default = match field.default_value { Some(default) => {
       default.to_token_stream()
-    } else {
+    } _ => {
       quote! {
         return Err(::deno_core::webidl::WebIdlError::new(
           __prefix,
@@ -127,7 +127,7 @@ pub fn get_body(
           },
         ));
       }
-    };
+    }};
 
     quote! {
       let #original_name = {
@@ -256,14 +256,12 @@ impl TryFrom<Field> for DictionaryField {
     }
 
     if default_value.is_none() {
-      let is_option = if let Type::Path(path) = &value.ty {
-        if let Some(last) = path.path.segments.last() {
-          last.ident == "Option"
-        } else {
-          false
-        }
-      } else {
-        false
+      let is_option = match &value.ty {
+        Type::Path(path) => match path.path.segments.last() {
+          Some(last) => last.ident == "Option",
+          _ => false,
+        },
+        _ => false,
       };
 
       if is_option {

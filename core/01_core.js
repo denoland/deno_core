@@ -48,10 +48,12 @@
     op_encode,
     op_encode_binary_string,
     op_eval_context,
+    op_structured_clone,
     op_event_loop_has_more_work,
     op_get_extras_binding_object,
     op_get_promise_details,
     op_get_proxy_details,
+    op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
     op_lazy_load_esm,
     op_memory_usage,
@@ -425,6 +427,14 @@
   }
 
   const hostObjectBrand = SymbolFor("Deno.core.hostObject");
+  const transferableResources = {};
+  const registerTransferableResource = (name, send, receive) => {
+    if (transferableResources[name]) {
+      throw new Error(`${name} is already registered`);
+    }
+    transferableResources[name] = { send, receive };
+  };
+  const getTransferableResource = (name) => transferableResources[name];
 
   // A helper function that will bind our own console implementation
   // with default implementation of Console from V8. This will cause
@@ -478,6 +488,11 @@
       op_print(`${consoleStringify(...args)}\n`, false);
     };
   }
+
+  // Default impl of contextual logging
+  op_get_ext_import_meta_proto().log = function internalLog(level, ...args) {
+    console.error(`[${level.toUpperCase()}]`, ...args);
+  };
 
   const consoleStringify = (...args) => args.map(consoleStringifyArg).join(" ");
 
@@ -710,9 +725,12 @@
       return [result, null];
     },
     hostObjectBrand,
+    registerTransferableResource,
+    getTransferableResource,
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
     decode: (buffer) => op_decode(buffer),
+    structuredClone: (value) => op_structured_clone(value),
     serialize: (
       value,
       options,

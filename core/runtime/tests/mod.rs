@@ -1,17 +1,17 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::op2;
 use crate::CrossIsolateStore;
 use crate::JsRuntime;
 use crate::OpState;
 use crate::RuntimeOptions;
+use crate::op2;
 use deno_error::JsErrorBox;
 use serde_v8::JsBuffer;
 use std::cell::RefCell;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 
 mod error;
 mod jsrealm;
@@ -80,7 +80,7 @@ fn setup(mode: Mode) -> (JsRuntime, Arc<AtomicUsize>) {
     }
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops(mode, dispatch_count.clone())],
+    extensions: vec![test_ext::init(mode, dispatch_count.clone())],
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     ..Default::default()
   });

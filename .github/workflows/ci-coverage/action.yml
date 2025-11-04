@@ -7,7 +7,7 @@ runs:
     - name: Generate code coverage
       shell: bash
       run: |
-        cargo llvm-cov --workspace --release --all-features --bins --tests --examples --exclude deno_ops_compile_test_runner --lcov --output-path lcov.info
+        cargo llvm-cov --workspace --release --features "deno_core/default deno_core/include_js_files_for_snapshotting deno_core/unsafe_runtime_options deno_core/unsafe_use_unprotected_platform" --bins --tests --examples --exclude deno_ops_compile_test_runner --lcov --output-path lcov.info
     - name: Upload coverage to Codecov
       uses: codecov/codecov-action@v4
       with:

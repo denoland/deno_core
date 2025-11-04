@@ -30,9 +30,14 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
+use crate::cppgc::PrototypeChain;
+
 /// Convert a value to a `v8::Local`, potentially allocating.
 pub trait RustToV8<'a> {
-  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value>;
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> v8::Local<'a, v8::Value>;
 }
 
 /// Convert a value to a `v8::Local`, not allocating. This is generally not used for
@@ -48,17 +53,17 @@ pub trait RustToV8RetVal<'a>: RustToV8<'a> {
 
 /// Convert a value to a `v8::Local`, potentially allocating or failing.
 pub trait RustToV8Fallible<'a> {
-  fn to_v8_fallible(
+  fn to_v8_fallible<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>>;
 }
 
 /// Places a value in a `v8::ReturnValue`, potentially allocating or failing.
 pub trait RustToV8RetValFallible<'a>: RustToV8Fallible<'a> {
-  fn to_v8_rv_fallible(
+  fn to_v8_rv_fallible<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
     rv: &mut v8::ReturnValue<'a>,
   ) -> serde_v8::Result<()>;
 }
@@ -69,11 +74,13 @@ where
   T: RustToV8<'a>,
 {
   #[inline(always)]
-  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
-    if let Some(value) = self {
-      value.to_v8(scope)
-    } else {
-      v8::null(scope).into()
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> v8::Local<'a, v8::Value> {
+    match self {
+      Some(value) => value.to_v8(scope),
+      _ => v8::null(scope).into(),
     }
   }
 }
@@ -85,10 +92,9 @@ where
 {
   #[inline(always)]
   fn to_v8_rv(self, rv: &mut v8::ReturnValue<'a>) {
-    if let Some(value) = self {
-      value.to_v8_rv(rv)
-    } else {
-      rv.set_null()
+    match self {
+      Some(value) => value.to_v8_rv(rv),
+      _ => rv.set_null(),
     }
   }
 }
@@ -99,14 +105,13 @@ where
   T: RustToV8Fallible<'a>,
 {
   #[inline(always)]
-  fn to_v8_fallible(
+  fn to_v8_fallible<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
-    if let Some(value) = self {
-      value.to_v8_fallible(scope)
-    } else {
-      Ok(v8::null(scope).into())
+    match self {
+      Some(value) => value.to_v8_fallible(scope),
+      _ => Ok(v8::null(scope).into()),
     }
   }
 }
@@ -117,16 +122,17 @@ where
   T: RustToV8RetValFallible<'a>,
 {
   #[inline(always)]
-  fn to_v8_rv_fallible(
+  fn to_v8_rv_fallible<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
     rv: &mut v8::ReturnValue<'a>,
   ) -> serde_v8::Result<()> {
-    if let Some(value) = self {
-      value.to_v8_rv_fallible(scope, rv)
-    } else {
-      rv.set_null();
-      Ok(())
+    match self {
+      Some(value) => value.to_v8_rv_fallible(scope, rv),
+      _ => {
+        rv.set_null();
+        Ok(())
+      }
     }
   }
 }
@@ -165,8 +171,14 @@ impl Marker for ArrayBufferMarker {}
 pub struct CppGcMarker;
 impl Marker for CppGcMarker {}
 
+pub struct CppGcProtoMarker;
+impl Marker for CppGcProtoMarker {}
+
 pub struct ToV8Marker;
 impl Marker for ToV8Marker {}
+
+pub struct Undefined;
+impl Marker for Undefined {}
 
 trait Marker {}
 
@@ -179,11 +191,11 @@ trait Marker {}
 /// to_v8!(bool: |value, scope| v8::Boolean::new(scope, value as _));
 /// ```
 macro_rules! to_v8 {
-  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr_2021) => {
     $(
       impl <'a> RustToV8<'a> for $ty {
         #[inline(always)]
-        fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+        fn to_v8<'i>(self, scope: &mut v8::PinScope<'a, 'i>) -> v8::Local<'a, v8::Value> {
           let $value = self;
           let $scope = scope;
           v8::Local::<v8::Value>::from($block)
@@ -191,7 +203,7 @@ macro_rules! to_v8 {
       }
     )+
   };
-  ($ty:ty : |$value:ident, $scope:ident| $block:expr) => {
+  ($ty:ty : |$value:ident, $scope:ident| $block:expr_2021) => {
     to_v8!(( $ty ) : |$value, $scope| $block);
   };
 }
@@ -201,7 +213,7 @@ macro_rules! to_v8 {
 /// Implements a Rust-to-v8 conversion that cannot allocate or fail. Multiple types may be specified
 /// to apply the same implementation. Places the return value in a `v8::ReturnValue`.
 macro_rules! to_v8_retval {
-  (( $( $ty:ty ),+ ) : |$value:ident, $rv:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $rv:ident| $block:expr_2021) => {
     $(
       impl <'a> RustToV8RetVal<'a> for $ty {
         #[inline(always)]
@@ -213,7 +225,7 @@ macro_rules! to_v8_retval {
       }
     )+
   };
-  ($ty:ty : |$rv:ident, $scope:ident| $block:expr) => {
+  ($ty:ty : |$rv:ident, $scope:ident| $block:expr_2021) => {
     to_v8_retval!(( $ty ) : |$rv, $scope| $block);
   };
 }
@@ -230,12 +242,12 @@ macro_rules! to_v8_retval {
 /// });
 /// ```
 macro_rules! to_v8_fallible {
-  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $scope:ident| $block:expr_2021) => {
     $(
       #[allow(clippy::needless_borrow)]
       impl <'a> RustToV8Fallible<'a> for $ty {
         #[inline(always)]
-        fn to_v8_fallible(self, scope: &mut v8::HandleScope<'a>) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
+        fn to_v8_fallible<'i>(self, scope: &mut v8::PinScope<'a, 'i>) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
           let $value = self;
           let $scope = scope;
           let res = $block;
@@ -247,7 +259,7 @@ macro_rules! to_v8_fallible {
       }
     )+
   };
-  ($ty:ty : |$value:ident, $scope:ident| $block:expr) => {
+  ($ty:ty : |$value:ident, $scope:ident| $block:expr_2021) => {
     to_v8_fallible!(( $ty ) : |$value, $scope| $block);
   };
 }
@@ -258,11 +270,11 @@ macro_rules! to_v8_fallible {
 /// to apply the same implementation. Will place the output in a `v8::ReturnValue`, but
 /// will not allocate.
 macro_rules! to_v8_retval_fallible {
-  (( $( $ty:ty ),+ ) : |$value:ident, $scope: ident, $rv:ident| $block:expr) => {
+  (( $( $ty:ty ),+ ) : |$value:ident, $scope: ident, $rv:ident| $block:expr_2021) => {
     $(
       impl <'a> RustToV8RetValFallible<'a> for $ty {
         #[inline(always)]
-        fn to_v8_rv_fallible(self, scope: &mut v8::HandleScope<'a>, rv: &mut v8::ReturnValue<'a>) -> serde_v8::Result<()>{
+        fn to_v8_rv_fallible<'i>(self, scope: &mut v8::PinScope<'a, 'i>, rv: &mut v8::ReturnValue<'a>) -> serde_v8::Result<()>{
           let $value = self;
           let $scope = scope;
           let $rv = rv;
@@ -271,7 +283,7 @@ macro_rules! to_v8_retval_fallible {
       }
     )+
   };
-  ($ty:ty : |$value:ident, $scope: ident, $rv:ident| $block:expr) => {
+  ($ty:ty : |$value:ident, $scope: ident, $rv:ident| $block:expr_2021) => {
     to_v8_retval_fallible!(( $ty ) : |$value, $scope, $rv| $block);
   };
 }
@@ -417,9 +429,9 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
   for RustToV8Marker<SerdeMarker, T>
 {
   #[inline(always)]
-  fn to_v8_fallible(
+  fn to_v8_fallible<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
     serde_v8::to_v8(scope, self.0)
   }
@@ -428,15 +440,44 @@ impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
 //
 // CppGc
 //
-
 impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
   for RustToV8Marker<CppGcMarker, T>
 {
   #[inline(always)]
-  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> v8::Local<'a, v8::Value> {
     v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_object(
       scope, self.0,
     ))
+  }
+}
+
+impl<'a, T: crate::cppgc::GarbageCollected + PrototypeChain + 'static>
+  RustToV8<'a> for RustToV8Marker<CppGcProtoMarker, T>
+{
+  #[inline(always)]
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> v8::Local<'a, v8::Value> {
+    v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_proto_object(
+      scope, self.0,
+    ))
+  }
+}
+
+//
+// Undefined
+//
+impl<'a> RustToV8<'a> for RustToV8Marker<Undefined, ()> {
+  #[inline(always)]
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> v8::Local<'a, v8::Value> {
+    v8::undefined(scope).into()
   }
 }
 
@@ -444,9 +485,9 @@ impl<'a, T: crate::ToV8<'a>> RustToV8Fallible<'a>
   for RustToV8Marker<ToV8Marker, T>
 {
   #[inline(always)]
-  fn to_v8_fallible(
+  fn to_v8_fallible<'i>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
   ) -> serde_v8::Result<v8::Local<'a, v8::Value>> {
     self
       .0
@@ -468,7 +509,10 @@ macro_rules! smi_to_v8 {
       impl<'a> RustToV8<'a> for RustToV8Marker<SmiMarker, $ty>
       {
         #[inline(always)]
-        fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+        fn to_v8<'i>(
+          self,
+          scope: &mut v8::PinScope<'a, 'i>,
+        ) -> v8::Local<'a, v8::Value> {
           v8::Integer::new(scope, self.0 as _).into()
         }
       }
@@ -498,7 +542,10 @@ macro_rules! number_64_bit_to_v8 {
       impl<'a> RustToV8<'a> for RustToV8Marker<NumberMarker, $ty>
       {
         #[inline(always)]
-        fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+        fn to_v8<'i>(
+          self,
+          scope: &mut v8::PinScope<'a, 'i>,
+        ) -> v8::Local<'a, v8::Value> {
           v8::Number::new(scope, self.0 as _).into()
         }
       }
@@ -523,7 +570,10 @@ impl<'a, T> RustToV8<'a> for v8::Global<T>
 where
   v8::Local<'a, v8::Value>: From<v8::Local<'a, T>>,
 {
-  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> v8::Local<'a, v8::Value> {
     v8::Local::new(scope, self).into()
   }
 }
@@ -547,7 +597,10 @@ where
   v8::Local<'a, v8::Value>: From<v8::Local<'a, T>>,
 {
   #[inline(always)]
-  fn to_v8(self, scope: &mut v8::HandleScope<'a>) -> v8::Local<'a, v8::Value> {
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> v8::Local<'a, v8::Value> {
     if let Some(v) = self {
       v.to_v8()
     } else {

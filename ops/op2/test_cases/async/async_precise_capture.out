@@ -1,13 +1,13 @@
 #[allow(non_camel_case_types)]
-pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
+pub const fn op_async_impl_use() -> ::deno_core::_ops::OpDecl {
     #[allow(non_camel_case_types)]
-    pub struct op_async_result_impl {
+    pub struct op_async_impl_use {
         _unconstructable: ::std::marker::PhantomData<()>,
     }
-    impl ::deno_core::_ops::Op for op_async_result_impl {
-        const NAME: &'static str = stringify!(op_async_result_impl);
+    impl ::deno_core::_ops::Op for op_async_impl_use {
+        const NAME: &'static str = stringify!(op_async_impl_use);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-            ::deno_core::__op_name_fast!(op_async_result_impl),
+            ::deno_core::__op_name_fast!(op_async_impl_use),
             true,
             false,
             false,
@@ -23,7 +23,7 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
             },
         );
     }
-    impl op_async_result_impl {
+    impl op_async_impl_use {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
@@ -52,18 +52,6 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
                 };
                 let arg0 = arg0 as _;
                 Self::call(arg0)
-            };
-            let result = match result {
-                Ok(result) => result,
-                Err(err) => {
-                    let scope = ::std::pin::pin!(
-                        unsafe { deno_core::v8::CallbackScope::new(info) }
-                    );
-                    let mut scope = scope.init();
-                    let exception = deno_core::error::to_v8_error(&mut scope, &err);
-                    scope.throw_exception(exception);
-                    return 1;
-                }
             };
             let promise_id = deno_core::_ops::to_i32_option(&args.get(0))
                 .unwrap_or_default();
@@ -128,13 +116,11 @@ pub const fn op_async_result_impl() -> ::deno_core::_ops::OpDecl {
             }
         }
     }
-    impl op_async_result_impl {
+    impl op_async_impl_use {
         #[allow(clippy::too_many_arguments)]
-        pub fn call(
-            x: i32,
-        ) -> Result<impl Future<Output = std::io::Result<i32>>, JsErrorBox> {
-            Ok(async move { Ok(x) })
+        pub fn call(x: i32) -> impl Future<Output = std::io::Result<i32>> + use<> {
+            async move { Ok(x) }
         }
     }
-    <op_async_result_impl as ::deno_core::_ops::Op>::DECL
+    <op_async_impl_use as ::deno_core::_ops::Op>::DECL
 }

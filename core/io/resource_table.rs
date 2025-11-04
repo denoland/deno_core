@@ -172,7 +172,7 @@ impl ResourceTable {
   /// # let resource_table = ResourceTable::default();
   /// let resource_names = resource_table.names().collect::<Vec<_>>();
   /// ```
-  pub fn names(&self) -> impl Iterator<Item = (ResourceId, Cow<str>)> {
+  pub fn names(&self) -> impl Iterator<Item = (ResourceId, Cow<'_, str>)> {
     self
       .index
       .iter()

@@ -1,21 +1,24 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use anyhow::bail;
+use deno_core::JsRuntime;
+use deno_core::PollEventLoopOptions;
 use deno_core::op2;
 use deno_core::url::Url;
 use deno_core::v8;
-use deno_core::JsRuntime;
-use deno_core::PollEventLoopOptions;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
+use std::rc::Rc;
+use std::sync::OnceLock;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 
-use super::create_runtime;
-use super::run_async;
 use super::Output;
 use super::TestData;
+use super::create_runtime_from_snapshot;
+use super::run_async;
+use super::snapshot;
 
 deno_core::extension!(
   checkin_testing,
@@ -46,11 +49,24 @@ pub fn op_test_register(
   tests.functions.push((name, f));
 }
 
+fn create_runtime() -> JsRuntime {
+  static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
+
+  let snapshot = SNAPSHOT.get_or_init(snapshot::create_snapshot);
+
+  create_runtime_from_snapshot(
+    snapshot,
+    false,
+    None,
+    vec![checkin_testing::init()],
+  )
+  .0
+}
+
 /// Run a integration test within the `checkin` runtime. This executes a single file, imports and all,
 /// and compares its output with the `.out` file in the same directory.
 pub fn run_integration_test(test: &str) {
-  let (runtime, _) =
-    create_runtime(None, vec![checkin_testing::init_ops_and_esm()]);
+  let runtime = create_runtime();
   run_async(run_integration_test_task(runtime, test.to_owned()));
 }
 
@@ -60,27 +76,36 @@ async fn run_integration_test_task(
 ) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["integration", &test]);
   let url = get_test_url(&test_dir, &test)?;
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put(deno_core::error::InitialCwd(Rc::new(Url::parse(
+      "test:///",
+    )?)));
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   let mut actual_output = String::new();
-  if let Err(e) = runtime
+  match runtime
     .run_event_loop(PollEventLoopOptions::default())
     .await
   {
-    let state = runtime.op_state().clone();
-    let state = state.borrow();
-    let output: &Output = state.borrow();
-    for line in e.to_string().split('\n') {
-      output.line(format!("[ERR] {line}"));
-    }
-  } else {
-    // Only await the module if we didn't fail
-    if let Err(e) = f.await {
+    Err(e) => {
       let state = runtime.op_state().clone();
       let state = state.borrow();
       let output: &Output = state.borrow();
       for line in e.to_string().split('\n') {
         output.line(format!("[ERR] {line}"));
+      }
+    }
+    _ => {
+      // Only await the module if we didn't fail
+      if let Err(e) = f.await {
+        let state = runtime.op_state().clone();
+        let state = state.borrow();
+        let output: &Output = state.borrow();
+        for line in e.to_string().split('\n') {
+          output.line(format!("[ERR] {line}"));
+        }
       }
     }
   }
@@ -99,8 +124,7 @@ async fn run_integration_test_task(
 /// Run a unit test within the `checkin` runtime. This loads a file which registers a number of tests,
 /// then each test is run individually and failures are printed.
 pub fn run_unit_test(test: &str) {
-  let (runtime, _) =
-    create_runtime(None, vec![checkin_testing::init_ops_and_esm()]);
+  let runtime = create_runtime();
   run_async(run_unit_test_task(runtime, test.to_owned()));
 }
 
@@ -110,6 +134,12 @@ async fn run_unit_test_task(
 ) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["unit"]);
   let url = get_test_url(&test_dir, &test)?;
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put(deno_core::error::InitialCwd(Rc::new(Url::parse(
+      "test:///",
+    )?)));
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   runtime

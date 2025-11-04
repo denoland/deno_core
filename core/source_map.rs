@@ -2,9 +2,9 @@
 
 //! This mod provides functions to remap a `JsError` based on a source map.
 
-use crate::resolve_url;
 use crate::ModuleLoader;
 use crate::ModuleName;
+use crate::resolve_url;
 pub use sourcemap::SourceMap;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -168,13 +168,14 @@ mod tests {
   use url::Url;
 
   use super::*;
-  use crate::ascii_str;
-  use crate::error::ModuleLoaderError;
   use crate::ModuleCodeString;
+  use crate::ModuleLoadReferrer;
   use crate::ModuleLoadResponse;
   use crate::ModuleSpecifier;
-  use crate::RequestedModuleType;
   use crate::ResolutionKind;
+  use crate::ascii_str;
+  use crate::error::ModuleLoaderError;
+  use crate::modules::ModuleLoadOptions;
 
   struct SourceMapLoaderContent {
     source_map: Option<ModuleCodeString>,
@@ -198,14 +199,13 @@ mod tests {
     fn load(
       &self,
       _module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-      _requested_module_type: RequestedModuleType,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
+      _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
       unreachable!()
     }
 
-    fn get_source_map(&self, file_name: &str) -> Option<Cow<[u8]>> {
+    fn get_source_map(&self, file_name: &str) -> Option<Cow<'_, [u8]>> {
       let url = Url::parse(file_name).unwrap();
       let content = self.map.get(&url)?;
       content

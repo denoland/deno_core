@@ -9,8 +9,7 @@ use super::extensions;
 use super::ts_module_loader::maybe_transpile_source;
 
 pub fn create_snapshot() -> Box<[u8]> {
-  let extensions_for_snapshot =
-    vec![extensions::checkin_runtime::init_ops_and_esm::<()>()];
+  let extensions_for_snapshot = vec![extensions::checkin_runtime::init::<()>()];
 
   let runtime_for_snapshot = JsRuntimeForSnapshot::new(RuntimeOptions {
     extensions: extensions_for_snapshot,

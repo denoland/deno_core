@@ -19,28 +19,33 @@ pub struct TypeErased<const MAX_SIZE: usize> {
 impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
   #[inline(always)]
   pub unsafe fn take<R: 'static>(self) -> R {
-    assert!(
-      std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory),
-      "Invalid size for {}: {} (max {})",
-      std::any::type_name::<R>(),
-      std::mem::size_of::<R>(),
-      std::mem::size_of_val(&self.memory)
-    );
-    assert!(
-      std::mem::align_of::<R>() <= std::mem::align_of_val(&self),
-      "Invalid alignment for {}: {} (max {})",
-      std::any::type_name::<R>(),
-      std::mem::align_of::<R>(),
-      std::mem::align_of_val(&self)
-    );
-    let r = std::ptr::read(self.memory.as_ptr() as _);
-    std::mem::forget(self);
-    r
+    unsafe {
+      assert!(
+        std::mem::size_of::<R>() <= std::mem::size_of_val(&self.memory),
+        "Invalid size for {}: {} (max {})",
+        std::any::type_name::<R>(),
+        std::mem::size_of::<R>(),
+        std::mem::size_of_val(&self.memory)
+      );
+      assert!(
+        std::mem::align_of::<R>() <= std::mem::align_of_val(&self),
+        "Invalid alignment for {}: {} (max {})",
+        std::any::type_name::<R>(),
+        std::mem::align_of::<R>(),
+        std::mem::align_of_val(&self)
+      );
+      let r = std::ptr::read(self.memory.as_ptr() as _);
+      std::mem::forget(self);
+      r
+    }
   }
 
   #[inline(always)]
-  pub fn raw_ptr<R>(&mut self) -> NonNull<R> {
-    unsafe { NonNull::new_unchecked(self.memory.as_mut_ptr() as *mut _) }
+  /// Safety: This uses a place projection to `this.memory`, which must be in-bounds.
+  pub unsafe fn raw_ptr<R>(this: *mut Self) -> NonNull<R> {
+    unsafe {
+      NonNull::new_unchecked(std::ptr::addr_of_mut!((*this).memory) as *mut _)
+    }
   }
 
   #[inline(always)]
@@ -71,7 +76,7 @@ impl<const MAX_SIZE: usize> TypeErased<MAX_SIZE> {
 
 impl<const MAX_SIZE: usize> Drop for TypeErased<MAX_SIZE> {
   fn drop(&mut self) {
-    (self.drop)(self.raw_ptr::<()>())
+    (self.drop)(unsafe { Self::raw_ptr(self) })
   }
 }
 
@@ -95,10 +100,12 @@ impl<const MAX_SIZE: usize, Output> ErasedFuture<MAX_SIZE, Output> {
   where
     F: Future<Output = Output>,
   {
-    F::poll(
-      std::mem::transmute::<Pin<&mut TypeErased<MAX_SIZE>>, Pin<&mut F>>(pin),
-      cx,
-    )
+    unsafe {
+      F::poll(
+        std::mem::transmute::<Pin<&mut TypeErased<MAX_SIZE>>, Pin<&mut F>>(pin),
+        cx,
+      )
+    }
   }
 
   #[allow(dead_code)]

@@ -1,16 +1,21 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::op2::signature::AttributeModifier;
+
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
+use super::generator_state::GeneratorState;
 use super::generator_state::gs_extract;
 use super::generator_state::gs_quote;
-use super::generator_state::GeneratorState;
 use super::signature::Arg;
 use super::signature::ArgMarker;
 use super::signature::ArgSlowRetval;
+use super::signature::Attributes;
 use super::signature::BufferMode;
 use super::signature::BufferSource;
 use super::signature::BufferType;
@@ -23,15 +28,13 @@ use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::signature::WebIDLPairs;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::parse2;
 use syn::Type;
+use syn::parse2;
 
 pub(crate) fn generate_dispatch_slow_call(
   generator_state: &mut GeneratorState,
@@ -43,13 +46,15 @@ pub(crate) fn generate_dispatch_slow_call(
   let mut args = TokenStream::new();
   let mut deferred = TokenStream::new();
 
-  for (index, arg) in signature.args.iter().enumerate() {
+  for (index, (arg, attrs)) in signature.args.iter().enumerate() {
     let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?;
+      .map_err(|s| {
+        V8SignatureMappingError::NoArgMapping(s, Box::new(arg.clone()))
+      })?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
     } else {
-      args.extend(extract_arg(generator_state, index, input_index));
+      args.extend(extract_arg(generator_state, attrs, index, input_index));
       args.extend(arg_mapped);
       input_index += 1;
     }
@@ -75,10 +80,27 @@ pub(crate) fn generate_dispatch_slow(
   if !config.setter {
     output.extend(return_value(generator_state, &signature.ret_val).map_err(
       |s| {
-        V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+        V8SignatureMappingError::NoRetValMapping(
+          s,
+          Box::new(signature.ret_val.clone()),
+        )
       },
     )?);
   }
+
+  let with_validate = if let Some(validate) = &config.validate {
+    generator_state.needs_scope = true;
+    generator_state.needs_args = true;
+
+    let exception = throw_exception(generator_state);
+    gs_quote!(generator_state(scope, fn_args) => {
+      if let Err(err) = #validate(&mut #scope, &#fn_args) {
+        #exception;
+      }
+    })
+  } else {
+    quote!()
+  };
 
   let with_stack_trace = if generator_state.needs_stack_trace {
     with_stack_trace(generator_state)
@@ -124,9 +146,11 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_required_check = if generator_state.needs_args && config.required > 0
+  let with_required_check = if generator_state.needs_args
+    && let Some(required) = config.required
+    && required > 0
   {
-    with_required_check(generator_state, config.required)
+    with_required_check(generator_state, required)
   } else {
     quote!()
   };
@@ -152,6 +176,7 @@ pub(crate) fn generate_dispatch_slow(
         #with_scope
         #with_retval
         #with_args
+        #with_validate
         #with_required_check
         #with_opctx
         #with_self
@@ -195,13 +220,14 @@ pub(crate) fn with_isolate(
 ) -> TokenStream {
   generator_state.needs_opctx = true;
   gs_quote!(generator_state(opctx, scope) =>
-    (let mut #scope = unsafe { &mut *#opctx.isolate };)
+    (let mut #scope = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+    let mut scope = &mut #scope;)
   )
 }
 
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(info, scope) =>
-    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(#info) };)
+    (let #scope = ::std::pin::pin!(unsafe { deno_core::v8::CallbackScope::new(#info) }); let mut scope = scope.init();)
   )
 }
 
@@ -322,38 +348,59 @@ pub(crate) fn with_self(
     format!("expected {}", &generator_state.self_ty),
   );
   if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
-    let tokens = gs_quote!(generator_state(self_ty, fn_args, scope) => {
-      let Some(mut self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
+    let tokens = gs_quote!(generator_state(self_ty, fn_args, scope, try_unwrap_cppgc) => {
+      let Some(mut self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
       };
       self_.root();
     });
 
     generator_state.moves.push(quote! {
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     });
 
     tokens
   } else {
-    gs_quote!(generator_state(self_ty, fn_args, scope) => {
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
+    gs_quote!(generator_state(self_ty, fn_args, scope, try_unwrap_cppgc) => {
+      let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
       };
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     })
   }
 }
 
 pub fn extract_arg(
   generator_state: &mut GeneratorState,
+  attrs: &Attributes,
   index: usize,
   input_index: usize,
 ) -> TokenStream {
-  let GeneratorState { fn_args, .. } = &generator_state;
+  let exception = throw_exception(generator_state);
   let arg_ident = generator_state.args.get(index);
 
+  let mut early_validate = quote! {};
+
+  for attr in &attrs.rest {
+    if let AttributeModifier::Validate(path) = attr {
+      generator_state.needs_scope = true;
+      let scope = &generator_state.scope;
+
+      early_validate = quote! {
+        match #path(&mut #scope, #arg_ident) {
+          Ok(_) => {}
+          Err(err) => {
+            #exception;
+          }
+        };
+      };
+    }
+  }
+
+  let fn_args = &generator_state.fn_args;
   quote!(
     let #arg_ident = #fn_args.get(#input_index as i32);
+    #early_validate
   )
 }
 
@@ -373,6 +420,7 @@ pub fn from_arg(
     needs_isolate,
     needs_opstate,
     needs_opctx,
+    fn_args,
     needs_js_runtime_state,
     ..
   } = &mut generator_state;
@@ -467,7 +515,8 @@ pub fn from_arg(
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = if !#arg_ident.is_string() {
             #maybe_scope
-            let mut tc = deno_core::v8::TryCatch::new(&mut #scope);
+            let tc = ::std::pin::pin!(deno_core::v8::TryCatch::new(&mut #scope));
+            let mut tc = tc.init();
             match #arg_ident.to_string(&mut tc) {
                 Some(v) => v.into(),
                 None => {
@@ -548,9 +597,19 @@ pub fn from_arg(
     Arg::External(External::Ptr(_)) => {
       from_arg_option(generator_state, &arg_ident, "external")
     }
-    Arg::Special(Special::Isolate) => {
+    Arg::Ref(RefType::Ref, Special::Isolate) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = #opctx.isolate;)
+      quote!(
+        let #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+        let #arg_ident = &#arg_ident;
+      )
+    }
+    Arg::Ref(RefType::Mut, Special::Isolate) => {
+      *needs_opctx = true;
+      quote!(
+        let mut #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+        let #arg_ident = &mut #arg_ident;
+      )
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
@@ -700,24 +759,33 @@ pub fn from_arg(
 
       let default = if let Some(default) = default {
         let tokens = default.0.to_token_stream();
-        let default = if let Ok(lit) = parse2::<syn::LitStr>(tokens.clone()) {
-          if lit.value().is_empty() {
-            quote! {
-              deno_core::v8::String::empty(&mut #scope)
+        let default = match parse2::<syn::LitStr>(tokens.clone()) {
+          Ok(lit) => {
+            if lit.value().is_empty() {
+              quote! {
+                deno_core::v8::String::empty(&mut #scope)
+              }
+            } else {
+              return Err("unsupported WebIDL default value");
             }
-          } else {
-            return Err("unsupported WebIDL default value");
           }
-        } else if let Ok(lit) = parse2::<syn::LitInt>(tokens.clone()) {
-          quote! {
-            deno_core::v8::Number::new(&mut #scope, #lit as _)
-          }
-        } else if let Ok(lit) = parse2::<syn::LitFloat>(tokens) {
-          quote! {
-            deno_core::v8::Number::new(&mut #scope, #lit)
-          }
-        } else {
-          return Err("unsupported WebIDL default value");
+          _ => match parse2::<syn::LitInt>(tokens.clone()) {
+            Ok(lit) => {
+              quote! {
+                deno_core::v8::Number::new(&mut #scope, #lit as _)
+              }
+            }
+            _ => match parse2::<syn::LitFloat>(tokens) {
+              Ok(lit) => {
+                quote! {
+                  deno_core::v8::Number::new(&mut #scope, #lit)
+                }
+              }
+              _ => {
+                return Err("unsupported WebIDL default value");
+              }
+            },
+          },
         };
 
         quote! {
@@ -748,11 +816,18 @@ pub fn from_arg(
         };
       }
     }
-    Arg::CppGcResource(ty) => {
+    Arg::CppGcResource(proto, ty) => {
       *needs_scope = true;
-      let scope = scope.clone();
+      let from_ident = if *proto {
+        quote!(#fn_args.this().into())
+      } else {
+        quote!(#arg_ident)
+      };
       let throw_exception =
         throw_type_error(generator_state, format!("expected {}", &ty));
+
+      let scope = &generator_state.scope;
+      let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       if matches!(
@@ -763,21 +838,21 @@ pub fn from_arg(
           | RetVal::Result(.., true)
       ) {
         let tokens = quote! {
-          let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+          let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
           #arg_ident.root();
         };
         generator_state.moves.push(quote! {
-          let #arg_ident = &*#arg_ident;
+          let #arg_ident = unsafe { #arg_ident.as_ref() };
         });
         tokens
       } else {
         quote! {
-          let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+          let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
-          let #arg_ident = &*#arg_ident;
+          let #arg_ident = unsafe { #arg_ident.as_ref() };
         }
       }
     }
@@ -788,6 +863,7 @@ pub fn from_arg(
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       let scope = &generator_state.scope;
+      let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
       if matches!(
         ret_val,
         RetVal::Future(_)
@@ -798,7 +874,7 @@ pub fn from_arg(
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
-          } else if let Some(mut #arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+          } else if let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) {
             #arg_ident.root();
             Some(#arg_ident)
           } else {
@@ -807,7 +883,7 @@ pub fn from_arg(
         };
 
         generator_state.moves.push(quote! {
-          let #arg_ident = #arg_ident.as_deref();
+          let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
         });
 
         tokens
@@ -820,7 +896,7 @@ pub fn from_arg(
           } else {
             #throw_exception;
           };
-          let #arg_ident = #arg_ident.as_deref();
+          let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
         }
       }
     }
@@ -1018,7 +1094,7 @@ pub fn call(
     ret_val,
     RetVal::Infallible(.., true) | RetVal::Result(.., true)
   ) {
-    return quote!(std::future::ready(#call));
+    quote!(std::future::ready(#call))
   } else {
     call
   }
@@ -1061,9 +1137,30 @@ pub fn return_value_infallible(
     }
     ArgMarker::Cppgc if generator_state.use_this_cppgc => {
       generator_state.needs_isolate = true;
+      let wrap_object = match ret_type {
+        Arg::CppGcProtochain(chain) => {
+          let wrap_object = format_ident!("wrap_object{}", chain.len());
+          quote!(#wrap_object)
+        }
+        _ => {
+          if generator_state.use_proto_cppgc {
+            quote!(wrap_object1)
+          } else {
+            quote!(wrap_object)
+          }
+        }
+      };
       gs_quote!(generator_state(result, scope) => (
-           Some(deno_core::cppgc::wrap_object(&mut #scope, args.this(), #result))
+           Some(deno_core::cppgc::#wrap_object(&mut #scope, args.this(), #result))
       ))
+    }
+    ArgMarker::Cppgc if generator_state.use_proto_cppgc => {
+      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcProtoMarker, _>::from);
+      if ret_type.is_option() {
+        gs_quote!(generator_state(result) => (#result.map(#marker)))
+      } else {
+        gs_quote!(generator_state(result) => (#marker(#result)))
+      }
     }
     ArgMarker::Cppgc => {
       let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
@@ -1076,7 +1173,12 @@ pub fn return_value_infallible(
     ArgMarker::ToV8 => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
     }
-    ArgMarker::None => gs_quote!(generator_state(result) => (#result)),
+    ArgMarker::Undefined => {
+      gs_quote!(generator_state(scope) => (deno_core::v8::undefined(&mut #scope)))
+    }
+    ArgMarker::None => {
+      gs_quote!(generator_state(result) => (#result))
+    }
   };
   let res = match ret_type.slow_retval() {
     ArgSlowRetval::RetVal => {
@@ -1153,6 +1255,9 @@ pub fn return_value_v8_value(
     }
     ArgMarker::ToV8 => {
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result))
+    }
+    ArgMarker::Undefined => {
+      quote!(deno_core::v8::undefined(#scope).into())
     }
     ArgMarker::None => quote!(#result),
   };

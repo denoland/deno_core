@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use self::runtime::create_snapshot;
 use self::runtime::CreateSnapshotOptions;
+use self::runtime::create_snapshot;
 use crate::modules::ModuleInfo;
 use crate::modules::RequestedModuleType;
 use crate::runtime::NO_OF_BUILTIN_MODULES;
@@ -223,9 +223,12 @@ fn es_snapshot() {
       main,
       name: specifier.into(),
       requests: vec![crate::modules::ModuleRequest {
-        specifier: ModuleSpecifier::parse(&format!("file:///{prev}.js"))
-          .unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse(&format!("file:///{prev}.js"))
+            .unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(25 + prev.to_string().len() as i32),
       }],
       module_type: ModuleType::JavaScript,
     }
@@ -315,7 +318,7 @@ fn es_snapshot() {
   #[allow(deprecated)]
   let val = futures::executor::block_on(runtime3.resolve_value(val)).unwrap();
   {
-    let scope = &mut runtime3.handle_scope();
+    deno_core::scope!(scope, runtime3);
     let value = v8::Local::new(scope, val);
     let str_ = value.to_string(scope).unwrap().to_rust_string_lossy(scope);
     assert_eq!(str_, "hello world test");
@@ -333,7 +336,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
     );
 
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![module_snapshot::init_ops_and_esm()],
+      extensions: vec![module_snapshot::init()],
       ..Default::default()
     });
 
@@ -351,7 +354,7 @@ pub(crate) fn es_snapshot_without_runtime_module_loader() {
 
   // Make sure the module was evaluated.
   {
-    let scope = &mut realm.handle_scope(runtime.v8_isolate());
+    deno_core::scope!(scope, runtime);
     let global_test: v8::Local<v8::String> =
       JsRuntime::eval(scope, "globalThis.TEST").unwrap();
     assert_eq!(
@@ -428,7 +431,7 @@ pub fn snapshot_with_additional_extensions() {
 
   let snapshot = {
     let runtime = JsRuntimeForSnapshot::new(RuntimeOptions {
-      extensions: vec![before_snapshot::init_ops_and_esm()],
+      extensions: vec![before_snapshot::init()],
       ..Default::default()
     });
 
@@ -437,16 +440,13 @@ pub fn snapshot_with_additional_extensions() {
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     startup_snapshot: Some(snapshot),
-    extensions: vec![
-      before_snapshot::init_ops(),
-      after_snapshot::init_ops_and_esm(),
-    ],
+    extensions: vec![before_snapshot::init(), after_snapshot::init()],
     ..Default::default()
   });
 
   // Make sure the module was evaluated.
   {
-    let scope = &mut runtime.main_realm().handle_scope(runtime.v8_isolate());
+    deno_core::scope!(scope, runtime);
     let global_test: v8::Local<v8::String> =
       JsRuntime::eval(scope, "globalThis.BEFORE + '/' + globalThis.AFTER")
         .unwrap();

@@ -1,6 +1,17 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
-import { assert, assertArrayEquals, assertEquals, test } from "checkin:testing";
-import { DOMPoint, TestEnumWrap, TestObjectWrap } from "checkin:object";
+import {
+  assert,
+  assertArrayEquals,
+  assertEquals,
+  assertThrows,
+  test,
+} from "checkin:testing";
+import {
+  DOMPoint,
+  DOMPointReadOnly,
+  TestEnumWrap,
+  TestObjectWrap,
+} from "checkin:object";
 
 const {
   op_pipe_create,
@@ -55,8 +66,25 @@ test(function opsSyncBadResource() {
 });
 
 test(async function testFileIsNotTerminal() {
-  const file = await op_file_open("./README.md");
+  const file = await op_file_open("./README.md", true);
   assert(!Deno.core.isTerminal(file));
+});
+
+test(async function testFileReadUnref() {
+  const file = await op_file_open("./README.md", true);
+
+  let called = false;
+  await Deno.core.read(file, new Uint8Array(100))
+    .then(() => {
+      called = true;
+    });
+  assert(called);
+
+  const file2 = await op_file_open("./README.md", false);
+  Deno.core.read(file2, new Uint8Array(100))
+    .then(() => {
+      throw new Error("should not be called");
+    });
 });
 
 test(async function testCppgcAsync() {
@@ -75,6 +103,21 @@ test(async function testDomPoint() {
   assertEquals(p3.x, 200);
   assertEquals(p4.x, 0);
   assertEquals(p5.x, 200);
+
+  assertEquals(DOMPoint.fromPoint.length, 1);
+  const { get, set } = Object.getOwnPropertyDescriptor(
+    Object.getPrototypeOf(p1),
+    "x",
+  );
+  assertEquals(get.name, "get x");
+  assertEquals(get.length, 0);
+  assertEquals(set.name, "set x");
+  assertEquals(set.length, 1);
+
+  assert(p1 instanceof DOMPoint);
+  assert(p1 instanceof DOMPointReadOnly);
+
+  assertEquals("prototype" in DOMPoint.prototype.wrappingSmi, false);
 
   let caught;
   try {
@@ -107,10 +150,41 @@ test(async function testDomPoint() {
   wrap.withThis();
   wrap.with_RENAME();
 
+  assert(wrap.undefinedResult() === undefined);
+
+  wrap.withValidateInt(10);
+
+  assertThrows(
+    () => {
+      // @ts-expect-error bad arg test
+      wrap.withValidateInt(2, 2);
+    },
+    TypeError,
+    "Expected one argument",
+  );
+
+  assertThrows(
+    () => {
+      // @ts-expect-error bad arg test
+      wrap.withValidateInt("bad");
+    },
+    TypeError,
+    "Expected int",
+  );
+
   const promise = wrap.withAsyncFn(10);
   assert(promise instanceof Promise);
 
   await promise;
 
   new TestEnumWrap();
+});
+
+// TODO(littledivy): write this test using natives api when exposed
+test(function testFastProtoMethod() {
+  const obj = new TestObjectWrap();
+
+  for (let i = 0; i < 10000; i++) {
+    obj.withScopeFast(); // trigger fast call
+  }
 });

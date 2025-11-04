@@ -6,9 +6,9 @@
 // Here we are deserializing to `serde_json::Value` but you can
 // deserialize to any other type that implements the `Deserialize` trait.
 
-use deno_core::v8;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
+use deno_core::v8;
 
 fn main() {
   let mut runtime = JsRuntime::new(RuntimeOptions::default());
@@ -31,7 +31,7 @@ fn eval(
   let res = context.execute_script("<anon>", code);
   match res {
     Ok(global) => {
-      let scope = &mut context.handle_scope();
+      deno_core::scope!(scope, context);
       let local = v8::Local::new(scope, global);
       // Deserialize a `v8` object into a Rust type using `serde_v8`,
       // in this case deserialize to a JSON `Value`.
