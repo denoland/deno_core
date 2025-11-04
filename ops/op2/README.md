@@ -869,34 +869,6 @@ Rc<RefCell<OpState>>
 <td>
 
 ```text
-#[state] &StateObject
-```
-
-</td><td>
-✅
-</td><td>
-
-</td><td>
-Extracts an object from `OpState`.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[state] &mut StateObject
-```
-
-</td><td>
-✅
-</td><td>
-
-</td><td>
-Extracts an object from `OpState`.
-</td></tr>
-<tr>
-<td>
-
-```text
 &JsRuntimeState
 ```
 

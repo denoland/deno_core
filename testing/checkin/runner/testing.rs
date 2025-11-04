@@ -2,6 +2,7 @@
 
 use anyhow::bail;
 use deno_core::JsRuntime;
+use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
 use deno_core::op2;
 use deno_core::url::Url;
@@ -42,11 +43,14 @@ pub struct TestFunctions {
 
 #[op2]
 pub fn op_test_register(
-  #[state] tests: &mut TestFunctions,
+  op_state: &mut OpState,
   #[string] name: String,
   #[global] f: v8::Global<v8::Function>,
 ) {
-  tests.functions.push((name, f));
+  op_state
+    .borrow_mut::<TestFunctions>()
+    .functions
+    .push((name, f));
 }
 
 fn create_runtime() -> JsRuntime {

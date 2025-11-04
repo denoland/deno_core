@@ -33,7 +33,6 @@ use proc_macro2::TokenStream;
 use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use syn::Type;
 use syn::parse2;
 
 pub(crate) fn generate_dispatch_slow_call(
@@ -630,42 +629,6 @@ pub fn from_arg(
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
-    }
-    Arg::State(RefType::Ref, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = ::std::cell::RefCell::borrow(&#opstate);
-        let #arg_ident = deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
-      }
-    }
-    Arg::State(RefType::Mut, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = ::std::cell::RefCell::borrow_mut(&#opstate);
-        let #arg_ident = deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
-      }
-    }
-    Arg::OptionState(RefType::Ref, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = &::std::cell::RefCell::borrow(&#opstate);
-        let #arg_ident = #arg_ident.try_borrow::<#state>();
-      }
-    }
-    Arg::OptionState(RefType::Mut, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opstate);
-        let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
-      }
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
