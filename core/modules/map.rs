@@ -3,7 +3,9 @@
 use super::IntoModuleCodeString;
 use super::IntoModuleName;
 use super::ModuleConcreteError;
+use super::loaders::ModuleLoadOptions;
 use super::module_map_data::ModuleMapSnapshotData;
+use super::recursive_load::SideModuleKind;
 use crate::FastStaticString;
 use crate::JsRuntime;
 use crate::ModuleCodeBytes;
@@ -38,6 +40,7 @@ use crate::source_map::SourceMapper;
 use capacity_builder::StringBuilder;
 use deno_error::JsErrorBox;
 use futures::StreamExt;
+use futures::future::Either;
 use futures::future::FutureExt;
 use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
@@ -1063,9 +1066,13 @@ impl ModuleMap {
   pub(crate) async fn load_side(
     module_map_rc: Rc<ModuleMap>,
     specifier: impl AsRef<str>,
+    kind: SideModuleKind,
   ) -> Result<RecursiveModuleLoad, CoreError> {
-    let load =
-      RecursiveModuleLoad::side(specifier.as_ref(), module_map_rc.clone());
+    let load = RecursiveModuleLoad::side(
+      specifier.as_ref(),
+      module_map_rc.clone(),
+      kind,
+    );
     load.prepare().await?;
     Ok(load)
   }
@@ -1157,15 +1164,16 @@ impl ModuleMap {
       .map(|handle| v8::Local::new(tc_scope, handle))
       .expect("ModuleInfo not found");
     let mut status = module.get_status();
+
+    // If the module is already evaluated, return early as there's nothing to do
+    if status == v8::ModuleStatus::Evaluated {
+      return Either::Left(futures::future::ready(Ok(())));
+    }
+
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
-      "{} {} ({})",
-      if status == v8::ModuleStatus::Evaluated {
-        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
-      } else {
-        "Module not instantiated"
-      },
+      "Module not instantiated: {} ({})",
       self.get_name_by_id(id).unwrap(),
       id,
     );
@@ -1185,7 +1193,7 @@ impl ModuleMap {
       } else {
         debug_assert_eq!(module.get_status(), v8::ModuleStatus::Errored);
       }
-      return receiver;
+      return Either::Right(receiver);
     };
 
     self.pending_mod_evaluation.set(true);
@@ -1312,7 +1320,7 @@ impl ModuleMap {
       tc_scope.perform_microtask_checkpoint();
     }
 
-    receiver
+    Either::Right(receiver)
   }
 
   /// Helper function that allows to evaluate a module and ensure it's fully
@@ -1331,15 +1339,16 @@ impl ModuleMap {
       .map(|handle| v8::Local::new(tc_scope, handle))
       .expect("ModuleInfo not found");
     let status = module.get_status();
+
+    // If the module is already evaluated, return early as there's nothing to do
+    if status == v8::ModuleStatus::Evaluated {
+      return Ok(());
+    }
+
     assert_eq!(
       status,
       v8::ModuleStatus::Instantiated,
-      "{} {} ({})",
-      if status == v8::ModuleStatus::Evaluated {
-        "Module already evaluated. Perhaps you've re-provided a module or extension that was already included in the snapshot?"
-      } else {
-        "Module not instantiated"
-      },
+      "Module not instantiated: {} ({})",
       self.get_name_by_id(id).unwrap(),
       id,
     );
@@ -2000,8 +2009,15 @@ impl ModuleMap {
 
     let specifier = ModuleSpecifier::parse(module_specifier)?;
 
-    let load_response =
-      loader.load(&specifier, None, false, RequestedModuleType::None);
+    let load_response = loader.load(
+      &specifier,
+      None,
+      ModuleLoadOptions {
+        is_dynamic_import: false,
+        is_synchronous: false,
+        requested_module_type: RequestedModuleType::None,
+      },
+    );
 
     let source = match load_response {
       ModuleLoadResponse::Sync(result) => result,

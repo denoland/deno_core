@@ -427,6 +427,14 @@
   }
 
   const hostObjectBrand = SymbolFor("Deno.core.hostObject");
+  const transferableResources = {};
+  const registerTransferableResource = (name, send, receive) => {
+    if (transferableResources[name]) {
+      throw new Error(`${name} is already registered`);
+    }
+    transferableResources[name] = { send, receive };
+  };
+  const getTransferableResource = (name) => transferableResources[name];
 
   // A helper function that will bind our own console implementation
   // with default implementation of Console from V8. This will cause
@@ -717,6 +725,8 @@
       return [result, null];
     },
     hostObjectBrand,
+    registerTransferableResource,
+    getTransferableResource,
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
     decode: (buffer) => op_decode(buffer),

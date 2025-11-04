@@ -14,6 +14,7 @@ use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
 use deno_core::JsRuntime;
+use deno_core::ModuleLoadOptions;
 use deno_core::ModuleLoadReferrer;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
@@ -21,7 +22,6 @@ use deno_core::ModuleSource;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
-use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
 use deno_core::error::ModuleLoaderError;
@@ -52,8 +52,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     &self,
     module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<&ModuleLoadReferrer>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(

@@ -19,6 +19,7 @@ pub use buffer_strategy::AdaptiveBufferStrategy;
 pub use buffers::BufMutView;
 pub use buffers::BufView;
 pub use resource::Resource;
+pub use resource::TransferredResource;
 pub use resource_handle::ResourceHandle;
 pub use resource_handle::ResourceHandleFd;
 pub use resource_handle::ResourceHandleSocket;

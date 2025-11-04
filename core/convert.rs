@@ -557,3 +557,37 @@ impl_tuple!(
   (A, B, C, D, E, F, G, H, I, J),
   (A, B, C, D, E, F, G, H, I, J, K),
 );
+impl<'s, T> ToV8<'s> for Option<T>
+where
+  T: ToV8<'s>,
+{
+  type Error = T::Error;
+
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
+    match self {
+      Some(value) => value.to_v8(scope),
+      None => Ok(v8::undefined(scope).into()),
+    }
+  }
+}
+
+impl<'s, T> FromV8<'s> for Option<T>
+where
+  T: FromV8<'s>,
+{
+  type Error = T::Error;
+
+  fn from_v8<'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_undefined() {
+      Ok(None)
+    } else {
+      T::from_v8(scope, value).map(|v| Some(v))
+    }
+  }
+}
