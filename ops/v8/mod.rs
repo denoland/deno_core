@@ -10,8 +10,8 @@ mod tests {
   use proc_macro2::TokenStream;
   use quote::ToTokens;
   use std::path::PathBuf;
-  use syn::punctuated::Punctuated;
   use syn::Item;
+  use syn::punctuated::Punctuated;
 
   fn derives_v8<'a>(
     attrs: impl IntoIterator<Item = &'a syn::Attribute>,

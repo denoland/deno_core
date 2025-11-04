@@ -5,17 +5,17 @@ use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
-use syn::ext::IdentExt;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::punctuated::Punctuated;
-use syn::spanned::Spanned;
 use syn::DataStruct;
 use syn::Error;
 use syn::Field;
 use syn::Fields;
 use syn::LitStr;
 use syn::Token;
+use syn::ext::IdentExt;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 
 pub fn get_fields(
   span: Span,
@@ -27,10 +27,10 @@ pub fn get_fields(
       return Err(Error::new(
         span,
         "Unnamed fields are currently not supported",
-      ))
+      ));
     }
     Fields::Unit => {
-      return Err(Error::new(span, "Unit fields are currently not supported"))
+      return Err(Error::new(span, "Unit fields are currently not supported"));
     }
   };
 

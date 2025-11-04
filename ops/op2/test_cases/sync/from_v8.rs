@@ -2,8 +2,8 @@
 
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
-use deno_core::v8;
 use deno_core::FromV8 as FromV8Trait;
+use deno_core::v8;
 
 struct Foo;
 

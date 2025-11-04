@@ -1,13 +1,13 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::TokenStream;
-use quote::quote;
 use quote::ToTokens;
-use syn::parse2;
-use syn::spanned::Spanned;
+use quote::quote;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
+use syn::parse2;
+use syn::spanned::Spanned;
 
 pub fn from_v8(item: TokenStream) -> Result<TokenStream, Error> {
   let input = parse2::<DeriveInput>(item)?;
@@ -68,7 +68,7 @@ pub fn from_v8(item: TokenStream) -> Result<TokenStream, Error> {
       )
     }
     Data::Enum(_) => {
-      return Err(Error::new(span, "Enums currently are not supported"))
+      return Err(Error::new(span, "Enums currently are not supported"));
     }
     Data::Union(_) => return Err(Error::new(span, "Unions are not supported")),
   };

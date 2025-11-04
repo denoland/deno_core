@@ -4,13 +4,13 @@
 macro_rules! prelude {
   () => {
     #[allow(unused_imports)]
-    use deno_ops::op2;
-    #[allow(unused_imports)]
     use deno_ops::FromV8;
     #[allow(unused_imports)]
     use deno_ops::ToV8;
     #[allow(unused_imports)]
     use deno_ops::WebIDL;
+    #[allow(unused_imports)]
+    use deno_ops::op2;
 
     pub fn main() {}
   };
