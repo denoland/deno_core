@@ -3,7 +3,6 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
-use deno_core::FromV8;
 use deno_core::GarbageCollected;
 use deno_core::OpState;
 use deno_core::op2;
@@ -380,58 +379,3 @@ impl TestEnumWrap {
 pub fn op_nop_generic<T: SomeType + 'static>(state: &mut OpState) {
   state.take::<T>();
 }
-
-#[op2(fast)]
-pub fn op_thingy<'a>(_scope: &mut v8::PinScope<'a, '_>, thing: v8::Local<'a, v8::Value>) {
-  let thing = thing.cast::<v8::Uint16Array>();
-  let data = thing.data();
-  println!(
-    "data: {:?}; length: {:?}; byte offset: {:?}; byte length: {:?};",
-    data,
-    thing.length(),
-    thing.byte_offset(),
-    thing.byte_length()
-  );
-  if data.align_offset(align_of::<u16>()) != 0 {
-    panic!("data is not aligned");
-  }
-
-  let data = unsafe { data.add(thing.byte_offset()) };
-
-  let mut dest: Vec<u16> =
-    vec![0; thing.byte_length() / std::mem::size_of::<u16>()];
-  let dest_ptr = dest.as_mut_ptr();
-  unsafe {
-    std::ptr::copy_nonoverlapping(
-      data.cast::<u16>(),
-      dest_ptr.cast::<u16>(),
-      thing.byte_length(),
-    );
-  }
-
-  eprintln!("dest: {:?}", dest);
-
-  let from_v8 = Vec::<u16>::from_v8(_scope, thing.into()).unwrap();
-  eprintln!("from_v8: {:?}", from_v8);
-}
-
-// /// Transmutes a `Vec` of one type to a `Vec` of another type.
-// ///
-// /// # Safety
-// /// `T` must be transmutable to `U`
-// unsafe fn transmute_vec<T, U>(v: Vec<T>) -> Vec<U> {
-//   const {
-//     assert!(std::mem::size_of::<T>() == std::mem::size_of::<U>());
-//     assert!(std::mem::align_of::<T>() == std::mem::align_of::<U>());
-//   }
-
-//   // make sure the original vector is not dropped
-//   let mut v = std::mem::ManuallyDrop::new(v);
-//   let len = v.len();
-//   let cap = v.capacity();
-//   let ptr = v.as_mut_ptr();
-
-//   // SAFETY: the original vector is not dropped, the caller upholds the
-//   // transmutability invariants, and the length and capacity are not changed.
-//   unsafe { Vec::from_raw_parts(ptr as *mut U, len, cap) }
-// }
