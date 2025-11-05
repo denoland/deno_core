@@ -1131,42 +1131,57 @@ pub fn relative_specifier(from: &Url, to: &Url) -> Option<String> {
   Some(to_percent_decoded_str(&text))
 }
 
-pub struct FileNameParts {
-  pub working_dir_path: Option<String>,
-  pub file_name: String,
+pub struct FileNameParts<'a> {
+  pub working_dir_path: Option<Cow<'a, str>>,
+  pub file_name: Cow<'a, str>,
 }
 
-pub fn format_file_name(
-  file_name: &str,
+impl<'a> FileNameParts<'a> {
+  pub fn into_owned(self) -> FileNameParts<'static> {
+    FileNameParts {
+      working_dir_path: self.working_dir_path.map(|s| match s {
+        Cow::Borrowed(s) => Cow::Owned(s.to_owned()),
+        Cow::Owned(s) => Cow::Owned(s),
+      }),
+      file_name: match self.file_name {
+        Cow::Borrowed(s) => Cow::Owned(s.to_owned()),
+        Cow::Owned(s) => Cow::Owned(s),
+      },
+    }
+  }
+}
+
+pub fn format_file_name<'a>(
+  file_name: &'a str,
   maybe_initial_cwd: Option<&Url>,
-) -> FileNameParts {
+) -> FileNameParts<'a> {
   abbrev_file_name(file_name, maybe_initial_cwd).unwrap_or_else(|| {
     // same as to_percent_decoded_str() in cli/util/path.rs
     match percent_encoding::percent_decode_str(file_name).decode_utf8() {
-      Ok(s) => FileNameParts {
+      Ok(file_name) => FileNameParts {
         working_dir_path: None,
-        file_name: s.to_string(),
+        file_name,
       },
       // when failing as utf-8, just return the original string
       Err(_) => FileNameParts {
         working_dir_path: None,
-        file_name: file_name.to_string(),
+        file_name: file_name.into(),
       },
     }
   })
 }
 
-fn abbrev_file_name(
-  file_name: &str,
+fn abbrev_file_name<'a>(
+  file_name: &'a str,
   maybe_initial_cwd: Option<&Url>,
-) -> Option<FileNameParts> {
+) -> Option<FileNameParts<'a>> {
   let Ok(url) = Url::parse(file_name) else {
     return None;
   };
   if let Some(initial_cwd) = maybe_initial_cwd {
     return relative_specifier(initial_cwd, &url).map(|s| FileNameParts {
-      working_dir_path: Some(initial_cwd.to_string()),
-      file_name: s,
+      working_dir_path: Some(initial_cwd.to_string().into()),
+      file_name: s.into(),
     });
   }
   if url.scheme() != "data" {
@@ -1175,7 +1190,7 @@ fn abbrev_file_name(
   if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
     return Some(FileNameParts {
       working_dir_path: None,
-      file_name: file_name.to_string(),
+      file_name: file_name.into(),
     });
   }
   let (head, tail) = url.path().split_once(',')?;
@@ -1184,32 +1199,33 @@ fn abbrev_file_name(
   let end = tail.get(len - 20..)?;
   Some(FileNameParts {
     working_dir_path: None,
-    file_name: format!("{}:{},{}......{}", url.scheme(), head, start, end),
+    file_name: format!("{}:{},{}......{}", url.scheme(), head, start, end)
+      .into(),
   })
 }
 
-fn format_eval_origin(
-  eval_origin: &str,
+fn format_eval_origin<'a>(
+  eval_origin: &'a str,
   maybe_initial_cwd: Option<&Url>,
-) -> String {
+) -> Cow<'a, str> {
   let Some((before, (file, line, col), after)) = parse_eval_origin(eval_origin)
   else {
-    return eval_origin.to_string();
+    return eval_origin.into();
   };
   let formatted_file = format_file_name(file, maybe_initial_cwd);
 
-  format!(
+  Cow::Owned(format!(
     "{before}{}:{line}:{col}{after}",
     if let Some(working_dir_path) = formatted_file.working_dir_path {
-      format!(
+      Cow::Owned(format!(
         "{}{}",
         working_dir_path,
         formatted_file.file_name.trim_start_matches("./")
-      )
+      ))
     } else {
       formatted_file.file_name
     }
-  )
+  ))
 }
 
 pub(crate) fn exception_to_err_result<'s, 'i, T>(
@@ -2095,7 +2111,8 @@ mod tests {
     let file_name = format_file_name(
       &format!("data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"),
       None,
-    );
+    )
+    .into_owned();
     assert_eq!(
       file_name.file_name,
       "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
