@@ -2,12 +2,10 @@
 
 use crate::JsBuffer;
 use crate::JsRuntime;
-use crate::OpState;
 use crate::error;
 use crate::error::CoreError;
 use crate::error::JsError;
 use crate::error::is_instance_of_error;
-use crate::io::ResourceError;
 use crate::modules::script_origin;
 use crate::op2;
 use crate::resolve_url;
@@ -18,8 +16,6 @@ use crate::source_map::SourceMapApplication;
 use crate::stats::RuntimeActivityType;
 use deno_error::JsErrorBox;
 use serde::Serialize;
-use std::cell::RefCell;
-use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 

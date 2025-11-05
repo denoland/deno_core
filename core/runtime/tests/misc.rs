@@ -14,6 +14,7 @@ use rstest::rstest;
 use serde_json::Value;
 use serde_json::json;
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::future::poll_fn;
@@ -404,10 +405,8 @@ async fn wasm_streaming_op_invocation_in_import() {
     wasm_streaming.finish();
   }
 
-  crate::set_wasm_streaming_callback(
-    &mut runtime.handle_scope(),
-    handle_wasm_streaming,
-  );
+  deno_core::scope!(scope, runtime);
+  crate::set_wasm_streaming_callback(scope, handle_wasm_streaming);
 
   let promise = runtime.execute_script("main.js",
                                        r#"

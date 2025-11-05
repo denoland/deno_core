@@ -39,7 +39,6 @@
     __resolvePromise,
   } = window.__infra;
   const {
-    op_abort_wasm_streaming,
     op_current_user_call_site,
     op_decode,
     op_deserialize,
@@ -68,7 +67,6 @@
     op_set_handled_promise_rejection_handler,
     op_set_has_tick_scheduled,
     op_set_promise_hooks,
-    op_set_wasm_streaming_callback,
     op_str_byte_length,
     op_timer_cancel,
     op_timer_queue,
