@@ -139,6 +139,7 @@ pub use crate::ops_builtin::op_print;
 pub use crate::ops_builtin::op_resources;
 pub use crate::ops_builtin::op_void_async;
 pub use crate::ops_builtin::op_void_sync;
+pub use crate::ops_builtin_v8::set_wasm_streaming_callback;
 pub use crate::ops_metrics::OpMetricsEvent;
 pub use crate::ops_metrics::OpMetricsFactoryFn;
 pub use crate::ops_metrics::OpMetricsFn;
@@ -161,6 +162,7 @@ pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
 pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
 pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
+pub use crate::runtime::WasmStreamingFn;
 pub use crate::runtime::stats;
 
 pub use crate::source_map::SourceMapData;

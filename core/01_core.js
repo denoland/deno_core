@@ -783,11 +783,6 @@
     isWeakMap: (value) => op_is_weak_map(value),
     isWeakSet: (value) => op_is_weak_set(value),
     memoryUsage: () => op_memory_usage(),
-    setWasmStreamingCallback: (fn) => op_set_wasm_streaming_callback(fn),
-    abortWasmStreaming: (
-      rid,
-      error,
-    ) => op_abort_wasm_streaming(rid, error),
     destructureError: (error) => op_destructure_error(error),
     opNames: () => op_op_names(),
     eventLoopHasMoreWork: () => op_event_loop_has_more_work(),

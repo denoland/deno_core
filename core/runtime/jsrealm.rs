@@ -62,11 +62,18 @@ pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 pub(crate) type UnrefedOps =
   Rc<RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>>;
 
+pub type WasmStreamingFn = fn(
+  Rc<RefCell<crate::OpState>>,
+  &mut v8::PinScope,
+  v8::Local<v8::Value>,
+  v8::WasmStreaming,
+);
+
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) js_wasm_streaming_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) wasm_streaming_cb: RefCell<Option<WasmStreamingFn>>,
   pub(crate) wasm_instance_fn: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) unrefed_ops: UnrefedOps,
   pub(crate) activity_traces: RuntimeActivityTraces,
@@ -98,7 +105,7 @@ impl ContextState {
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
       js_event_loop_tick_cb: Default::default(),
-      js_wasm_streaming_cb: Default::default(),
+      wasm_streaming_cb: Default::default(),
       wasm_instance_fn: Default::default(),
       activity_traces: Default::default(),
       op_ctxs,
@@ -198,7 +205,6 @@ impl JsRealmInner {
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
-    std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
     {
       let ctx = self.context().open(scope);

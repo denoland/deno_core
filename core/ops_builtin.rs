@@ -44,8 +44,6 @@ builtin_ops! {
   op_try_close,
   op_print,
   op_resources,
-  op_wasm_streaming_feed,
-  op_wasm_streaming_set_url,
   op_void_sync,
   op_error_async,
   op_error_async_deferred,
@@ -123,8 +121,6 @@ builtin_ops! {
   ops_builtin_v8::op_get_constructor_name,
   ops_builtin_v8::op_get_extras_binding_object,
   ops_builtin_v8::op_memory_usage,
-  ops_builtin_v8::op_set_wasm_streaming_callback,
-  ops_builtin_v8::op_abort_wasm_streaming,
   ops_builtin_v8::op_destructure_error,
   ops_builtin_v8::op_dispatch_exception,
   ops_builtin_v8::op_op_names,
@@ -226,55 +222,6 @@ pub fn op_print(
     stdout().write_all(msg.as_bytes())?;
     stdout().flush().unwrap();
   }
-  Ok(())
-}
-
-pub struct WasmStreamingResource(pub(crate) RefCell<v8::WasmStreaming>);
-
-impl Resource for WasmStreamingResource {
-  fn close(self: Rc<Self>) {
-    // At this point there are no clones of Rc<WasmStreamingResource> on the
-    // resource table, and no one should own a reference outside of the stack.
-    // Therefore, we can be sure `self` is the only reference.
-    match Rc::try_unwrap(self) {
-      Ok(wsr) => {
-        wsr.0.into_inner().finish();
-      }
-      _ => {
-        panic!("Couldn't consume WasmStreamingResource.");
-      }
-    }
-  }
-}
-
-/// Feed bytes to WasmStreamingResource.
-#[op2(fast)]
-pub fn op_wasm_streaming_feed(
-  state: Rc<RefCell<OpState>>,
-  #[smi] rid: ResourceId,
-  #[buffer] bytes: &[u8],
-) -> Result<(), ResourceError> {
-  let wasm_streaming = state
-    .borrow_mut()
-    .resource_table
-    .get::<WasmStreamingResource>(rid)?;
-
-  wasm_streaming.0.borrow_mut().on_bytes_received(bytes);
-
-  Ok(())
-}
-
-#[op2(fast)]
-pub fn op_wasm_streaming_set_url(
-  state: &mut OpState,
-  #[smi] rid: ResourceId,
-  #[string] url: &str,
-) -> Result<(), ResourceError> {
-  let wasm_streaming =
-    state.resource_table.get::<WasmStreamingResource>(rid)?;
-
-  wasm_streaming.0.borrow_mut().set_url(url);
-
   Ok(())
 }
 
