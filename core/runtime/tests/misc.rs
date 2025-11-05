@@ -390,7 +390,7 @@ async fn wasm_streaming_op_invocation_in_import() {
   // Run an infinite loop in WebAssembly code, which should be terminated.
   fn handle_wasm_streaming(
     _state: Rc<RefCell<OpState>>,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     value: v8::Local<v8::Value>,
     mut wasm_streaming: v8::WasmStreaming,
   ) {
@@ -405,8 +405,10 @@ async fn wasm_streaming_op_invocation_in_import() {
     wasm_streaming.finish();
   }
 
-  deno_core::scope!(scope, runtime);
-  crate::set_wasm_streaming_callback(scope, handle_wasm_streaming);
+  {
+    deno_core::scope!(scope, runtime);
+    crate::set_wasm_streaming_callback(scope, handle_wasm_streaming);
+  }
 
   let promise = runtime.execute_script("main.js",
                                        r#"
