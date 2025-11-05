@@ -813,7 +813,7 @@ pub fn op_structured_clone<'s, 'i>(
     host_objects: None,
     error_callback: None,
     for_storage: false,
-    host_object_brand: host_object_brand.clone(),
+    host_object_brand,
     deserializers: None,
   });
   let value_serializer = v8::ValueSerializer::new(scope, serialize_deserialize);
@@ -839,7 +839,7 @@ pub fn op_structured_clone<'s, 'i>(
     host_objects: None,
     error_callback: None,
     for_storage: false,
-    host_object_brand: host_object_brand.clone(),
+    host_object_brand,
     deserializers,
   });
   let value_deserializer =
