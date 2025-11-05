@@ -17,7 +17,7 @@ test(async function testAsyncThrow() {
       e.stack,
       `TypeError: Error
         at asyncThrow (checkin:error:line:col)
-        at testAsyncThrow (./unit/ops_async_test.ts:line:col)
+        at testAsyncThrow (test:///unit/ops_async_test.ts:line:col)
       `,
     );
   }
@@ -28,7 +28,7 @@ test(async function testAsyncThrow() {
       e.stack,
       `TypeError: Error
         at async asyncThrow (checkin:error:line:col)
-        at async testAsyncThrow (./unit/ops_async_test.ts:line:col)
+        at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)
       `,
     );
   }
@@ -39,7 +39,7 @@ test(async function testAsyncThrow() {
       e.stack,
       `TypeError: Error
         at async asyncThrow (checkin:error:line:col)
-        at async testAsyncThrow (./unit/ops_async_test.ts:line:col)`,
+        at async testAsyncThrow (test:///unit/ops_async_test.ts:line:col)`,
     );
   }
 });

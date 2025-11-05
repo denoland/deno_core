@@ -107,9 +107,9 @@ test(async function testAsyncLeakTrace() {
       `
       at op_async_barrier_await (ext:core/00_infra.js:line:col)
       at barrierAwait (checkin:async:line:col)
-      at ./unit/stats_test.ts:line:col
-      at enableTracingForTest (./unit/stats_test.ts:line:col)
-      at testAsyncLeakTrace (./unit/stats_test.ts:line:col)
+      at test:///unit/stats_test.ts:line:col
+      at enableTracingForTest (test:///unit/stats_test.ts:line:col)
+      at testAsyncLeakTrace (test:///unit/stats_test.ts:line:col)
     `,
     );
     const p2 = barrierAwait("barrier");

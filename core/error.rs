@@ -22,7 +22,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
-use std::rc::Rc;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
@@ -1131,53 +1131,101 @@ pub fn relative_specifier(from: &Url, to: &Url) -> Option<String> {
   Some(to_percent_decoded_str(&text))
 }
 
-pub fn format_file_name(
-  file_name: &str,
+pub struct FileNameParts<'a> {
+  pub working_dir_path: Option<Cow<'a, str>>,
+  pub file_name: Cow<'a, str>,
+}
+
+impl<'a> FileNameParts<'a> {
+  pub fn into_owned(self) -> FileNameParts<'static> {
+    FileNameParts {
+      working_dir_path: self.working_dir_path.map(|s| match s {
+        Cow::Borrowed(s) => Cow::Owned(s.to_owned()),
+        Cow::Owned(s) => Cow::Owned(s),
+      }),
+      file_name: match self.file_name {
+        Cow::Borrowed(s) => Cow::Owned(s.to_owned()),
+        Cow::Owned(s) => Cow::Owned(s),
+      },
+    }
+  }
+}
+
+pub fn format_file_name<'a>(
+  file_name: &'a str,
   maybe_initial_cwd: Option<&Url>,
-) -> String {
+) -> FileNameParts<'a> {
   abbrev_file_name(file_name, maybe_initial_cwd).unwrap_or_else(|| {
     // same as to_percent_decoded_str() in cli/util/path.rs
     match percent_encoding::percent_decode_str(file_name).decode_utf8() {
-      Ok(s) => s.to_string(),
+      Ok(file_name) => FileNameParts {
+        working_dir_path: None,
+        file_name,
+      },
       // when failing as utf-8, just return the original string
-      Err(_) => file_name.to_string(),
+      Err(_) => FileNameParts {
+        working_dir_path: None,
+        file_name: file_name.into(),
+      },
     }
   })
 }
 
-fn abbrev_file_name(
-  file_name: &str,
+fn abbrev_file_name<'a>(
+  file_name: &'a str,
   maybe_initial_cwd: Option<&Url>,
-) -> Option<String> {
+) -> Option<FileNameParts<'a>> {
   let Ok(url) = Url::parse(file_name) else {
     return None;
   };
   if let Some(initial_cwd) = maybe_initial_cwd {
-    return relative_specifier(initial_cwd, &url);
+    return relative_specifier(initial_cwd, &url).map(|s| FileNameParts {
+      working_dir_path: Some(initial_cwd.to_string().into()),
+      file_name: s.into(),
+    });
   }
   if url.scheme() != "data" {
     return None;
   }
   if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
-    return Some(file_name.to_string());
+    return Some(FileNameParts {
+      working_dir_path: None,
+      file_name: file_name.into(),
+    });
   }
   let (head, tail) = url.path().split_once(',')?;
   let len = tail.len();
   let start = tail.get(0..20)?;
   let end = tail.get(len - 20..)?;
-  Some(format!("{}:{},{}......{}", url.scheme(), head, start, end))
+  Some(FileNameParts {
+    working_dir_path: None,
+    file_name: format!("{}:{},{}......{}", url.scheme(), head, start, end)
+      .into(),
+  })
 }
 
-fn format_eval_origin(
-  eval_origin: &str,
+fn format_eval_origin<'a>(
+  eval_origin: &'a str,
   maybe_initial_cwd: Option<&Url>,
-) -> String {
+) -> Cow<'a, str> {
   let Some((before, (file, line, col), after)) = parse_eval_origin(eval_origin)
   else {
-    return eval_origin.to_string();
+    return eval_origin.into();
   };
   let formatted_file = format_file_name(file, maybe_initial_cwd);
-  format!("{before}{formatted_file}:{line}:{col}{after}")
+
+  Cow::Owned(format!(
+    "{before}{}:{line}:{col}{after}",
+    if let Some(working_dir_path) = formatted_file.working_dir_path {
+      Cow::Owned(format!(
+        "{}{}",
+        working_dir_path,
+        formatted_file.file_name.trim_start_matches("./")
+      ))
+    } else {
+      formatted_file.file_name
+    }
+  ))
 }
 
 pub(crate) fn exception_to_err_result<'s, 'i, T>(
@@ -1784,7 +1832,7 @@ pub fn prepare_stack_trace_callback<'s, 'i>(
   prepare_stack_trace_inner::<true>(scope, error, callsites)
 }
 
-pub struct InitialCwd(pub Rc<Url>);
+pub struct InitialCwd(pub Arc<Url>);
 
 pub fn format_stack_trace<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
@@ -1868,6 +1916,8 @@ pub enum ErrorElement {
   FunctionName,
   /// The name of a source file
   FileName,
+  /// The path to the working directory, as in part of a file name
+  WorkingDirPath,
   /// The origin of an error coming from `eval`ed code
   EvalOrigin,
   /// Text signifying a call to `Promise.all`
@@ -1905,10 +1955,14 @@ pub fn format_location<F: ErrorFormat>(
   let mut result = String::new();
   let file_name = frame.file_name.clone().unwrap_or_default();
   if !file_name.is_empty() {
-    result += &F::fmt_element(
-      FileName,
-      &format_file_name(&file_name, maybe_initial_cwd),
-    )
+    let parts = format_file_name(&file_name, maybe_initial_cwd);
+    if let Some(working_dir_path) = &parts.working_dir_path {
+      result += &F::fmt_element(WorkingDirPath, working_dir_path);
+      result +=
+        &F::fmt_element(FileName, parts.file_name.trim_start_matches("./"))
+    } else {
+      result += &F::fmt_element(FileName, &parts.file_name)
+    }
   } else {
     if frame.is_eval {
       let eval_origin = frame.eval_origin.as_ref().unwrap();
@@ -2051,24 +2105,25 @@ mod tests {
   #[test]
   fn test_format_file_name() {
     let file_name = format_file_name("data:,Hello%2C%20World%21", None);
-    assert_eq!(file_name, "data:,Hello%2C%20World%21");
+    assert_eq!(file_name.file_name, "data:,Hello%2C%20World%21");
 
     let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
     let file_name = format_file_name(
       &format!("data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"),
       None,
-    );
+    )
+    .into_owned();
     assert_eq!(
-      file_name,
+      file_name.file_name,
       "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
     );
 
     let file_name = format_file_name("file:///foo/bar.ts", None);
-    assert_eq!(file_name, "file:///foo/bar.ts");
+    assert_eq!(file_name.file_name, "file:///foo/bar.ts");
 
     let file_name =
       format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts", None);
-    assert_eq!(file_name, "file:///東京/🦕.ts");
+    assert_eq!(file_name.file_name, "file:///東京/🦕.ts");
   }
 
   #[test]
