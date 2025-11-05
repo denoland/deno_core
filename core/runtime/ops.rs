@@ -2480,7 +2480,7 @@ mod tests {
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = JsErrorBox;
+    type Error = crate::convert::DataError;
 
     fn from_v8<'i>(
       scope: &mut v8::PinScope<'a, 'i>,

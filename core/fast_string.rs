@@ -121,7 +121,8 @@ impl Display for FastStaticString {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, deno_error::JsError)]
+#[class(type)]
 pub struct FastStringV8AllocationError;
 
 impl std::error::Error for FastStringV8AllocationError {}
