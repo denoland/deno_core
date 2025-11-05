@@ -1964,7 +1964,7 @@ pub fn format_location<F: ErrorFormat>(
   let mut result = String::new();
   let file_name = frame.file_name.as_deref().unwrap_or("");
   if !file_name.is_empty() {
-    let parts = format_file_name(&file_name, maybe_initial_cwd);
+    let parts = format_file_name(file_name, maybe_initial_cwd);
     if let Some(working_dir_path) = &parts.working_dir_path {
       result +=
         &F::fmt_element(WorkingDirPath, in_extension_code, working_dir_path);
