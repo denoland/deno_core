@@ -1199,13 +1199,16 @@ fn format_eval_origin(
   let formatted_file = format_file_name(file, maybe_initial_cwd);
 
   format!(
-    "{before}{}{}:{line}:{col}{after}",
-    if let Some(working_dir_path) = &formatted_file.working_dir_path {
-      &working_dir_path
+    "{before}{}:{line}:{col}{after}",
+    if let Some(working_dir_path) = formatted_file.working_dir_path {
+      format!(
+        "{}{}",
+        working_dir_path,
+        formatted_file.file_name.trim_start_matches("./")
+      )
     } else {
-      ""
-    },
-    formatted_file.file_name
+      formatted_file.file_name
+    }
   )
 }
 
@@ -1940,7 +1943,7 @@ pub fn format_location<F: ErrorFormat>(
     if let Some(working_dir_path) = &parts.working_dir_path {
       result += &F::fmt_element(WorkingDirPath, working_dir_path);
       result +=
-        &F::fmt_element(FileName, &parts.file_name.trim_start_matches("./"))
+        &F::fmt_element(FileName, parts.file_name.trim_start_matches("./"))
     } else {
       result += &F::fmt_element(FileName, &parts.file_name)
     }
