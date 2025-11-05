@@ -432,16 +432,14 @@ impl<'a> FromV8<'a> for Vec<u8> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_uint8_array() {
-      unsafe { abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>()) }
+      Ok(unsafe { abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>()) })
     } else {
       Err(JsErrorBox::type_error("Expected Uint8Array"))
     }
   }
 }
 
-unsafe fn abview_to_vec<T>(
-  ab_view: v8::Local<v8::ArrayBufferView>,
-) -> Result<Vec<T>, JsErrorBox> {
+unsafe fn abview_to_vec<T>(ab_view: v8::Local<v8::ArrayBufferView>) -> Vec<T> {
   let data = ab_view.data();
   let data = unsafe { data.add(ab_view.byte_offset()) };
   let len = ab_view.byte_length() / std::mem::size_of::<T>();
@@ -452,8 +450,7 @@ unsafe fn abview_to_vec<T>(
       out.as_mut_ptr().cast::<T>(),
       len,
     );
-    let out = transmute_vec::<MaybeUninit<T>, T>(out);
-    Ok(out)
+    transmute_vec::<MaybeUninit<T>, T>(out)
   }
 }
 
@@ -465,7 +462,7 @@ impl<'a> FromV8<'a> for Vec<u16> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_uint16_array() {
-      unsafe { abview_to_vec::<u16>(value.cast::<v8::ArrayBufferView>()) }
+      Ok(unsafe { abview_to_vec::<u16>(value.cast::<v8::ArrayBufferView>()) })
     } else {
       Err(JsErrorBox::type_error("Expected Uint16Array"))
     }
@@ -479,7 +476,7 @@ impl<'a> FromV8<'a> for Vec<u32> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_uint32_array() {
-      unsafe { abview_to_vec::<u32>(value.cast::<v8::ArrayBufferView>()) }
+      Ok(unsafe { abview_to_vec::<u32>(value.cast::<v8::ArrayBufferView>()) })
     } else {
       Err(JsErrorBox::type_error("Expected Uint32Array"))
     }
@@ -493,7 +490,7 @@ impl<'a> FromV8<'a> for Vec<u64> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_big_uint64_array() {
-      unsafe { abview_to_vec::<u64>(value.cast::<v8::ArrayBufferView>()) }
+      Ok(unsafe { abview_to_vec::<u64>(value.cast::<v8::ArrayBufferView>()) })
     } else {
       Err(JsErrorBox::type_error("Expected BigUint64Array"))
     }
@@ -507,7 +504,7 @@ impl<'a> FromV8<'a> for Vec<i32> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_int32_array() {
-      unsafe { abview_to_vec::<i32>(value.cast::<v8::ArrayBufferView>()) }
+      Ok(unsafe { abview_to_vec::<i32>(value.cast::<v8::ArrayBufferView>()) })
     } else {
       Err(JsErrorBox::type_error("Expected Int32Array"))
     }
@@ -521,7 +518,7 @@ impl<'a> FromV8<'a> for Vec<i64> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_big_int64_array() {
-      unsafe { abview_to_vec::<i64>(value.cast::<v8::ArrayBufferView>()) }
+      Ok(unsafe { abview_to_vec::<i64>(value.cast::<v8::ArrayBufferView>()) })
     } else {
       Err(JsErrorBox::type_error("Expected BigInt64Array"))
     }
@@ -714,6 +711,7 @@ impl_tuple!(
   (A, B, C, D, E, F, G, H, I, J),
   (A, B, C, D, E, F, G, H, I, J, K),
 );
+
 impl<'s, T> ToV8<'s> for Option<T>
 where
   T: ToV8<'s>,
