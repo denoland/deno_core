@@ -1,8 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::error::DataError;
 use crate::runtime::ops;
-use deno_error::{JsErrorBox, JsErrorClass};
-use std::{convert::Infallible, mem::MaybeUninit};
+use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
+use std::convert::Infallible;
+use std::mem::MaybeUninit;
 
 /// A conversion from a rust value to a v8 value.
 ///
@@ -119,42 +122,6 @@ pub trait FromV8<'a>: Sized {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error>;
 }
-
-//
-
-#[derive(Debug, thiserror::Error, deno_error::JsError, Clone, Copy)]
-#[class(type)]
-#[error(transparent)]
-pub struct DataError(pub v8::DataError);
-
-impl From<v8::DataError> for DataError {
-  fn from(err: v8::DataError) -> Self {
-    DataError(err)
-  }
-}
-
-impl PartialEq<DataError> for DataError {
-  fn eq(&self, other: &DataError) -> bool {
-    match (self.0, other.0) {
-      (
-        v8::DataError::BadType { actual, expected },
-        v8::DataError::BadType {
-          actual: other_actual,
-          expected: other_expected,
-        },
-      ) => actual == other_actual && expected == other_expected,
-      (
-        v8::DataError::NoData { expected },
-        v8::DataError::NoData {
-          expected: other_expected,
-        },
-      ) => expected == other_expected,
-      _ => false,
-    }
-  }
-}
-
-impl Eq for DataError {}
 
 // impls
 
