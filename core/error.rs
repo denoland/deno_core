@@ -1178,7 +1178,9 @@ fn abbrev_file_name<'a>(
   let Ok(url) = Url::parse(file_name) else {
     return None;
   };
-  if let Some(initial_cwd) = maybe_initial_cwd {
+  if let Some(initial_cwd) = maybe_initial_cwd
+    && url.scheme() != "data"
+  {
     return relative_specifier(initial_cwd, &url).map(|s| FileNameParts {
       working_dir_path: Some(initial_cwd.to_string().into()),
       file_name: s.into(),
@@ -2113,13 +2115,23 @@ mod tests {
       None,
     )
     .into_owned();
-    assert_eq!(
-      file_name.file_name,
-      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
-    );
-
+    let expected =
+      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95";
+    assert_eq!(file_name.file_name, expected,);
+    let file_name = format_file_name(
+      &format!("data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"),
+      Some(&Url::parse("file:///foo").unwrap()),
+    )
+    .into_owned();
+    assert_eq!(file_name.file_name, expected);
     let file_name = format_file_name("file:///foo/bar.ts", None);
     assert_eq!(file_name.file_name, "file:///foo/bar.ts");
+
+    let file_name = format_file_name(
+      "file:///foo/bar.ts",
+      Some(&Url::parse("file:///foo/").unwrap()),
+    );
+    assert_eq!(file_name.file_name, "./bar.ts");
 
     let file_name =
       format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts", None);
