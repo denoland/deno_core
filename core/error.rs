@@ -1932,11 +1932,19 @@ pub enum ErrorElement {
 /// `format_location` but apply ANSI colors for terminal output,
 /// without adding extra dependencies to `deno_core`.
 pub trait ErrorFormat {
-  fn fmt_element(element: ErrorElement, s: &str) -> Cow<'_, str>;
+  fn fmt_element(
+    element: ErrorElement,
+    in_extension_code: bool,
+    s: &str,
+  ) -> Cow<'_, str>;
 }
 
 impl ErrorFormat for NoAnsiColors {
-  fn fmt_element(_element: ErrorElement, s: &str) -> Cow<'_, str> {
+  fn fmt_element(
+    _element: ErrorElement,
+    _in_extension_code: bool,
+    s: &str,
+  ) -> Cow<'_, str> {
     s.into()
   }
 }
@@ -1946,49 +1954,61 @@ pub fn format_location<F: ErrorFormat>(
   maybe_initial_cwd: Option<&Url>,
 ) -> String {
   use ErrorElement::*;
-  let _internal = frame
+  let in_extension_code = frame
     .file_name
     .as_ref()
     .map(|f| f.starts_with("ext:"))
     .unwrap_or(false);
   if frame.is_native {
-    return F::fmt_element(NativeFrame, "native").to_string();
+    return F::fmt_element(NativeFrame, in_extension_code, "native")
+      .to_string();
   }
   let mut result = String::new();
-  let file_name = frame.file_name.clone().unwrap_or_default();
+  let file_name = frame.file_name.as_deref().unwrap_or("");
   if !file_name.is_empty() {
-    let parts = format_file_name(&file_name, maybe_initial_cwd);
+    let parts = format_file_name(file_name, maybe_initial_cwd);
     if let Some(working_dir_path) = &parts.working_dir_path {
-      result += &F::fmt_element(WorkingDirPath, working_dir_path);
       result +=
-        &F::fmt_element(FileName, parts.file_name.trim_start_matches("./"))
+        &F::fmt_element(WorkingDirPath, in_extension_code, working_dir_path);
+      result += &F::fmt_element(
+        FileName,
+        in_extension_code,
+        parts.file_name.trim_start_matches("./"),
+      )
     } else {
-      result += &F::fmt_element(FileName, &parts.file_name)
+      result += &F::fmt_element(FileName, in_extension_code, &parts.file_name)
     }
   } else {
     if frame.is_eval {
       let eval_origin = frame.eval_origin.as_ref().unwrap();
       let formatted_eval_origin =
         format_eval_origin(eval_origin, maybe_initial_cwd);
-      result +=
-        &(F::fmt_element(ErrorElement::EvalOrigin, &formatted_eval_origin)
-          .to_string()
-          + ", ");
+      result += &(F::fmt_element(
+        EvalOrigin,
+        in_extension_code,
+        &formatted_eval_origin,
+      )
+      .to_string()
+        + ", ");
     }
-    result += &F::fmt_element(Anonymous, "<anonymous>");
+    result += &F::fmt_element(Anonymous, in_extension_code, "<anonymous>");
   }
   if let Some(line_number) = frame.line_number {
     write!(
       result,
       ":{}",
-      F::fmt_element(LineNumber, &line_number.to_string())
+      F::fmt_element(LineNumber, in_extension_code, &line_number.to_string())
     )
     .unwrap();
     if let Some(column_number) = frame.column_number {
       write!(
         result,
         ":{}",
-        F::fmt_element(ColumnNumber, &column_number.to_string())
+        F::fmt_element(
+          ColumnNumber,
+          in_extension_code,
+          &column_number.to_string()
+        )
       )
       .unwrap();
     }
@@ -2001,7 +2021,7 @@ pub fn format_frame<F: ErrorFormat>(
   maybe_initial_cwd: Option<&Url>,
 ) -> String {
   use ErrorElement::*;
-  let _internal = frame
+  let in_extension_code = frame
     .file_name
     .as_ref()
     .map(|f| f.starts_with("ext:"))
@@ -2015,6 +2035,7 @@ pub fn format_frame<F: ErrorFormat>(
   if frame.is_promise_all {
     result += &F::fmt_element(
       PromiseAll,
+      in_extension_code,
       &format!(
         "Promise.all (index {})",
         frame.promise_index.unwrap_or_default()
@@ -2046,17 +2067,25 @@ pub fn format_frame<F: ErrorFormat>(
         formatted_method += "<anonymous>";
       }
     }
-    result += F::fmt_element(FunctionName, &formatted_method).as_ref();
+    result +=
+      F::fmt_element(FunctionName, in_extension_code, &formatted_method)
+        .as_ref();
   } else if frame.is_constructor {
     result += "new ";
     if let Some(function_name) = &frame.function_name {
-      write!(result, "{}", F::fmt_element(FunctionName, function_name))
-        .unwrap();
+      write!(
+        result,
+        "{}",
+        F::fmt_element(FunctionName, in_extension_code, function_name)
+      )
+      .unwrap();
     } else {
-      result += F::fmt_element(Anonymous, "<anonymous>").as_ref();
+      result +=
+        F::fmt_element(Anonymous, in_extension_code, "<anonymous>").as_ref();
     }
   } else if let Some(function_name) = &frame.function_name {
-    result += F::fmt_element(FunctionName, function_name).as_ref();
+    result +=
+      F::fmt_element(FunctionName, in_extension_code, function_name).as_ref();
   } else {
     result += &format_location::<F>(frame, maybe_initial_cwd);
     return result;
