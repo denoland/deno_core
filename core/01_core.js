@@ -728,7 +728,8 @@
     encode: (text) => op_encode(text),
     encodeBinaryString: (buffer) => op_encode_binary_string(buffer),
     decode: (buffer) => op_decode(buffer),
-    structuredClone: (value) => op_structured_clone(value),
+    structuredClone: (value, deserializers) =>
+      op_structured_clone(value, deserializers),
     serialize: (
       value,
       options,
@@ -747,6 +748,7 @@
         buffer,
         options?.hostObjects,
         options?.transferredArrayBuffers,
+        options?.deserializers,
         options?.forStorage ?? false,
       );
     },
