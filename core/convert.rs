@@ -571,7 +571,7 @@ macro_rules! typedarray_to_v8 {
         let backing_shared = backing.make_shared();
         let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_shared);
         v8::$v8ty::new(scope, ab, 0, len)
-          .ok_or_else(|| JsErrorBox::generic("Failed to create typed array"))
+          .ok_or_else(|| JsErrorBox::type_error("Failed to create typed array"))
           .map(|v| v.into())
       }
     }
@@ -687,7 +687,7 @@ macro_rules! impl_tuple {
         fn to_v8(self, scope: &mut v8::PinScope<'a, '_>) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
           #[allow(non_snake_case)]
           let ($($name,)+) = self;
-          let elements = &[$($name.to_v8(scope).map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?),+];
+          let elements = &[$($name.to_v8(scope).map_err(deno_error::JsErrorBox::from_err)?),+];
           Ok(v8::Array::new_with_elements(scope, elements).into())
         }
       }
@@ -702,7 +702,7 @@ macro_rules! impl_tuple {
           value: v8::Local<'a, v8::Value>,
         ) -> Result<Self, Self::Error> {
           let array = v8::Local::<v8::Array>::try_from(value)
-            .map_err(|e| deno_error::JsErrorBox::type_error(e.to_string()))?;
+            .map_err(|e| deno_error::JsErrorBox::from_err(crate::error::DataError(e)))?;
           if array.length() != $len {
             return Err(deno_error::JsErrorBox::type_error(format!("Expected {} elements, got {}", $len, array.length())));
           }
@@ -712,7 +712,7 @@ macro_rules! impl_tuple {
             $(
               {
                 let element = array.get_index(scope, i).unwrap();
-                let res = $name::from_v8(scope, element).map_err(|e| deno_error::JsErrorBox::generic(e.to_string()))?;
+                let res = $name::from_v8(scope, element).map_err(deno_error::JsErrorBox::from_err)?;
                 #[allow(unused)]
                 {
                   i += 1;

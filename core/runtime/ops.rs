@@ -2523,7 +2523,7 @@ mod tests {
     .unwrap_err();
     assert_eq!(
       err.to_string(),
-      "TypeError: Expected boolean\n    at <anonymous>:4:7"
+      "TypeError: expected type `v8::data::Boolean`, got `v8::data::Value`\n    at <anonymous>:4:7"
     );
     Ok(())
   }
