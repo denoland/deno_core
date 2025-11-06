@@ -62,10 +62,10 @@ pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 pub(crate) type UnrefedOps =
   Rc<RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>>;
 
-pub type WasmStreamingFn = fn(
+pub type WasmStreamingFn = for<'a, 'b, 'c> fn(
   Rc<RefCell<crate::OpState>>,
-  &mut v8::PinScope,
-  v8::Local<v8::Value>,
+  &'c mut v8::PinScope<'a, 'b>,
+  v8::Local<'a, v8::Value>,
   v8::WasmStreaming,
 );
 

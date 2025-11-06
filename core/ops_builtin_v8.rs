@@ -1009,14 +1009,27 @@ pub fn set_wasm_streaming_callback(
   // callback in a JsRuntimeState slot.
   context_state.wasm_streaming_cb.borrow_mut().replace(cb);
 
-  scope.set_wasm_streaming_callback(|scope, arg, wasm_streaming| {
-    let ctx = JsRealm::state_from_scope(scope);
-    let cb = ctx.wasm_streaming_cb.borrow();
-    let cb = cb.as_ref().unwrap();
-    let state_rc = JsRuntime::state_from(scope).op_state.clone();
+  fn cast_closure<
+    F: for<'a, 'b, 'c> Fn(
+      &'c mut v8::PinScope<'a, 'b>,
+      v8::Local<'a, v8::Value>,
+      v8::WasmStreaming,
+    ),
+  >(
+    f: F,
+  ) -> F {
+    f
+  }
+  scope.set_wasm_streaming_callback(cast_closure(
+    |scope, arg, wasm_streaming| {
+      let ctx = JsRealm::state_from_scope(scope);
+      let cb = ctx.wasm_streaming_cb.borrow();
+      let cb = cb.as_ref().unwrap();
+      let state_rc = JsRuntime::state_from(scope).op_state.clone();
 
-    cb(state_rc, scope, arg, wasm_streaming);
-  });
+      cb(state_rc, scope, arg, wasm_streaming);
+    },
+  ));
 }
 
 // This op calls `op_apply_source_map` re-entrantly.
