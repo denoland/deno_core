@@ -811,7 +811,7 @@ where
   }
 }
 
-#[cfg(test)]
+#[cfg(all(test, not(miri)))]
 mod tests {
   use std::sync::atomic::{AtomicUsize, Ordering};
 
