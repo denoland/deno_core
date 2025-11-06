@@ -1024,7 +1024,7 @@ function equal(a, b) {
       assert!(
         err.to_string().contains("Expected 2 elements"),
         "expected length mismatch error, got: {}",
-        err.to_string()
+        err
       );
     });
   }
