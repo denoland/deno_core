@@ -34,7 +34,7 @@ mod compile_tests {
   #[test]
   fn from_v8() {
     let t = trybuild::TestCases::new();
-    t.pass("../v8_from/test_cases/*.rs");
-    t.compile_fail("../v8_from/test_cases_fail/*.rs");
+    t.pass("../conversion/from_v8/test_cases/*.rs");
+    t.compile_fail("../conversion/from_v8/test_cases_fail/*.rs");
   }
 }
