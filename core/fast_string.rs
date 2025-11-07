@@ -121,19 +121,10 @@ impl Display for FastStaticString {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(range)]
+#[error("failed to allocate string; buffer exceeds maximum length")]
 pub struct FastStringV8AllocationError;
-
-impl std::error::Error for FastStringV8AllocationError {}
-
-impl std::fmt::Display for FastStringV8AllocationError {
-  fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-    write!(
-      f,
-      "failed to allocate string; buffer exceeds maximum length"
-    )
-  }
-}
 
 /// Module names and code can be sourced from strings or bytes that are either owned or borrowed. This enumeration allows us
 /// to perform a minimal amount of cloning and format-shifting of the underlying data.

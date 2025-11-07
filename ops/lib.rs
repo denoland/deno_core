@@ -6,6 +6,7 @@
 use proc_macro::TokenStream;
 use std::error::Error;
 
+mod conversion;
 mod op2;
 mod webidl;
 
@@ -17,7 +18,7 @@ pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
-  match crate::op2::op2(attr.into(), item.into()) {
+  match op2::op2(attr.into(), item.into()) {
     Ok(output) => output.into(),
     Err(err) => {
       let mut err: &dyn Error = &err;
@@ -38,6 +39,22 @@ fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_derive(WebIDL, attributes(webidl, options))]
 pub fn webidl(item: TokenStream) -> TokenStream {
   match webidl::webidl(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+#[proc_macro_derive(FromV8, attributes(from_v8, v8))]
+pub fn from_v8(item: TokenStream) -> TokenStream {
+  match conversion::from_v8::from_v8(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+#[proc_macro_derive(ToV8, attributes(to_v8, v8))]
+pub fn to_v8(item: TokenStream) -> TokenStream {
+  match conversion::to_v8::to_v8(item.into()) {
     Ok(output) => output.into(),
     Err(err) => err.into_compile_error().into(),
   }

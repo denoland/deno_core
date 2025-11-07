@@ -2,6 +2,7 @@
 
 use crate::runtime::ops;
 use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
 use std::convert::Infallible;
 
 /// A conversion from a rust value to a v8 value.
@@ -64,7 +65,7 @@ use std::convert::Infallible;
 /// Tuples, on the other hand, are keyed by `smi`s, which are immediates
 /// and don't require allocation or garbage collection.
 pub trait ToV8<'a> {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts the value to a V8 value.
   fn to_v8<'i>(
@@ -111,7 +112,7 @@ pub trait ToV8<'a> {
 /// }
 /// ```
 pub trait FromV8<'a>: Sized {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts a V8 value to a Rust value.
   fn from_v8<'i>(
@@ -251,6 +252,43 @@ impl<'s, T: Numeric> FromV8<'s> for Number<T> {
       .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))
   }
 }
+
+macro_rules! impl_number_types {
+  ($($t:ty),*) => {
+    $(
+      impl<'a> FromV8<'a> for $t {
+        type Error = JsErrorBox;
+        #[inline]
+        fn from_v8<'i>(
+          scope: &mut v8::PinScope<'a, 'i>,
+          value: v8::Local<'a, v8::Value>,
+        ) -> Result<Self, Self::Error> {
+          if value.is_big_int() {
+            return Err(JsErrorBox::type_error("BigInts are not supported"));
+          }
+
+          let Some(n) = value.number_value(scope) else {
+            return Err(JsErrorBox::type_error(concat!("Could not convert to ", stringify!($t))));
+          };
+
+          Ok(n as Self)
+        }
+      }
+      impl<'a> ToV8<'a> for $t {
+        type Error = Infallible;
+        #[inline]
+        fn to_v8<'i>(
+          self,
+          scope: &mut v8::PinScope<'a, 'i>,
+        ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+          Ok(v8::Number::new(scope, self as _).into())
+        }
+      }
+    )*
+  };
+}
+
+impl_number_types!(u8, i8, u16, i16, u32, i32, f32);
 
 impl<'s> ToV8<'s> for bool {
   type Error = Infallible;
@@ -434,5 +472,255 @@ where
     } else {
       T::from_v8(scope, value).map(|v| Some(v))
     }
+  }
+}
+
+#[cfg(all(test, not(miri)))]
+mod tests {
+  use super::*;
+  use crate::JsRuntime;
+  use std::collections::HashMap;
+  use v8::Local;
+
+  #[test]
+  fn derive_struct() {
+    #[derive(deno_ops::FromV8, deno_ops::ToV8, Eq, PartialEq, Clone, Debug)]
+    pub struct Struct {
+      a: u8,
+      #[from_v8(default = Some(3))]
+      c: Option<u32>,
+      #[v8(rename = "e")]
+      f: String,
+      #[v8(serde)]
+      b: HashMap<String, u32>,
+    }
+
+    let mut runtime = JsRuntime::new(Default::default());
+    deno_core::scope!(scope, runtime);
+
+    let value = Struct {
+      a: 242,
+      c: Some(102),
+      f: "foo".to_string(),
+      b: Default::default(),
+    };
+    let to = ToV8::to_v8(value.clone(), scope).unwrap();
+    let from = FromV8::from_v8(scope, to).unwrap();
+    assert_eq!(value, from);
+  }
+
+  #[test]
+  fn derive_from_struct() {
+    #[derive(deno_ops::FromV8, Eq, PartialEq, Clone, Debug)]
+    pub struct Struct {
+      a: u8,
+      #[from_v8(default = Some(3))]
+      c: Option<u32>,
+      #[v8(rename = "e")]
+      f: String,
+      #[v8(serde)]
+      b: HashMap<String, u32>,
+    }
+
+    let mut runtime = JsRuntime::new(Default::default());
+    let val = runtime
+      .execute_script("", "({ a: 1, c: 70000, e: 'foo', b: { 'bar': 1 } })")
+      .unwrap();
+
+    let val2 = runtime
+      .execute_script("", "({ a: 1, e: 'foo', b: {} })")
+      .unwrap();
+
+    deno_core::scope!(scope, runtime);
+    let val = Local::new(scope, val);
+
+    let from = Struct::from_v8(scope, val).unwrap();
+    assert_eq!(
+      from,
+      Struct {
+        a: 1,
+        c: Some(70000),
+        f: "foo".to_string(),
+        b: HashMap::from([("bar".to_string(), 1)]),
+      }
+    );
+
+    let val2 = Local::new(scope, val2);
+
+    let from = Struct::from_v8(scope, val2).unwrap();
+    assert_eq!(
+      from,
+      Struct {
+        a: 1,
+        c: Some(3),
+        f: "foo".to_string(),
+        b: HashMap::default(),
+      }
+    );
+  }
+
+  #[test]
+  fn derive_from_tuple_struct() {
+    #[derive(deno_ops::FromV8, Eq, PartialEq, Clone, Debug)]
+    pub struct Tuple(u8, String);
+    #[derive(deno_ops::FromV8, Eq, PartialEq, Clone, Debug)]
+    pub struct TupleSingle(u8);
+
+    let mut runtime = JsRuntime::new(Default::default());
+    let val = runtime.execute_script("", "([1, 'foo'])").unwrap();
+    let val2 = runtime.execute_script("", "(1)").unwrap();
+
+    deno_core::scope!(scope, runtime);
+    let val = Local::new(scope, val);
+
+    let from = Tuple::from_v8(scope, val).unwrap();
+    assert_eq!(from, Tuple(1, "foo".to_string()));
+
+    let val2 = Local::new(scope, val2);
+
+    let from = TupleSingle::from_v8(scope, val2).unwrap();
+    assert_eq!(from, TupleSingle(1));
+  }
+
+  #[test]
+  fn derive_to_struct() {
+    #[derive(deno_ops::ToV8, Eq, PartialEq, Clone, Debug)]
+    pub struct Struct {
+      a: u8,
+      c: Option<u32>,
+      #[v8(rename = "e")]
+      f: String,
+      #[v8(serde)]
+      b: HashMap<String, u32>,
+    }
+
+    let mut runtime = JsRuntime::new(Default::default());
+    deno_core::scope!(scope, runtime);
+
+    let from = ToV8::to_v8(
+      Struct {
+        a: 1,
+        c: Some(70000),
+        f: "foo".to_string(),
+        b: HashMap::from([("bar".to_string(), 1)]),
+      },
+      scope,
+    )
+    .unwrap();
+    let obj = from.cast::<v8::Object>();
+    let key = v8::String::new(scope, "a").unwrap();
+    assert_eq!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .number_value(scope)
+        .unwrap(),
+      1.0
+    );
+    let key = v8::String::new(scope, "c").unwrap();
+    assert_eq!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .number_value(scope)
+        .unwrap(),
+      70000.0
+    );
+    let key = v8::String::new(scope, "e").unwrap();
+    assert_eq!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .to_rust_string_lossy(scope),
+      "foo"
+    );
+    let key = v8::String::new(scope, "b").unwrap();
+    let record_key = v8::String::new(scope, "bar").unwrap();
+    assert_eq!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .cast::<v8::Object>()
+        .get(scope, record_key.into())
+        .unwrap()
+        .number_value(scope)
+        .unwrap(),
+      1.0
+    );
+
+    let from = ToV8::to_v8(
+      Struct {
+        a: 1,
+        c: Some(3),
+        f: "foo".to_string(),
+        b: HashMap::default(),
+      },
+      scope,
+    )
+    .unwrap();
+    let obj = from.cast::<v8::Object>();
+    let key = v8::String::new(scope, "a").unwrap();
+    assert_eq!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .number_value(scope)
+        .unwrap(),
+      1.0
+    );
+    let key = v8::String::new(scope, "c").unwrap();
+    assert_eq!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .number_value(scope)
+        .unwrap(),
+      3.0
+    );
+    let key = v8::String::new(scope, "e").unwrap();
+    assert_eq!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .to_rust_string_lossy(scope),
+      "foo"
+    );
+    let key = v8::String::new(scope, "b").unwrap();
+    assert!(
+      obj
+        .get(scope, key.into())
+        .unwrap()
+        .try_cast::<v8::Object>()
+        .is_ok()
+    );
+  }
+
+  #[test]
+  fn derive_to_tuple_struct() {
+    #[derive(deno_ops::ToV8, Eq, PartialEq, Clone, Debug)]
+    pub struct Tuple(u8, String);
+    #[derive(deno_ops::ToV8, Eq, PartialEq, Clone, Debug)]
+    pub struct TupleSingle(u8);
+
+    let mut runtime = JsRuntime::new(Default::default());
+    deno_core::scope!(scope, runtime);
+
+    let from = ToV8::to_v8(Tuple(1, "foo".to_string()), scope).unwrap();
+    let arr = from.cast::<v8::Array>();
+    assert_eq!(
+      arr
+        .get_index(scope, 0)
+        .unwrap()
+        .number_value(scope)
+        .unwrap(),
+      1.0
+    );
+    assert_eq!(
+      arr.get_index(scope, 1).unwrap().to_rust_string_lossy(scope),
+      "foo"
+    );
+
+    let from = ToV8::to_v8(TupleSingle(1), scope).unwrap();
+    assert_eq!(from.number_value(scope).unwrap(), 1.0);
   }
 }
