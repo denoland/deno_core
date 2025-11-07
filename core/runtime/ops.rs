@@ -2443,7 +2443,7 @@ mod tests {
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = JsErrorBox;
+    type Error = crate::error::DataError;
 
     fn from_v8<'i>(
       scope: &mut v8::PinScope<'a, 'i>,
@@ -2486,7 +2486,7 @@ mod tests {
     .unwrap_err();
     assert_eq!(
       err.to_string(),
-      "TypeError: Expected boolean\n    at <anonymous>:4:7"
+      "TypeError: expected type `v8::data::Boolean`, got `v8::data::Value`\n    at <anonymous>:4:7"
     );
     Ok(())
   }

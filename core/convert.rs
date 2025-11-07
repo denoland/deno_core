@@ -1,8 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::error::DataError;
 use crate::runtime::ops;
 use deno_error::JsErrorBox;
+use deno_error::JsErrorClass;
 use std::convert::Infallible;
+use std::mem::MaybeUninit;
 
 /// A conversion from a rust value to a v8 value.
 ///
@@ -64,7 +67,7 @@ use std::convert::Infallible;
 /// Tuples, on the other hand, are keyed by `smi`s, which are immediates
 /// and don't require allocation or garbage collection.
 pub trait ToV8<'a> {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts the value to a V8 value.
   fn to_v8<'i>(
@@ -111,7 +114,7 @@ pub trait ToV8<'a> {
 /// }
 /// ```
 pub trait FromV8<'a>: Sized {
-  type Error: std::error::Error + Send + Sync + 'static;
+  type Error: JsErrorClass;
 
   /// Converts a V8 value to a Rust value.
   fn from_v8<'i>(
@@ -171,15 +174,19 @@ impl<'s, T: SmallInt> ToV8<'s> for Smi<T> {
 }
 
 impl<'s, T: SmallInt> FromV8<'s> for Smi<T> {
-  type Error = JsErrorBox;
+  type Error = DataError;
 
   #[inline]
   fn from_v8<'i>(
     _scope: &mut v8::PinScope<'s, 'i>,
     value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    let v = ops::to_i32_option(&value)
-      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))?;
+    let v = ops::to_i32_option(&value).ok_or_else(|| {
+      DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: T::NAME,
+      })
+    })?;
     Ok(Smi(T::from_i32(v)))
   }
 }
@@ -240,15 +247,18 @@ impl<'s, T: Numeric> ToV8<'s> for Number<T> {
 }
 
 impl<'s, T: Numeric> FromV8<'s> for Number<T> {
-  type Error = JsErrorBox;
+  type Error = DataError;
   #[inline]
   fn from_v8<'i>(
     _scope: &mut v8::PinScope<'s, 'i>,
     value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    T::from_value(&value)
-      .map(Number)
-      .ok_or_else(|| JsErrorBox::type_error(format!("Expected {}", T::NAME)))
+    T::from_value(&value).map(Number).ok_or_else(|| {
+      DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: T::NAME,
+      })
+    })
   }
 }
 
@@ -264,7 +274,7 @@ impl<'s> ToV8<'s> for bool {
 }
 
 impl<'s> FromV8<'s> for bool {
-  type Error = JsErrorBox;
+  type Error = DataError;
   #[inline]
   fn from_v8<'i>(
     _scope: &mut v8::PinScope<'s, 'i>,
@@ -273,7 +283,7 @@ impl<'s> FromV8<'s> for bool {
     value
       .try_cast::<v8::Boolean>()
       .map(|v| v.is_true())
-      .map_err(|_| JsErrorBox::type_error("Expected boolean"))
+      .map_err(DataError)
   }
 }
 
@@ -402,6 +412,337 @@ where
   }
 }
 
+fn bytes_to_uint8array<'a>(
+  scope: &mut v8::PinScope<'a, '_>,
+  buf: Vec<u8>,
+) -> v8::Local<'a, v8::Value> {
+  let len = buf.len();
+  let backing = v8::ArrayBuffer::new_backing_store_from_vec(buf);
+  let backing_shared = backing.make_shared();
+  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_shared);
+  v8::Uint8Array::new(scope, ab, 0, len).unwrap().into()
+}
+
+impl<'a> ToV8<'a> for Vec<u8> {
+  type Error = Infallible;
+
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    Ok(bytes_to_uint8array(scope, self))
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u8> {
+  type Error = DataError;
+
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_uint8_array() {
+      Ok(unsafe { abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>()) })
+    } else {
+      Err(DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: "Uint8Array",
+      }))
+    }
+  }
+}
+
+unsafe fn abview_to_vec<T>(ab_view: v8::Local<v8::ArrayBufferView>) -> Vec<T> {
+  let data = ab_view.data();
+  let data = unsafe { data.add(ab_view.byte_offset()) };
+  let len = ab_view.byte_length() / std::mem::size_of::<T>();
+  let mut out = maybe_uninit_vec::<T>(len);
+  unsafe {
+    std::ptr::copy_nonoverlapping(
+      data.cast::<T>(),
+      out.as_mut_ptr().cast::<T>(),
+      len,
+    );
+    transmute_vec::<MaybeUninit<T>, T>(out)
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u16> {
+  type Error = DataError;
+
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_uint16_array() {
+      Ok(unsafe { abview_to_vec::<u16>(value.cast::<v8::ArrayBufferView>()) })
+    } else {
+      Err(DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: "Uint16Array",
+      }))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u32> {
+  type Error = DataError;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_uint32_array() {
+      Ok(unsafe { abview_to_vec::<u32>(value.cast::<v8::ArrayBufferView>()) })
+    } else {
+      Err(DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: "Uint32Array",
+      }))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<u64> {
+  type Error = DataError;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_big_uint64_array() {
+      Ok(unsafe { abview_to_vec::<u64>(value.cast::<v8::ArrayBufferView>()) })
+    } else {
+      Err(DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: "BigUint64Array",
+      }))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<i32> {
+  type Error = DataError;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_int32_array() {
+      Ok(unsafe { abview_to_vec::<i32>(value.cast::<v8::ArrayBufferView>()) })
+    } else {
+      Err(DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: "Int32Array",
+      }))
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for Vec<i64> {
+  type Error = DataError;
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    if value.is_big_int64_array() {
+      Ok(unsafe { abview_to_vec::<i64>(value.cast::<v8::ArrayBufferView>()) })
+    } else {
+      Err(DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: "BigInt64Array",
+      }))
+    }
+  }
+}
+
+macro_rules! typedarray_to_v8 {
+  ($ty:ty, $v8ty:ident) => {
+    impl<'a> ToV8<'a> for Vec<$ty> {
+      type Error = JsErrorBox;
+
+      fn to_v8<'i>(
+        self,
+        scope: &mut v8::PinScope<'a, 'i>,
+      ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+        let len = self.len();
+        if self.is_empty() {
+          return Ok(v8::ArrayBuffer::new(scope, 0).into());
+        }
+        let bytes = self.into_boxed_slice();
+        let backing = v8::ArrayBuffer::new_backing_store_from_bytes(bytes);
+        let backing_shared = backing.make_shared();
+        let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_shared);
+        v8::$v8ty::new(scope, ab, 0, len)
+          .ok_or_else(|| JsErrorBox::type_error("Failed to create typed array"))
+          .map(|v| v.into())
+      }
+    }
+  };
+}
+
+typedarray_to_v8!(u16, Uint16Array);
+typedarray_to_v8!(u32, Uint32Array);
+typedarray_to_v8!(u64, BigUint64Array);
+typedarray_to_v8!(i32, Int32Array);
+typedarray_to_v8!(i64, BigInt64Array);
+
+impl<'a, T> ToV8<'a> for Vec<T>
+where
+  T: ToV8<'a>,
+{
+  type Error = T::Error;
+
+  fn to_v8(
+    self,
+    scope: &mut v8::PinScope<'a, '_>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    let buf = self
+      .into_iter()
+      .map(|v| v.to_v8(scope))
+      .collect::<Result<Vec<_>, _>>()?;
+    Ok(v8::Array::new_with_elements(scope, &buf).into())
+  }
+}
+
+impl<'a, T> FromV8<'a> for Vec<T>
+where
+  T: FromV8<'a>,
+{
+  type Error = JsErrorBox;
+
+  fn from_v8(
+    scope: &mut v8::PinScope<'a, '_>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    let arr = v8::Local::<v8::Array>::try_from(value)
+      .map_err(|e| JsErrorBox::from_err(DataError(e)))?;
+    let len = arr.length() as usize;
+
+    let mut out = maybe_uninit_vec::<T>(len);
+
+    for i in 0..len {
+      let v = arr.get_index(scope, i as u32).unwrap();
+      match T::from_v8(scope, v) {
+        Ok(v) => {
+          out[i].write(v);
+        }
+        Err(e) => {
+          // need to drop the elements we've already written
+          for elem in out.iter_mut().take(i) {
+            // SAFETY: we've initialized these elements
+            unsafe {
+              elem.assume_init_drop();
+            }
+          }
+          return Err(JsErrorBox::from_err(e));
+        }
+      }
+    }
+
+    // SAFETY: all elements have been initialized, and `MaybeUninit<T>`
+    // is transmutable to `T`
+    let out = unsafe { transmute_vec::<MaybeUninit<T>, T>(out) };
+
+    Ok(out)
+  }
+}
+
+fn maybe_uninit_vec<T>(len: usize) -> Vec<std::mem::MaybeUninit<T>> {
+  let mut v = Vec::with_capacity(len);
+  // SAFETY: `MaybeUninit` is allowed to be uninitialized and
+  // the length is the same as the capacity.
+  unsafe {
+    v.set_len(len);
+  }
+  v
+}
+
+/// Transmutes a `Vec` of one type to a `Vec` of another type.
+///
+/// # Safety
+/// `T` must be transmutable to `U`
+unsafe fn transmute_vec<T, U>(v: Vec<T>) -> Vec<U> {
+  const {
+    assert!(std::mem::size_of::<T>() == std::mem::size_of::<U>());
+    assert!(std::mem::align_of::<T>() == std::mem::align_of::<U>());
+  }
+
+  // make sure the original vector is not dropped
+  let mut v = std::mem::ManuallyDrop::new(v);
+  let len = v.len();
+  let cap = v.capacity();
+  let ptr = v.as_mut_ptr();
+
+  // SAFETY: the original vector is not dropped, the caller upholds the
+  // transmutability invariants, and the length and capacity are not changed.
+  unsafe { Vec::from_raw_parts(ptr as *mut U, len, cap) }
+}
+
+macro_rules! impl_tuple {
+  ($($len: expr; ($($name: ident $(,)?),+)),+ $(,)?) => {
+    $(
+      impl<'a, $($name),+> ToV8<'a> for ($($name,)+)
+      where
+        $($name: ToV8<'a>,)+
+      {
+        type Error = deno_error::JsErrorBox;
+        fn to_v8(self, scope: &mut v8::PinScope<'a, '_>) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+          #[allow(non_snake_case)]
+          let ($($name,)+) = self;
+          let elements = &[$($name.to_v8(scope).map_err(deno_error::JsErrorBox::from_err)?),+];
+          Ok(v8::Array::new_with_elements(scope, elements).into())
+        }
+      }
+      impl<'a, $($name),+> FromV8<'a> for ($($name,)+)
+      where
+        $($name: FromV8<'a>,)+
+      {
+        type Error = deno_error::JsErrorBox;
+
+        fn from_v8(
+          scope: &mut v8::PinScope<'a, '_>,
+          value: v8::Local<'a, v8::Value>,
+        ) -> Result<Self, Self::Error> {
+          let array = v8::Local::<v8::Array>::try_from(value)
+            .map_err(|e| deno_error::JsErrorBox::from_err(crate::error::DataError(e)))?;
+          if array.length() != $len {
+            return Err(deno_error::JsErrorBox::type_error(format!("Expected {} elements, got {}", $len, array.length())));
+          }
+          let mut i = 0;
+          #[allow(non_snake_case)]
+          let ($($name,)+) = (
+            $(
+              {
+                let element = array.get_index(scope, i).unwrap();
+                let res = $name::from_v8(scope, element).map_err(deno_error::JsErrorBox::from_err)?;
+                #[allow(unused)]
+                {
+                  i += 1;
+                }
+                res
+              },
+            )+
+          );
+          Ok(($($name,)+))
+        }
+      }
+    )+
+  };
+}
+
+impl_tuple!(
+  1; (A,),
+  2; (A, B),
+  3; (A, B, C),
+  4; (A, B, C, D),
+  5; (A, B, C, D, E),
+  6; (A, B, C, D, E, F),
+  7; (A, B, C, D, E, F, G),
+  8; (A, B, C, D, E, F, G, H),
+  9; (A, B, C, D, E, F, G, H, I),
+  10; (A, B, C, D, E, F, G, H, I, J),
+  11; (A, B, C, D, E, F, G, H, I, J, K),
+  12; (A, B, C, D, E, F, G, H, I, J, K, L),
+);
+
 impl<'s, T> ToV8<'s> for Option<T>
 where
   T: ToV8<'s>,
@@ -434,5 +775,443 @@ where
     } else {
       T::from_v8(scope, value).map(|v| Some(v))
     }
+  }
+}
+
+#[cfg(all(test, not(miri)))]
+mod tests {
+  use std::sync::atomic::{AtomicUsize, Ordering};
+
+  use deno_error::JsErrorClass;
+
+  use crate::{JsRuntime, scope as scope_macro};
+
+  static ID_COUNTER: AtomicUsize = AtomicUsize::new(0);
+
+  fn next_id() -> usize {
+    ID_COUNTER.fetch_add(1, Ordering::Relaxed)
+  }
+
+  // minified vendored code from @std/assert
+  static ASSERT_CODE: &str = r#"
+function equal(a, b) {
+  if (a === b) return true;
+  if (typeof a !== typeof b) return false;
+  if (Array.isArray(a) && Array.isArray(b)) return a.length === b.length && a.every((v, i) => equal(v, b[i]));
+  if (typeof a === 'object' && typeof b === 'object') {
+    const keysA = Object.keys(a);
+    const keysB = Object.keys(b);
+    if (keysA.length !== keysB.length) return false;
+    for (const key of keysA) {
+      if (!equal(a[key], b[key])) return false;
+    }
+    return true;
+  }
+  return false;
+}
+"#;
+
+  use super::*;
+
+  fn cast_closure<F>(f: F) -> F
+  where
+    F: for<'a, 'b> Fn(
+        &mut v8::PinScope<'a, 'b>,
+        v8::FunctionCallbackArguments<'a>,
+        v8::ReturnValue<'a>,
+      ) + 'static,
+  {
+    f
+  }
+
+  fn key<'a>(
+    scope: &mut v8::PinScope<'a, '_>,
+    name: &str,
+  ) -> v8::Local<'a, v8::Value> {
+    v8::String::new(scope, name).unwrap().into()
+  }
+
+  macro_rules! make_test_fn {
+    ($scope:expr, $f:expr) => {
+      let global = $scope.get_current_context().global($scope);
+      let test_fn_key = key($scope, "test_fn");
+      let test_fn = v8::FunctionBuilder::<v8::Function>::new(cast_closure($f))
+        .build($scope)
+        .unwrap();
+      global.set($scope, test_fn_key, test_fn.into()).unwrap();
+    };
+  }
+
+  macro_rules! to_v8_test {
+    ($runtime:ident, |$scope: ident, $args: ident| $to_v8:expr, $assertion:expr) => {{
+      scope_macro!($scope, &mut $runtime);
+      make_test_fn!($scope, |$scope, $args, mut rv| {
+        let v = $to_v8;
+        rv.set(v);
+      });
+    }
+    {
+      let test_name = format!("test_{}", next_id());
+      let assertion = format!("{}{};", ASSERT_CODE, $assertion);
+      let result = $runtime.execute_script(test_name, assertion).unwrap();
+      scope_macro!(scope, &mut $runtime);
+      let local = v8::Local::new(scope, result);
+      assert!(local.is_true());
+    }};
+  }
+
+  macro_rules! from_v8_test {
+    ($runtime:ident, $js:expr, |$scope: ident, $result: ident| $assertion:expr) => {{
+      let js = format!("{}{};", ASSERT_CODE, $js);
+      let $result = $runtime
+        .execute_script(format!("test_{}", next_id()), js)
+        .unwrap();
+      scope_macro!($scope, &mut $runtime);
+      let $result = v8::Local::new($scope, $result);
+      $assertion;
+    }};
+  }
+
+  #[test]
+  fn test_option_undefined() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| OptionUndefined::<Number<f64>>(None).to_v8(scope).unwrap(),
+      "test_fn() === undefined"
+    );
+    to_v8_test!(
+      runtime,
+      |scope, _args| OptionUndefined::<Number<f64>>(Some(Number(1.0)))
+        .to_v8(scope)
+        .unwrap(),
+      "test_fn() === 1.0"
+    );
+    from_v8_test!(runtime, "undefined", |scope, result| {
+      let r = OptionUndefined::<Number<f64>>::from_v8(scope, result).unwrap();
+      assert_eq!(r, OptionUndefined(None));
+    });
+
+    from_v8_test!(runtime, "1.0", |scope, result| {
+      assert_eq!(
+        OptionUndefined::<Number<f64>>::from_v8(scope, result).unwrap(),
+        OptionUndefined(Some(Number(1.0)))
+      )
+    });
+  }
+
+  #[test]
+  fn test_option_null() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| OptionNull::<Number<f64>>(None).to_v8(scope).unwrap(),
+      "test_fn() === null"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| {
+        OptionNull::<Number<f64>>(Some(Number(1.0)))
+          .to_v8(scope)
+          .unwrap()
+      },
+      "test_fn() === 1.0"
+    );
+
+    from_v8_test!(runtime, "null", |scope, result| assert_eq!(
+      OptionNull::<Number<f64>>::from_v8(scope, result).unwrap(),
+      OptionNull(None)
+    ));
+
+    from_v8_test!(runtime, "1.0", |scope, result| assert_eq!(
+      OptionNull::<Number<f64>>::from_v8(scope, result).unwrap(),
+      OptionNull(Some(Number(1.0)))
+    ));
+  }
+
+  #[test]
+  fn test_tuple() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| (Number(1.0), Number(2.0)).to_v8(scope).unwrap(),
+      "var result = test_fn(); equal(result, [1.0, 2.0])"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| (Number(1.0), true).to_v8(scope).unwrap(),
+      "var result = test_fn(); equal(result, [1.0, true])"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| (
+        Number(1.0),
+        Number(2.0),
+        OptionNull::<Number<f64>>(Some(Number(3.0))),
+        OptionUndefined::<bool>(None)
+      )
+        .to_v8(scope)
+        .unwrap(),
+      "equal(test_fn(), [1.0, 2.0, 3.0, undefined])"
+    );
+
+    from_v8_test!(runtime, "[1.0, 2.0]", |scope, result| {
+      assert_eq!(
+        <(Number<f64>, Number<f64>)>::from_v8(scope, result).unwrap(),
+        (Number(1.0), Number(2.0))
+      )
+    });
+
+    from_v8_test!(runtime, "[1.0, 2.0, 3.0, undefined]", |scope, result| {
+      assert_eq!(
+        <(
+          Number<f64>,
+          Number<f64>,
+          OptionNull::<Number<f64>>,
+          OptionUndefined::<bool>
+        )>::from_v8(scope, result)
+        .unwrap(),
+        (
+          Number(1.0),
+          Number(2.0),
+          OptionNull(Some(Number(3.0))),
+          OptionUndefined(None)
+        )
+      )
+    });
+
+    from_v8_test!(runtime, "[1.0]", |scope, result| {
+      let err = <(Number<f64>, bool)>::from_v8(scope, result).unwrap_err();
+      assert!(
+        err.to_string().contains("Expected 2 elements"),
+        "expected length mismatch error, got: {}",
+        err
+      );
+    });
+  }
+
+  #[test]
+  fn test_vec() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![Number(1.0), Number(2.0)].to_v8(scope).unwrap(),
+      "equal(test_fn(), [1.0, 2.0])"
+    );
+
+    from_v8_test!(runtime, "[1.0, 2.0]", |scope, result| {
+      assert_eq!(
+        <Vec<Number<f64>>>::from_v8(scope, result).unwrap(),
+        vec![Number(1.0), Number(2.0)]
+      )
+    });
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| Vec::<Number<f64>>::new().to_v8(scope).unwrap(),
+      "equal(test_fn(), [])"
+    );
+
+    from_v8_test!(runtime, "[]", |scope, result| {
+      let v = <Vec<Number<f64>>>::from_v8(scope, result).unwrap();
+      assert_eq!(v, vec![]);
+    });
+
+    // Test with nested Vec
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![vec![Number(1.0), Number(2.0)], vec![Number(3.0)]]
+        .to_v8(scope)
+        .unwrap(),
+      "equal(test_fn(), [[1.0,2.0],[3.0]])"
+    );
+    from_v8_test!(runtime, "[[1.0,2.0],[3.0]]", |scope, result| {
+      let v = <Vec<Vec<Number<f64>>>>::from_v8(scope, result).unwrap();
+      assert_eq!(v, vec![vec![Number(1.0), Number(2.0)], vec![Number(3.0)]]);
+    });
+
+    // Test Vec<Option<T>>
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![Some(Number(1.0)), None, Some(Number(2.0))]
+        .to_v8(scope)
+        .unwrap(),
+      "equal(test_fn(), [1.0, undefined, 2.0])"
+    );
+    from_v8_test!(runtime, "[1.0, undefined, 2.0]", |scope, result| {
+      let v = <Vec<Option<Number<f64>>>>::from_v8(scope, result).unwrap();
+      assert_eq!(v, vec![Some(Number(1.0)), None, Some(Number(2.0))]);
+    });
+
+    // Test failure case: element conversion error
+    from_v8_test!(runtime, "[1.0, 'notanumber']", |scope, result| {
+      let err = <Vec<Number<f64>>>::from_v8(scope, result).unwrap_err();
+      let err = err.get_ref().downcast_ref::<DataError>().unwrap();
+      assert_eq!(
+        err,
+        &DataError(v8::DataError::BadType {
+          actual: "string",
+          expected: "f64",
+        })
+      );
+    });
+  }
+
+  #[test]
+  fn test_uint8array() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![1u8, 2, 3].to_v8(scope).unwrap(),
+      "equal(test_fn(), new Uint8Array([1, 2, 3]))"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| Vec::<u8>::new().to_v8(scope).unwrap(),
+      "equal(test_fn(), new Uint8Array([]))"
+    );
+
+    from_v8_test!(runtime, "new Uint8Array([1, 2, 3])", |scope, result| {
+      assert_eq!(<Vec<u8>>::from_v8(scope, result).unwrap(), vec![1u8, 2, 3])
+    });
+
+    from_v8_test!(runtime, "new Uint8Array([])", |scope, result| {
+      assert_eq!(<Vec<u8>>::from_v8(scope, result).unwrap(), Vec::<u8>::new())
+    });
+  }
+
+  #[test]
+  fn test_uint16array() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![1u16, 2, 3].to_v8(scope).unwrap(),
+      "equal(test_fn(), new Uint16Array([1, 2, 3]))"
+    );
+
+    from_v8_test!(runtime, "new Uint16Array([1, 2, 3])", |scope, result| {
+      assert_eq!(
+        <Vec<u16>>::from_v8(scope, result).unwrap(),
+        vec![1u16, 2, 3]
+      )
+    });
+
+    from_v8_test!(runtime, "new Uint16Array([])", |scope, result| {
+      assert_eq!(
+        <Vec<u16>>::from_v8(scope, result).unwrap(),
+        Vec::<u16>::new()
+      )
+    });
+  }
+
+  #[test]
+  fn test_uint32array() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![1u32, 2, 3].to_v8(scope).unwrap(),
+      "equal(test_fn(), new Uint32Array([1, 2, 3]))"
+    );
+
+    from_v8_test!(runtime, "new Uint32Array([1, 2, 3])", |scope, result| {
+      assert_eq!(
+        <Vec<u32>>::from_v8(scope, result).unwrap(),
+        vec![1u32, 2, 3]
+      )
+    });
+
+    from_v8_test!(runtime, "new Uint32Array([])", |scope, result| {
+      assert_eq!(
+        <Vec<u32>>::from_v8(scope, result).unwrap(),
+        Vec::<u32>::new()
+      )
+    });
+  }
+
+  #[test]
+  fn test_int32array() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![1i32, 2, 3].to_v8(scope).unwrap(),
+      "equal(test_fn(), new Int32Array([1, 2, 3]))"
+    );
+
+    from_v8_test!(runtime, "new Int32Array([1, 2, 3])", |scope, result| {
+      assert_eq!(
+        <Vec<i32>>::from_v8(scope, result).unwrap(),
+        vec![1i32, 2, 3]
+      )
+    });
+
+    from_v8_test!(runtime, "new Int32Array([])", |scope, result| {
+      assert_eq!(
+        <Vec<i32>>::from_v8(scope, result).unwrap(),
+        Vec::<i32>::new()
+      )
+    });
+  }
+
+  #[test]
+  fn test_biguint64array() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![1u64, 2, 3].to_v8(scope).unwrap(),
+      "equal(test_fn(), new BigUint64Array([1n, 2n, 3n]))"
+    );
+
+    from_v8_test!(
+      runtime,
+      "new BigUint64Array([1n, 2n, 3n])",
+      |scope, result| {
+        assert_eq!(
+          <Vec<u64>>::from_v8(scope, result).unwrap(),
+          vec![1u64, 2, 3]
+        )
+      }
+    );
+  }
+
+  #[test]
+  fn test_bigint64array() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| vec![1i64, 2, 3].to_v8(scope).unwrap(),
+      "equal(test_fn(), new BigInt64Array([1n, 2n, 3n]))"
+    );
+
+    from_v8_test!(
+      runtime,
+      "new BigInt64Array([1n, 2n, 3n])",
+      |scope, result| {
+        assert_eq!(
+          <Vec<i64>>::from_v8(scope, result).unwrap(),
+          vec![1i64, 2, 3]
+        )
+      }
+    );
+
+    from_v8_test!(runtime, "new BigInt64Array([])", |scope, result| {
+      assert_eq!(
+        <Vec<i64>>::from_v8(scope, result).unwrap(),
+        Vec::<i64>::new()
+      )
+    });
   }
 }

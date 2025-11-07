@@ -31,6 +31,29 @@ pub type AnyError = anyhow::Error;
 
 deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
 
+impl PartialEq<DataError> for DataError {
+  fn eq(&self, other: &DataError) -> bool {
+    match (self.0, other.0) {
+      (
+        v8::DataError::BadType { actual, expected },
+        v8::DataError::BadType {
+          actual: other_actual,
+          expected: other_expected,
+        },
+      ) => actual == other_actual && expected == other_expected,
+      (
+        v8::DataError::NoData { expected },
+        v8::DataError::NoData {
+          expected: other_expected,
+        },
+      ) => expected == other_expected,
+      _ => false,
+    }
+  }
+}
+
+impl Eq for DataError {}
+
 #[derive(Debug, Error, JsError)]
 #[class(generic)]
 #[error("Failed to parse {0}")]
