@@ -1,4 +1,4 @@
-impl<'a> ::deno_core::convert::ToV8<'a> for Dict {
+impl<'a> ::deno_core::convert::ToV8<'a> for Struct {
     type Error = ::deno_error::JsErrorBox;
     fn to_v8<'i>(
         self,
