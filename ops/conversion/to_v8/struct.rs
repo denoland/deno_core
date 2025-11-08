@@ -1,11 +1,11 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::V8Eternal;
 use crate::conversion::kw as shared_kw;
 use crate::conversion::to_v8::convert_or_serde;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
-use quote::format_ident;
 use quote::quote;
 use syn::DataStruct;
 use syn::Error;
@@ -32,48 +32,23 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
 
       let v8_static_strings = fields
         .iter()
-        .map(|field| {
-          let name = field.get_js_name();
-          let new_ident = format_ident!("__v8_static_{name}");
-          let name_str = name.to_string();
-          quote!(#new_ident = #name_str)
-        })
+        .map(|field| field.eternal.define_static())
         .collect::<Vec<_>>();
       let v8_lazy_strings = fields
         .iter()
-        .map(|field| {
-          let name = field.get_js_name();
-          let v8_eternal_name = format_ident!("__v8_{name}_eternal");
-          quote! {
-            static #v8_eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
-          }
-        })
+        .map(|field| field.eternal.define_eternal())
         .collect::<Vec<_>>();
 
       let fields = fields.into_iter().map(|field| {
-        let name = field.get_js_name();
-        let original_name = field.name;
-        let v8_static_name = format_ident!("__v8_static_{name}");
-        let v8_eternal_name = format_ident!("__v8_{name}_eternal");
+        let field_name = field.name;
+        let eternal_get_key = field.eternal.get_key();
 
-        let converter = convert_or_serde(field.serde, field.ty.span(), quote!(self.#original_name));
+        let converter = convert_or_serde(field.serde, field.ty.span(), quote!(self.#field_name));
 
         quote! {
           {
-            let __key = #v8_eternal_name
-              .with(|__eternal| {
-                if let Some(__key) = __eternal.get(__scope) {
-                  Ok(__key)
-                } else {
-                  let __key = #v8_static_name.v8_string(__scope)?;
-                  __eternal.set(__scope, __key);
-                  Ok(__key)
-                }
-              }).map_err(::deno_error::JsErrorBox::from_err::<::deno_core::FastStringV8AllocationError>)?
-              .into();
-
+            let __key = #eternal_get_key.map_err(::deno_error::JsErrorBox::from_err)?;
             let __value = #converter;
-
             __obj.set(__scope, __key, __value);
           };
         }
@@ -134,23 +109,10 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
 }
 
 struct StructField {
-  span: Span,
   name: Ident,
-  rename: Option<String>,
   serde: bool,
   ty: Type,
-}
-
-impl StructField {
-  fn get_js_name(&self) -> Ident {
-    Ident::new(
-      &self
-        .rename
-        .clone()
-        .unwrap_or_else(|| stringcase::camel_case(&self.name.to_string())),
-      self.span,
-    )
-  }
+  eternal: V8Eternal,
 }
 
 impl TryFrom<Field> for StructField {
@@ -181,14 +143,13 @@ impl TryFrom<Field> for StructField {
     }
 
     let name = value.ident.unwrap();
-    if rename.is_none() {
-      rename = Some(stringcase::camel_case(&name.unraw().to_string()));
-    }
+    let js_name = rename
+      .unwrap_or_else(|| stringcase::camel_case(&name.unraw().to_string()));
+    let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      span,
+      eternal: V8Eternal::new(js_name),
       name,
-      rename,
       serde,
       ty: value.ty,
     })

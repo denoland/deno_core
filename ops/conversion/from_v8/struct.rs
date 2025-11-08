@@ -2,12 +2,12 @@
 
 use super::convert_or_serde;
 use super::kw;
+use crate::V8Eternal;
 use crate::conversion::kw as shared_kw;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use quote::format_ident;
 use quote::quote;
 use syn::DataStruct;
 use syn::Error;
@@ -43,30 +43,17 @@ pub fn get_body(
         .collect::<Vec<_>>();
       let v8_static_strings = fields
         .iter()
-        .map(|field| {
-          let name = field.get_js_name();
-          let new_ident = format_ident!("__v8_static_{name}");
-          let name_str = name.to_string();
-          quote!(#new_ident = #name_str)
-        })
+        .map(|field| field.eternal.define_static())
         .collect::<Vec<_>>();
       let v8_lazy_strings = fields
         .iter()
-        .map(|field| {
-          let name = field.get_js_name();
-          let v8_eternal_name = format_ident!("__v8_{name}_eternal");
-          quote! {
-            static #v8_eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
-          }
-        })
+        .map(|field| field.eternal.define_eternal())
         .collect::<Vec<_>>();
 
       let fields = fields.into_iter().map(|field| {
-        let name = field.get_js_name();
-        let string_name = name.to_string();
-        let original_name = field.name;
-        let v8_static_name = format_ident!("__v8_static_{name}");
-        let v8_eternal_name = format_ident!("__v8_{name}_eternal");
+        let field_name = field.name;
+        let js_name = field.js_name.to_string();
+        let eternal_get_key = field.eternal.get_key();
 
         let undefined_as_none = if field.default_value.is_some() {
           quote! {
@@ -82,31 +69,21 @@ pub fn get_body(
           quote!()
         };
 
-        let required_or_default = match field.default_value { Some(default) => {
-          default.to_token_stream()
-        } _ => {
-          quote! {
-            return Err(::deno_error::JsErrorBox::type_error(concat!("Missing required field '", #string_name ,"' on '", #ident_string, "'")));
-          }
+        let required_or_default = match field.default_value {
+          Some(default) => default.to_token_stream(),
+          None => {
+            quote! {
+              return Err(::deno_error::JsErrorBox::type_error(concat!("Missing required field '", #js_name ,"' on '", #ident_string, "'")));
+            }
         }};
 
         let converter = convert_or_serde(field.serde, field.ty.span(), quote!(__value));
 
         quote! {
-          let #original_name = {
-            let __key = #v8_eternal_name
-              .with(|__eternal| {
-                if let Some(__key) = __eternal.get(__scope) {
-                  Ok(__key)
-                } else {
-                  let __key = #v8_static_name.v8_string(__scope)?;
-                  __eternal.set(__scope, __key);
-                  Ok(__key)
-                }
-              }).map_err(::deno_error::JsErrorBox::from_err::<::deno_core::FastStringV8AllocationError>)?
-              .into();
+          let #field_name = {
+            let __key = #eternal_get_key.map_err(::deno_error::JsErrorBox::from_err)?;
 
-            if let Some(__value) = __obj.as_ref().and_then(|__obj| __obj.get(__scope, __key))#undefined_as_none {
+            if let Some(__value) = __obj.get(__scope, __key)#undefined_as_none {
              #converter
             } else {
               #required_or_default
@@ -124,13 +101,9 @@ pub fn get_body(
           #(#v8_lazy_strings)*
         }
 
-        let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
-          None
-        } else {
-          match __value.try_into() {
-            Ok(obj) => Some(obj),
-            Err(err) => return Err(::deno_error::JsErrorBox::from_err(::deno_core::error::DataError::from(err))),
-          }
+        let __obj: ::deno_core::v8::Local<::deno_core::v8::Object> =  match __value.try_into() {
+          Ok(obj) => obj,
+          Err(err) => return Err(::deno_error::JsErrorBox::from_err(::deno_core::error::DataError::from(err))),
         };
 
         #(#fields)*
@@ -187,24 +160,12 @@ pub fn get_body(
 }
 
 struct StructField {
-  span: Span,
   name: Ident,
-  rename: Option<String>,
+  js_name: Ident,
   default_value: Option<Expr>,
   serde: bool,
   ty: Type,
-}
-
-impl StructField {
-  fn get_js_name(&self) -> Ident {
-    Ident::new(
-      &self
-        .rename
-        .clone()
-        .unwrap_or_else(|| stringcase::camel_case(&self.name.to_string())),
-      self.span,
-    )
-  }
+  eternal: V8Eternal,
 }
 
 impl TryFrom<Field> for StructField {
@@ -253,14 +214,14 @@ impl TryFrom<Field> for StructField {
     }
 
     let name = value.ident.unwrap();
-    if rename.is_none() {
-      rename = Some(stringcase::camel_case(&name.unraw().to_string()));
-    }
+    let js_name = rename
+      .unwrap_or_else(|| stringcase::camel_case(&name.unraw().to_string()));
+    let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      span,
+      eternal: V8Eternal::new(js_name.clone()),
       name,
-      rename,
+      js_name,
       default_value,
       serde,
       ty: value.ty,

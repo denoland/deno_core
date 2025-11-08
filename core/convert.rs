@@ -532,8 +532,8 @@ mod tests {
       .unwrap();
 
     deno_core::scope!(scope, runtime);
-    let val = Local::new(scope, val);
 
+    let val = Local::new(scope, val);
     let from = Struct::from_v8(scope, val).unwrap();
     assert_eq!(
       from,
@@ -546,7 +546,6 @@ mod tests {
     );
 
     let val2 = Local::new(scope, val2);
-
     let from = Struct::from_v8(scope, val2).unwrap();
     assert_eq!(
       from,

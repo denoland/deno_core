@@ -14,43 +14,34 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             static __v8_e_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
             static __v8_f_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
         }
-        let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value
-            .is_undefined() || __value.is_null()
+        let __obj: ::deno_core::v8::Local<::deno_core::v8::Object> = match __value
+            .try_into()
         {
-            None
-        } else {
-            match __value.try_into() {
-                Ok(obj) => Some(obj),
-                Err(err) => {
-                    return Err(
-                        ::deno_error::JsErrorBox::from_err(
-                            ::deno_core::error::DataError::from(err),
-                        ),
-                    );
-                }
+            Ok(obj) => obj,
+            Err(err) => {
+                return Err(
+                    ::deno_error::JsErrorBox::from_err(
+                        ::deno_core::error::DataError::from(err),
+                    ),
+                );
             }
         };
         let a = {
-            let __key = __v8_a_eternal
-                .with(|__eternal| {
-                    if let Some(__key) = __eternal.get(__scope) {
-                        Ok(__key)
-                    } else {
-                        let __key = __v8_static_a.v8_string(__scope)?;
-                        __eternal.set(__scope, __key);
-                        Ok(__key)
-                    }
-                })
-                .map_err(
-                    ::deno_error::JsErrorBox::from_err::<
-                        ::deno_core::FastStringV8AllocationError,
-                    >,
-                )?
-                .into();
-            if let Some(__value) = __obj
-                .as_ref()
-                .and_then(|__obj| __obj.get(__scope, __key))
-            {
+            let __key = {
+                __v8_a_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_a.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
+            if let Some(__value) = __obj.get(__scope, __key) {
                 ::deno_core::convert::FromV8::from_v8(__scope, __value)
                     .map_err(::deno_error::JsErrorBox::from_err)?
             } else {
@@ -62,25 +53,22 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             }
         };
         let c = {
-            let __key = __v8_c_eternal
-                .with(|__eternal| {
-                    if let Some(__key) = __eternal.get(__scope) {
-                        Ok(__key)
-                    } else {
-                        let __key = __v8_static_c.v8_string(__scope)?;
-                        __eternal.set(__scope, __key);
-                        Ok(__key)
-                    }
-                })
-                .map_err(
-                    ::deno_error::JsErrorBox::from_err::<
-                        ::deno_core::FastStringV8AllocationError,
-                    >,
-                )?
-                .into();
+            let __key = {
+                __v8_c_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_c.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
             if let Some(__value) = __obj
-                .as_ref()
-                .and_then(|__obj| __obj.get(__scope, __key))
+                .get(__scope, __key)
                 .and_then(|__value| {
                     if __value.is_undefined() { None } else { Some(__value) }
                 })
@@ -92,26 +80,21 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             }
         };
         let d = {
-            let __key = __v8_e_eternal
-                .with(|__eternal| {
-                    if let Some(__key) = __eternal.get(__scope) {
-                        Ok(__key)
-                    } else {
-                        let __key = __v8_static_e.v8_string(__scope)?;
-                        __eternal.set(__scope, __key);
-                        Ok(__key)
-                    }
-                })
-                .map_err(
-                    ::deno_error::JsErrorBox::from_err::<
-                        ::deno_core::FastStringV8AllocationError,
-                    >,
-                )?
-                .into();
-            if let Some(__value) = __obj
-                .as_ref()
-                .and_then(|__obj| __obj.get(__scope, __key))
-            {
+            let __key = {
+                __v8_e_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_e.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
+            if let Some(__value) = __obj.get(__scope, __key) {
                 ::deno_core::convert::FromV8::from_v8(__scope, __value)
                     .map_err(::deno_error::JsErrorBox::from_err)?
             } else {
@@ -123,25 +106,22 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             }
         };
         let f = {
-            let __key = __v8_f_eternal
-                .with(|__eternal| {
-                    if let Some(__key) = __eternal.get(__scope) {
-                        Ok(__key)
-                    } else {
-                        let __key = __v8_static_f.v8_string(__scope)?;
-                        __eternal.set(__scope, __key);
-                        Ok(__key)
-                    }
-                })
-                .map_err(
-                    ::deno_error::JsErrorBox::from_err::<
-                        ::deno_core::FastStringV8AllocationError,
-                    >,
-                )?
-                .into();
+            let __key = {
+                __v8_f_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_f.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
             if let Some(__value) = __obj
-                .as_ref()
-                .and_then(|__obj| __obj.get(__scope, __key))
+                .get(__scope, __key)
                 .and_then(|__value| {
                     if __value.is_undefined() { None } else { Some(__value) }
                 })

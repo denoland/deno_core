@@ -60,6 +60,64 @@ pub fn to_v8(item: TokenStream) -> TokenStream {
   }
 }
 
+struct V8Eternal {
+  name: syn::Ident,
+  static_name: syn::Ident,
+  eternal_name: syn::Ident,
+}
+
+impl V8Eternal {
+  fn new(name: syn::Ident) -> Self {
+    Self {
+      static_name: quote::format_ident!("__v8_static_{name}"),
+      eternal_name: quote::format_ident!("__v8_{name}_eternal"),
+      name,
+    }
+  }
+
+  fn define_static(&self) -> proc_macro2::TokenStream {
+    let Self {
+      static_name, name, ..
+    } = self;
+    let name_str = name.to_string();
+
+    quote::quote! {
+      #static_name = #name_str
+    }
+  }
+
+  fn define_eternal(&self) -> proc_macro2::TokenStream {
+    let Self { eternal_name, .. } = self;
+
+    quote::quote! {
+      static #eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+    }
+  }
+
+  fn get_key(&self) -> proc_macro2::TokenStream {
+    let Self {
+      static_name,
+      eternal_name,
+      ..
+    } = self;
+
+    quote::quote! {
+      {
+        #eternal_name
+          .with(|__eternal| {
+            if let Some(__key) = __eternal.get(__scope) {
+              Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+            } else {
+              let __key = #static_name.v8_string(__scope)?;
+              __eternal.set(__scope, __key);
+              Ok(__key)
+            }
+          }).map(Into::into)
+      }
+    }
+  }
+}
+
 #[cfg(test)]
 mod infra {
   use std::path::PathBuf;
