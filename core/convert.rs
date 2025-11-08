@@ -460,18 +460,27 @@ fn bytes_to_uint8array<'a>(
   v8::Uint8Array::new(scope, ab, 0, len).unwrap().into()
 }
 
-impl<'a> ToV8<'a> for Vec<u8> {
+pub struct Uint8Array(pub Vec<u8>);
+
+impl std::ops::Deref for Uint8Array {
+  type Target = Vec<u8>;
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl<'a> ToV8<'a> for Uint8Array {
   type Error = Infallible;
 
   fn to_v8<'i>(
     self,
     scope: &mut v8::PinScope<'a, 'i>,
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
-    Ok(bytes_to_uint8array(scope, self))
+    Ok(bytes_to_uint8array(scope, self.0))
   }
 }
 
-impl<'a> FromV8<'a> for Vec<u8> {
+impl<'a> FromV8<'a> for Uint8Array {
   type Error = DataError;
 
   fn from_v8<'i>(
@@ -479,7 +488,7 @@ impl<'a> FromV8<'a> for Vec<u8> {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_uint8_array() {
-      Ok(unsafe { abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>()) })
+      Ok(Uint8Array(unsafe { abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>()) }))
     } else {
       Err(DataError(v8::DataError::BadType {
         actual: value.type_repr(),
@@ -504,106 +513,29 @@ unsafe fn abview_to_vec<T>(ab_view: v8::Local<v8::ArrayBufferView>) -> Vec<T> {
   }
 }
 
-impl<'a> FromV8<'a> for Vec<u16> {
-  type Error = DataError;
-
-  fn from_v8<'i>(
-    _scope: &mut v8::PinScope<'a, 'i>,
-    value: v8::Local<'a, v8::Value>,
-  ) -> Result<Self, Self::Error> {
-    if value.is_uint16_array() {
-      Ok(unsafe { abview_to_vec::<u16>(value.cast::<v8::ArrayBufferView>()) })
-    } else {
-      Err(DataError(v8::DataError::BadType {
-        actual: value.type_repr(),
-        expected: "Uint16Array",
-      }))
-    }
-  }
-}
-
-impl<'a> FromV8<'a> for Vec<u32> {
-  type Error = DataError;
-  fn from_v8<'i>(
-    _scope: &mut v8::PinScope<'a, 'i>,
-    value: v8::Local<'a, v8::Value>,
-  ) -> Result<Self, Self::Error> {
-    if value.is_uint32_array() {
-      Ok(unsafe { abview_to_vec::<u32>(value.cast::<v8::ArrayBufferView>()) })
-    } else {
-      Err(DataError(v8::DataError::BadType {
-        actual: value.type_repr(),
-        expected: "Uint32Array",
-      }))
-    }
-  }
-}
-
-impl<'a> FromV8<'a> for Vec<u64> {
-  type Error = DataError;
-  fn from_v8<'i>(
-    _scope: &mut v8::PinScope<'a, 'i>,
-    value: v8::Local<'a, v8::Value>,
-  ) -> Result<Self, Self::Error> {
-    if value.is_big_uint64_array() {
-      Ok(unsafe { abview_to_vec::<u64>(value.cast::<v8::ArrayBufferView>()) })
-    } else {
-      Err(DataError(v8::DataError::BadType {
-        actual: value.type_repr(),
-        expected: "BigUint64Array",
-      }))
-    }
-  }
-}
-
-impl<'a> FromV8<'a> for Vec<i32> {
-  type Error = DataError;
-  fn from_v8<'i>(
-    _scope: &mut v8::PinScope<'a, 'i>,
-    value: v8::Local<'a, v8::Value>,
-  ) -> Result<Self, Self::Error> {
-    if value.is_int32_array() {
-      Ok(unsafe { abview_to_vec::<i32>(value.cast::<v8::ArrayBufferView>()) })
-    } else {
-      Err(DataError(v8::DataError::BadType {
-        actual: value.type_repr(),
-        expected: "Int32Array",
-      }))
-    }
-  }
-}
-
-impl<'a> FromV8<'a> for Vec<i64> {
-  type Error = DataError;
-  fn from_v8<'i>(
-    _scope: &mut v8::PinScope<'a, 'i>,
-    value: v8::Local<'a, v8::Value>,
-  ) -> Result<Self, Self::Error> {
-    if value.is_big_int64_array() {
-      Ok(unsafe { abview_to_vec::<i64>(value.cast::<v8::ArrayBufferView>()) })
-    } else {
-      Err(DataError(v8::DataError::BadType {
-        actual: value.type_repr(),
-        expected: "BigInt64Array",
-      }))
-    }
-  }
-}
-
 macro_rules! typedarray_to_v8 {
-  ($ty:ty, $v8ty:ident) => {
-    impl<'a> ToV8<'a> for Vec<$ty> {
+  ($ty:ty, $v8ty:ident, $v8fn:ident) => {
+    pub struct $v8ty(pub Vec<$ty>);
+
+    impl std::ops::Deref for $v8ty {
+      type Target = Vec<$ty>;
+      fn deref(&self) -> &Self::Target {
+        &self.0
+      }
+    }
+
+    impl<'a> ToV8<'a> for $v8ty {
       type Error = JsErrorBox;
 
       fn to_v8<'i>(
         self,
         scope: &mut v8::PinScope<'a, 'i>,
       ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
-        let len = self.len();
-        if self.is_empty() {
+        let len = self.0.len();
+        if self.0.is_empty() {
           return Ok(v8::ArrayBuffer::new(scope, 0).into());
         }
-        let bytes = self.into_boxed_slice();
+        let bytes = self.0.into_boxed_slice();
         let backing = v8::ArrayBuffer::new_backing_store_from_bytes(bytes);
         let backing_shared = backing.make_shared();
         let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_shared);
@@ -612,14 +544,32 @@ macro_rules! typedarray_to_v8 {
           .map(|v| v.into())
       }
     }
+
+    impl<'a> FromV8<'a> for $v8ty {
+      type Error = DataError;
+
+      fn from_v8<'i>(
+        _scope: &mut v8::PinScope<'a, 'i>,
+        value: v8::Local<'a, v8::Value>,
+      ) -> Result<Self, Self::Error> {
+        if value.$v8fn() {
+          Ok($v8ty(unsafe { abview_to_vec::<$ty>(value.cast::<v8::ArrayBufferView>()) }))
+        } else {
+          Err(DataError(v8::DataError::BadType {
+            actual: value.type_repr(),
+            expected: stringify!($v8ty),
+          }))
+        }
+      }
+    }
   };
 }
 
-typedarray_to_v8!(u16, Uint16Array);
-typedarray_to_v8!(u32, Uint32Array);
-typedarray_to_v8!(u64, BigUint64Array);
-typedarray_to_v8!(i32, Int32Array);
-typedarray_to_v8!(i64, BigInt64Array);
+typedarray_to_v8!(u16, Uint16Array, is_uint16_array);
+typedarray_to_v8!(u32, Uint32Array, is_uint32_array);
+typedarray_to_v8!(u64, BigUint64Array, is_big_uint64_array);
+typedarray_to_v8!(i32, Int32Array, is_int32_array);
+typedarray_to_v8!(i64, BigInt64Array, is_big_int64_array);
 
 impl<'a, T> ToV8<'a> for Vec<T>
 where
@@ -714,7 +664,7 @@ unsafe fn transmute_vec<T, U>(v: Vec<T>) -> Vec<U> {
 }
 
 macro_rules! impl_tuple {
-  ($($len: expr; ($($name: ident $(,)?),+)),+ $(,)?) => {
+  ($($len: expr; ($($name: ident),*)),+) => {
     $(
       impl<'a, $($name),+> ToV8<'a> for ($($name,)+)
       where
@@ -766,7 +716,7 @@ macro_rules! impl_tuple {
 }
 
 impl_tuple!(
-  1; (A,),
+  1; (A),
   2; (A, B),
   3; (A, B, C),
   4; (A, B, C, D),
@@ -777,7 +727,7 @@ impl_tuple!(
   9; (A, B, C, D, E, F, G, H, I),
   10; (A, B, C, D, E, F, G, H, I, J),
   11; (A, B, C, D, E, F, G, H, I, J, K),
-  12; (A, B, C, D, E, F, G, H, I, J, K, L),
+  12; (A, B, C, D, E, F, G, H, I, J, K, L)
 );
 
 impl<'s, T> ToV8<'s> for Option<T>
@@ -851,8 +801,6 @@ function equal(a, b) {
   return false;
 }
 "#;
-
-  use super::*;
 
   fn cast_closure<F>(f: F) -> F
   where
@@ -1111,22 +1059,22 @@ function equal(a, b) {
 
     to_v8_test!(
       runtime,
-      |scope, _args| vec![1u8, 2, 3].to_v8(scope).unwrap(),
+      |scope, _args| Uint8Array(vec![1, 2, 3]).to_v8(scope).unwrap(),
       "equal(test_fn(), new Uint8Array([1, 2, 3]))"
     );
 
     to_v8_test!(
       runtime,
-      |scope, _args| Vec::<u8>::new().to_v8(scope).unwrap(),
+      |scope, _args| Uint8Array(Vec::<u8>::new()).to_v8(scope).unwrap(),
       "equal(test_fn(), new Uint8Array([]))"
     );
 
     from_v8_test!(runtime, "new Uint8Array([1, 2, 3])", |scope, result| {
-      assert_eq!(<Vec<u8>>::from_v8(scope, result).unwrap(), vec![1u8, 2, 3])
+      assert_eq!(*<Uint8Array>::from_v8(scope, result).unwrap(), vec![1u8, 2, 3])
     });
 
     from_v8_test!(runtime, "new Uint8Array([])", |scope, result| {
-      assert_eq!(<Vec<u8>>::from_v8(scope, result).unwrap(), Vec::<u8>::new())
+      assert_eq!(*<Uint8Array>::from_v8(scope, result).unwrap(), Vec::<u8>::new())
     });
   }
 
@@ -1136,20 +1084,20 @@ function equal(a, b) {
 
     to_v8_test!(
       runtime,
-      |scope, _args| vec![1u16, 2, 3].to_v8(scope).unwrap(),
+      |scope, _args| Uint16Array(vec![1, 2, 3]).to_v8(scope).unwrap(),
       "equal(test_fn(), new Uint16Array([1, 2, 3]))"
     );
 
     from_v8_test!(runtime, "new Uint16Array([1, 2, 3])", |scope, result| {
       assert_eq!(
-        <Vec<u16>>::from_v8(scope, result).unwrap(),
+        *<Uint16Array>::from_v8(scope, result).unwrap(),
         vec![1u16, 2, 3]
       )
     });
 
     from_v8_test!(runtime, "new Uint16Array([])", |scope, result| {
       assert_eq!(
-        <Vec<u16>>::from_v8(scope, result).unwrap(),
+        *<Uint16Array>::from_v8(scope, result).unwrap(),
         Vec::<u16>::new()
       )
     });
@@ -1161,20 +1109,20 @@ function equal(a, b) {
 
     to_v8_test!(
       runtime,
-      |scope, _args| vec![1u32, 2, 3].to_v8(scope).unwrap(),
+      |scope, _args| Uint32Array(vec![1, 2, 3]).to_v8(scope).unwrap(),
       "equal(test_fn(), new Uint32Array([1, 2, 3]))"
     );
 
     from_v8_test!(runtime, "new Uint32Array([1, 2, 3])", |scope, result| {
       assert_eq!(
-        <Vec<u32>>::from_v8(scope, result).unwrap(),
+        *<Uint32Array>::from_v8(scope, result).unwrap(),
         vec![1u32, 2, 3]
       )
     });
 
     from_v8_test!(runtime, "new Uint32Array([])", |scope, result| {
       assert_eq!(
-        <Vec<u32>>::from_v8(scope, result).unwrap(),
+        *<Uint32Array>::from_v8(scope, result).unwrap(),
         Vec::<u32>::new()
       )
     });
@@ -1186,20 +1134,20 @@ function equal(a, b) {
 
     to_v8_test!(
       runtime,
-      |scope, _args| vec![1i32, 2, 3].to_v8(scope).unwrap(),
+      |scope, _args| Int32Array(vec![1, 2, 3]).to_v8(scope).unwrap(),
       "equal(test_fn(), new Int32Array([1, 2, 3]))"
     );
 
     from_v8_test!(runtime, "new Int32Array([1, 2, 3])", |scope, result| {
       assert_eq!(
-        <Vec<i32>>::from_v8(scope, result).unwrap(),
-        vec![1i32, 2, 3]
+        *<Int32Array>::from_v8(scope, result).unwrap(),
+        vec![1, 2, 3]
       )
     });
 
     from_v8_test!(runtime, "new Int32Array([])", |scope, result| {
       assert_eq!(
-        <Vec<i32>>::from_v8(scope, result).unwrap(),
+        *<Int32Array>::from_v8(scope, result).unwrap(),
         Vec::<i32>::new()
       )
     });
@@ -1211,7 +1159,7 @@ function equal(a, b) {
 
     to_v8_test!(
       runtime,
-      |scope, _args| vec![1u64, 2, 3].to_v8(scope).unwrap(),
+      |scope, _args| BigUint64Array(vec![1, 2, 3]).to_v8(scope).unwrap(),
       "equal(test_fn(), new BigUint64Array([1n, 2n, 3n]))"
     );
 
@@ -1220,7 +1168,7 @@ function equal(a, b) {
       "new BigUint64Array([1n, 2n, 3n])",
       |scope, result| {
         assert_eq!(
-          <Vec<u64>>::from_v8(scope, result).unwrap(),
+          *<BigUint64Array>::from_v8(scope, result).unwrap(),
           vec![1u64, 2, 3]
         )
       }
@@ -1233,7 +1181,7 @@ function equal(a, b) {
 
     to_v8_test!(
       runtime,
-      |scope, _args| vec![1i64, 2, 3].to_v8(scope).unwrap(),
+      |scope, _args| BigInt64Array(vec![1, 2, 3]).to_v8(scope).unwrap(),
       "equal(test_fn(), new BigInt64Array([1n, 2n, 3n]))"
     );
 
@@ -1242,15 +1190,15 @@ function equal(a, b) {
       "new BigInt64Array([1n, 2n, 3n])",
       |scope, result| {
         assert_eq!(
-          <Vec<i64>>::from_v8(scope, result).unwrap(),
-          vec![1i64, 2, 3]
+          *<BigInt64Array>::from_v8(scope, result).unwrap(),
+          vec![1, 2, 3]
         )
       }
     );
 
     from_v8_test!(runtime, "new BigInt64Array([])", |scope, result| {
       assert_eq!(
-        <Vec<i64>>::from_v8(scope, result).unwrap(),
+        *<BigInt64Array>::from_v8(scope, result).unwrap(),
         Vec::<i64>::new()
       )
     });
