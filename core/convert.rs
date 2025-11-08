@@ -822,8 +822,8 @@ mod tests {
 
   use deno_error::JsErrorClass;
 
-  use crate::{JsRuntime, scope as scope_macro};
   use crate::JsRuntime;
+  use crate::scope as scope_macro;
   use std::collections::HashMap;
   use v8::Local;
 
