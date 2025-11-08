@@ -488,7 +488,9 @@ impl<'a> FromV8<'a> for Uint8Array {
     value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     if value.is_uint8_array() {
-      Ok(Uint8Array(unsafe { abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>()) }))
+      Ok(Uint8Array(unsafe {
+        abview_to_vec::<u8>(value.cast::<v8::ArrayBufferView>())
+      }))
     } else {
       Err(DataError(v8::DataError::BadType {
         actual: value.type_repr(),
@@ -553,7 +555,9 @@ macro_rules! typedarray_to_v8 {
         value: v8::Local<'a, v8::Value>,
       ) -> Result<Self, Self::Error> {
         if value.$v8fn() {
-          Ok($v8ty(unsafe { abview_to_vec::<$ty>(value.cast::<v8::ArrayBufferView>()) }))
+          Ok($v8ty(unsafe {
+            abview_to_vec::<$ty>(value.cast::<v8::ArrayBufferView>())
+          }))
         } else {
           Err(DataError(v8::DataError::BadType {
             actual: value.type_repr(),
@@ -1070,11 +1074,17 @@ function equal(a, b) {
     );
 
     from_v8_test!(runtime, "new Uint8Array([1, 2, 3])", |scope, result| {
-      assert_eq!(*<Uint8Array>::from_v8(scope, result).unwrap(), vec![1u8, 2, 3])
+      assert_eq!(
+        *<Uint8Array>::from_v8(scope, result).unwrap(),
+        vec![1u8, 2, 3]
+      )
     });
 
     from_v8_test!(runtime, "new Uint8Array([])", |scope, result| {
-      assert_eq!(*<Uint8Array>::from_v8(scope, result).unwrap(), Vec::<u8>::new())
+      assert_eq!(
+        *<Uint8Array>::from_v8(scope, result).unwrap(),
+        Vec::<u8>::new()
+      )
     });
   }
 
@@ -1204,7 +1214,6 @@ function equal(a, b) {
     });
   }
 
-
   #[test]
   fn derive_struct() {
     #[derive(deno_ops::FromV8, deno_ops::ToV8, Eq, PartialEq, Clone, Debug)]
@@ -1328,7 +1337,7 @@ function equal(a, b) {
       },
       scope,
     )
-      .unwrap();
+    .unwrap();
     let obj = from.cast::<v8::Object>();
     let key = v8::String::new(scope, "a").unwrap();
     assert_eq!(
@@ -1379,7 +1388,7 @@ function equal(a, b) {
       },
       scope,
     )
-      .unwrap();
+    .unwrap();
     let obj = from.cast::<v8::Object>();
     let key = v8::String::new(scope, "a").unwrap();
     assert_eq!(
