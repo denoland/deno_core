@@ -188,7 +188,9 @@ impl TryFrom<Field> for StructField {
         for argument in args {
           match argument {
             StructFieldArgument::Default { value, .. } => {
-              default_value = Some(value)
+              default_value = Some(value.unwrap_or_else(|| {
+                syn::parse2(quote!(Default::default())).unwrap()
+              }))
             }
             StructFieldArgument::Rename { value, .. } => {
               rename = Some(value.value())
@@ -233,8 +235,8 @@ impl TryFrom<Field> for StructField {
 enum StructFieldArgument {
   Default {
     name_token: kw::default,
-    eq_token: Token![=],
-    value: Expr,
+    eq_token: Option<Token![=]>,
+    value: Option<Expr>,
   },
   Rename {
     name_token: crate::conversion::kw::rename,
@@ -250,11 +252,23 @@ impl Parse for StructFieldArgument {
   fn parse(input: ParseStream) -> Result<Self, Error> {
     let lookahead = input.lookahead1();
     if lookahead.peek(kw::default) {
-      Ok(StructFieldArgument::Default {
-        name_token: input.parse()?,
-        eq_token: input.parse()?,
-        value: input.parse()?,
-      })
+      let name_token: kw::default = input.parse()?;
+
+      if input.peek(Token![=]) {
+        Ok(StructFieldArgument::Default {
+          name_token,
+          eq_token: Some(input.parse()?),
+          value: Some(input.parse()?),
+        })
+      } else if input.is_empty() || input.peek(Token![,]) {
+        Ok(StructFieldArgument::Default {
+          name_token,
+          eq_token: None,
+          value: None,
+        })
+      } else {
+        Err(input.error("expected `=` or end of argument after `default`"))
+      }
     } else if lookahead.peek(shared_kw::rename) {
       Ok(StructFieldArgument::Rename {
         name_token: input.parse()?,

@@ -96,7 +96,7 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
 
         quote! {
           let __value = &[#(#fields),*];
-          Ok(v8::Array::new_with_elements(__scope, __value).into())
+          Ok(::deno_core::v8::Array::new_with_elements(__scope, __value).into())
         }
       };
 

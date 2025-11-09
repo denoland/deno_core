@@ -55,7 +55,7 @@ fn create_impl(ident: impl ToTokens, body: TokenStream) -> TokenStream {
       fn to_v8<'i>(
         self,
         __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
-      ) -> Result<v8::Local<'a, v8::Value>, Self::Error>
+      ) -> Result<::deno_core::v8::Local<'a, ::deno_core::v8::Value>, Self::Error>
       {
         #body
       }

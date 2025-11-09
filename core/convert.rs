@@ -345,6 +345,17 @@ impl<'s> ToV8<'s> for String {
   }
 }
 
+impl<'s> ToV8<'s> for &'static str {
+  type Error = Infallible;
+  #[inline]
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
+    Ok(v8::String::new(scope, self).unwrap().into()) // TODO
+  }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 /// A wrapper type for `Option<T>` that (de)serializes `None` as `null`
 #[repr(transparent)]
@@ -460,12 +471,19 @@ fn bytes_to_uint8array<'a>(
   v8::Uint8Array::new(scope, ab, 0, len).unwrap().into()
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Uint8Array(pub Vec<u8>);
 
 impl std::ops::Deref for Uint8Array {
   type Target = Vec<u8>;
   fn deref(&self) -> &Self::Target {
     &self.0
+  }
+}
+
+impl From<Vec<u8>> for Uint8Array {
+  fn from(value: Vec<u8>) -> Self {
+    Self(value)
   }
 }
 
@@ -517,12 +535,19 @@ unsafe fn abview_to_vec<T>(ab_view: v8::Local<v8::ArrayBufferView>) -> Vec<T> {
 
 macro_rules! typedarray_to_v8 {
   ($ty:ty, $v8ty:ident, $v8fn:ident) => {
+    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
     pub struct $v8ty(pub Vec<$ty>);
 
     impl std::ops::Deref for $v8ty {
       type Target = Vec<$ty>;
       fn deref(&self) -> &Self::Target {
         &self.0
+      }
+    }
+
+    impl From<Vec<$ty>> for $v8ty {
+      fn from(value: Vec<$ty>) -> Self {
+        Self(value)
       }
     }
 
