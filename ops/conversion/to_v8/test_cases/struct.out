@@ -3,7 +3,7 @@ impl<'a> ::deno_core::convert::ToV8<'a> for Struct {
     fn to_v8<'i>(
         self,
         __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
-    ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    ) -> Result<::deno_core::v8::Local<'a, ::deno_core::v8::Value>, Self::Error> {
         ::deno_core::v8_static_strings! {
             __v8_static_a = "a", __v8_static_c = "c", __v8_static_e = "e", __v8_static_f
             = "f"
