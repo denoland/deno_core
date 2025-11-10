@@ -2044,7 +2044,7 @@ pub fn format_frame<F: ErrorFormat>(
     !(frame.is_top_level.unwrap_or_default() || frame.is_constructor);
   let mut result = String::new();
   if frame.is_async {
-    result += "async ";
+    result += &F::fmt_element(PlainText, in_extension_code, "async ");
   }
   if frame.is_promise_all {
     result += &F::fmt_element(
@@ -2085,7 +2085,7 @@ pub fn format_frame<F: ErrorFormat>(
       F::fmt_element(FunctionName, in_extension_code, &formatted_method)
         .as_ref();
   } else if frame.is_constructor {
-    result += "new ";
+    result += &F::fmt_element(PlainText, in_extension_code, "new ");
     if let Some(function_name) = &frame.function_name {
       write!(
         result,
