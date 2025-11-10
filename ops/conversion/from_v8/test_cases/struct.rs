@@ -9,6 +9,6 @@ pub struct Struct {
   #[from_v8(default = Some(3))]
   c: Option<u32>,
   #[from_v8(rename = "e")]
-  d: u64,
+  d: u16,
   f: Option<u32>,
 }

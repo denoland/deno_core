@@ -9,6 +9,6 @@ pub struct Struct {
   #[to_v8(serde)]
   c: Vec<u32>,
   #[to_v8(rename = "e")]
-  d: u64,
+  d: u16,
   f: Option<u32>,
 }
