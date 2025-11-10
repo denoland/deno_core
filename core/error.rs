@@ -1947,6 +1947,8 @@ pub enum ErrorElement {
   EvalOrigin,
   /// Text signifying a call to `Promise.all`
   PromiseAll,
+  /// Other, plain text appearing in the error stack trace
+  PlainText,
 }
 
 /// Applies formatting to various parts of error stack traces.
@@ -2006,34 +2008,23 @@ pub fn format_location<F: ErrorFormat>(
       let eval_origin = frame.eval_origin.as_ref().unwrap();
       let formatted_eval_origin =
         format_eval_origin(eval_origin, maybe_initial_cwd);
-      result += &(F::fmt_element(
-        EvalOrigin,
-        in_extension_code,
-        &formatted_eval_origin,
-      )
-      .to_string()
-        + ", ");
+      result +=
+        &F::fmt_element(EvalOrigin, in_extension_code, &formatted_eval_origin);
+      result += &F::fmt_element(PlainText, in_extension_code, ", ");
     }
     result += &F::fmt_element(Anonymous, in_extension_code, "<anonymous>");
   }
   if let Some(line_number) = frame.line_number {
-    write!(
-      result,
-      ":{}",
-      F::fmt_element(LineNumber, in_extension_code, &line_number.to_string())
-    )
-    .unwrap();
+    result += &F::fmt_element(PlainText, in_extension_code, ":");
+    result +=
+      &F::fmt_element(LineNumber, in_extension_code, &line_number.to_string());
     if let Some(column_number) = frame.column_number {
-      write!(
-        result,
-        ":{}",
-        F::fmt_element(
-          ColumnNumber,
-          in_extension_code,
-          &column_number.to_string()
-        )
-      )
-      .unwrap();
+      result += &F::fmt_element(PlainText, in_extension_code, ":");
+      result += &F::fmt_element(
+        ColumnNumber,
+        in_extension_code,
+        &column_number.to_string(),
+      );
     }
   }
   result
@@ -2053,7 +2044,7 @@ pub fn format_frame<F: ErrorFormat>(
     !(frame.is_top_level.unwrap_or_default() || frame.is_constructor);
   let mut result = String::new();
   if frame.is_async {
-    result += "async ";
+    result += &F::fmt_element(PlainText, in_extension_code, "async ");
   }
   if frame.is_promise_all {
     result += &F::fmt_element(
@@ -2094,7 +2085,7 @@ pub fn format_frame<F: ErrorFormat>(
       F::fmt_element(FunctionName, in_extension_code, &formatted_method)
         .as_ref();
   } else if frame.is_constructor {
-    result += "new ";
+    result += &F::fmt_element(PlainText, in_extension_code, "new ");
     if let Some(function_name) = &frame.function_name {
       write!(
         result,
@@ -2113,12 +2104,9 @@ pub fn format_frame<F: ErrorFormat>(
     result += &format_location::<F>(frame, maybe_initial_cwd);
     return result;
   }
-  write!(
-    result,
-    " ({})",
-    format_location::<F>(frame, maybe_initial_cwd)
-  )
-  .unwrap();
+  result += &F::fmt_element(PlainText, in_extension_code, " (");
+  result += &format_location::<F>(frame, maybe_initial_cwd);
+  result += &F::fmt_element(PlainText, in_extension_code, ")");
   result
 }
 
