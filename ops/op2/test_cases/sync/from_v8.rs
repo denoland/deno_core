@@ -2,12 +2,12 @@
 
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
-use deno_core::FromV8;
+use deno_core::FromV8 as FromV8Trait;
 use deno_core::v8;
 
 struct Foo;
 
-impl<'a> FromV8<'a> for Foo {
+impl<'a> FromV8Trait<'a> for Foo {
   type Error = std::convert::Infallible;
   fn from_v8(
     _scope: &mut v8::PinScope<'a, '_>,

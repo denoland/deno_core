@@ -1,0 +1,137 @@
+impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
+    type Error = ::deno_error::JsErrorBox;
+    fn from_v8<'i>(
+        __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
+        __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
+    ) -> Result<Self, Self::Error> {
+        ::deno_core::v8_static_strings! {
+            __v8_static_a = "a", __v8_static_c = "c", __v8_static_e = "e", __v8_static_f
+            = "f"
+        }
+        thread_local! {
+            static __v8_a_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            static __v8_c_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            static __v8_e_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+            static __v8_f_eternal: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+        }
+        let __obj: ::deno_core::v8::Local<::deno_core::v8::Object> = match __value
+            .try_into()
+        {
+            Ok(obj) => obj,
+            Err(err) => {
+                return Err(
+                    ::deno_error::JsErrorBox::from_err(
+                        ::deno_core::error::DataError::from(err),
+                    ),
+                );
+            }
+        };
+        let a = {
+            let __key = {
+                __v8_a_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_a.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
+            if let Some(__value) = __obj.get(__scope, __key) {
+                ::deno_core::convert::FromV8::from_v8(__scope, __value)
+                    .map_err(::deno_error::JsErrorBox::from_err)?
+            } else {
+                return Err(
+                    ::deno_error::JsErrorBox::type_error(
+                        concat!("Missing required field '", "a", "' on '", "Struct", "'"),
+                    ),
+                );
+            }
+        };
+        let c = {
+            let __key = {
+                __v8_c_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_c.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
+            if let Some(__value) = __obj
+                .get(__scope, __key)
+                .and_then(|__value| {
+                    if __value.is_undefined() { None } else { Some(__value) }
+                })
+            {
+                ::deno_core::convert::FromV8::from_v8(__scope, __value)
+                    .map_err(::deno_error::JsErrorBox::from_err)?
+            } else {
+                Some(3)
+            }
+        };
+        let d = {
+            let __key = {
+                __v8_e_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_e.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
+            if let Some(__value) = __obj.get(__scope, __key) {
+                ::deno_core::convert::FromV8::from_v8(__scope, __value)
+                    .map_err(::deno_error::JsErrorBox::from_err)?
+            } else {
+                return Err(
+                    ::deno_error::JsErrorBox::type_error(
+                        concat!("Missing required field '", "e", "' on '", "Struct", "'"),
+                    ),
+                );
+            }
+        };
+        let f = {
+            let __key = {
+                __v8_f_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_f.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(::deno_error::JsErrorBox::from_err)?;
+            if let Some(__value) = __obj
+                .get(__scope, __key)
+                .and_then(|__value| {
+                    if __value.is_undefined() { None } else { Some(__value) }
+                })
+            {
+                ::deno_core::convert::FromV8::from_v8(__scope, __value)
+                    .map_err(::deno_error::JsErrorBox::from_err)?
+            } else {
+                None
+            }
+        };
+        Ok(Self { a, c, d, f })
+    }
+}
