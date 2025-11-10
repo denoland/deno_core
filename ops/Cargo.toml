@@ -22,8 +22,8 @@ stringcase = "0.4.0"
 strum.workspace = true
 strum_macros.workspace = true
 syn.workspace = true
+syn-match = "0.3.0"
 thiserror.workspace = true
-syn-match = "0.2.0"
 
 [dev-dependencies]
 pretty_assertions.workspace = true
