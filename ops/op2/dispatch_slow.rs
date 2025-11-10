@@ -27,7 +27,7 @@ use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
-use super::signature::WebIDLPairs;
+use super::signature::WebIDLPair;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
@@ -702,7 +702,7 @@ pub fn from_arg(
       } else {
         let inner = options
           .iter()
-          .map(|WebIDLPairs(k, v)| quote!(#k: #v))
+          .map(|WebIDLPair(k, v)| quote!(#k: #v))
           .collect::<Vec<_>>();
 
         let alias = format_ident!("{arg_ident}_webidl_alias");
