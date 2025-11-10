@@ -37,7 +37,6 @@ deno_core::extension!(
     op_buffer,
     op_buffer_jsbuffer,
     op_buffer_nofast,
-    op_arraybuffer,
   ],
   state = |state| {
     state.put(1234u32);
@@ -155,9 +154,6 @@ pub fn op_buffer_jsbuffer(#[buffer] _buffer: JsBuffer) {}
 
 #[op2(nofast)]
 pub fn op_buffer_nofast(#[buffer] _buffer: &[u8]) {}
-
-#[op2(fast)]
-pub fn op_arraybuffer(#[arraybuffer] _buffer: &[u8]) {}
 
 fn bench_op(
   b: &mut Bencher,
@@ -545,16 +541,6 @@ fn bench_op_buffer_nofast(b: &mut Bencher) {
   );
 }
 
-fn bench_op_arraybuffer(b: &mut Bencher) {
-  bench_op(
-    b,
-    BENCH_COUNT,
-    "op_arraybuffer",
-    1,
-    "op_arraybuffer(ARRAYBUFFER)",
-  );
-}
-
 benchmark_group!(
   benches,
   baseline,
@@ -592,7 +578,6 @@ benchmark_group!(
   bench_op_buffer,
   bench_op_buffer_jsbuffer,
   bench_op_buffer_nofast,
-  bench_op_arraybuffer,
 );
 
 benchmark_main!(benches);

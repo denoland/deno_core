@@ -619,7 +619,6 @@ mod tests {
       op_buffer_bytesmut,
       op_buffer_any,
       op_buffer_any_length,
-      op_arraybuffer_slice,
       op_test_get_cppgc_resource,
       op_test_get_cppgc_resource_option,
       op_test_make_cppgc_resource,
@@ -1775,41 +1774,6 @@ mod tests {
       JIT_ITERATIONS,
       "op_buffer_any_length",
       "assert(op_buffer_any_length(new DataView(new ArrayBuffer(10))) == 10);",
-    )?;
-    Ok(())
-  }
-
-  #[op2(fast)]
-  pub fn op_arraybuffer_slice(
-    #[arraybuffer] input: &[u8],
-    #[number] inlen: usize,
-    #[arraybuffer] output: &mut [u8],
-    #[number] outlen: usize,
-  ) {
-    assert_eq!(inlen, input.len());
-    assert_eq!(outlen, output.len());
-    if inlen > 0 && outlen > 0 {
-      output[0] = input[0];
-    }
-  }
-
-  #[tokio::test]
-  pub async fn test_op_arraybuffer_slice()
-  -> Result<(), Box<dyn std::error::Error>> {
-    // Zero-length buffers
-    run_test2(
-      JIT_ITERATIONS,
-      "op_arraybuffer_slice",
-      "op_arraybuffer_slice(new ArrayBuffer(0), 0, new ArrayBuffer(0), 0);",
-    )?;
-    run_test2(
-      JIT_ITERATIONS,
-      "op_arraybuffer_slice",
-      r"let inbuf = new ArrayBuffer(10);
-      (new Uint8Array(inbuf))[0] = 1;
-      let outbuf = new ArrayBuffer(10);
-      op_arraybuffer_slice(inbuf, 10, outbuf, 10);
-      assert((new Uint8Array(outbuf))[0] == 1);",
     )?;
     Ok(())
   }

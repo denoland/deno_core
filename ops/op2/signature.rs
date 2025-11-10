@@ -1293,10 +1293,6 @@ fn parse_attribute(
       (#[anybuffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::Any)),
       (#[anybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::Any)),
       (#[anybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::Any)),
-      (#[arraybuffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::ArrayBuffer)),
-      (#[arraybuffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::ArrayBuffer)),
-      (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
-      (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
       (#[global]) => Some(AttributeModifier::Global),
       (#[this]) => Some(AttributeModifier::This),
       (#[cppgc]) => Some(AttributeModifier::CppGcResource),
@@ -1971,10 +1967,6 @@ mod tests {
   test!(
     fn op_pointers(#[buffer] r#in: *const u8, #[buffer] out: *mut u8);
     (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Infallible(Void, false)
-  );
-  test!(
-    fn op_arraybuffer(#[arraybuffer] r#in: &[u8]);
-    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Infallible(Void, false)
   );
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
