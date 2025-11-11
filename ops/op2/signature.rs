@@ -1582,16 +1582,15 @@ fn parse_cppgc(
       if let Some(seg) = of.path.segments.first()
         && seg.ident == "Option"
         && let PathArguments::AngleBracketed(args) = &seg.arguments
-        && let Some(GenericArgument::Type(ty)) =
-          args.args.first()
+        && let Some(GenericArgument::Type(ty)) = args.args.first()
       {
         match ty {
-          Type::Reference(of) if of.mutability.is_none() => {
-            match &*of.elem {
-              Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path))),
-              _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+          Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
+            Type::Path(of) => {
+              Ok(Arg::OptionCppGcResource(stringify_token(&of.path)))
             }
-          }
+            _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+          },
           _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
         }
       } else {
