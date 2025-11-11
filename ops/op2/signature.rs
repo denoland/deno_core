@@ -1350,8 +1350,8 @@ fn parse_attribute(
           options: Vec::new(),
         }
       } else {
-        attr.parse_args().map_err(|e| {
-          AttributeError::InvalidAttribute(stringify_token(e.to_string()))
+        attr.parse_args().map_err(|_| {
+          AttributeError::InvalidAttribute(stringify_token(attr))
         })?
       };
 
