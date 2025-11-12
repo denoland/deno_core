@@ -380,6 +380,11 @@ pub(crate) fn generate_op2(
   })
 }
 
+mod kw {
+  syn::custom_keyword!(base);
+  syn::custom_keyword!(inherit);
+}
+
 #[cfg(test)]
 mod tests {
   use super::*;
