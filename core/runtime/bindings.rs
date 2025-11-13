@@ -476,8 +476,6 @@ pub(crate) fn initialize_deno_core_ops_bindings<'s, 'i>(
     }
 
     deno_core_ops_obj.set(scope, key.into(), op_fn.into());
-
-    index += 1;
   }
 }
 
@@ -1153,7 +1151,6 @@ pub fn create_exports_for_ops_virtual_module<'s, 'i>(
   for op_ctx in op_ctxs {
     let op_fn = get(scope, ops_obj, op_ctx.decl.name_fast, "op");
     exports.push((op_ctx.decl.name_fast, op_fn));
-    index += 1;
   }
 
   exports
