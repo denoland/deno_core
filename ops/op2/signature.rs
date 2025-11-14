@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use proc_macro_rules::rules;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -16,17 +15,21 @@ use strum::IntoEnumIterator;
 use strum::IntoStaticStr;
 use strum_macros::EnumIter;
 use strum_macros::EnumString;
-use syn::AttrStyle;
 use syn::Attribute;
 use syn::FnArg;
 use syn::GenericParam;
 use syn::Generics;
+use syn::Meta;
 use syn::Pat;
 use syn::Path;
 use syn::Signature;
+use syn::Token;
 use syn::Type;
 use syn::TypeParamBound;
 use syn::TypePath;
+use syn::WherePredicate;
+use syn::punctuated::Punctuated;
+use syn::{AttrStyle, GenericArgument, PathArguments};
 use thiserror::Error;
 
 use super::signature_retval::parse_return;
@@ -250,13 +253,21 @@ pub enum NumericFlag {
 
 // its own struct to facility Eq & PartialEq on other structs
 #[derive(Clone, Debug)]
-pub struct WebIDLPairs(pub Ident, pub syn::Expr);
-impl PartialEq for WebIDLPairs {
+pub struct WebIDLPair(pub Ident, pub syn::Expr);
+impl PartialEq for WebIDLPair {
   fn eq(&self, other: &Self) -> bool {
     self.0 == other.0
   }
 }
-impl Eq for WebIDLPairs {}
+impl Eq for WebIDLPair {}
+
+impl Parse for WebIDLPair {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    let key: Ident = input.parse()?;
+    input.parse::<syn::token::Eq>()?;
+    Ok(WebIDLPair(key, input.parse()?))
+  }
+}
 
 #[derive(Clone, Debug)]
 pub struct WebIDLDefault(pub syn::Expr);
@@ -266,6 +277,57 @@ impl PartialEq for WebIDLDefault {
   }
 }
 impl Eq for WebIDLDefault {}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct WebIDLArgs {
+  pub default: Option<WebIDLDefault>,
+  pub options: Vec<WebIDLPair>,
+}
+
+impl Parse for WebIDLArgs {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    let mut default: Option<WebIDLDefault> = None;
+    let mut options: Vec<WebIDLPair> = Vec::new();
+
+    while !input.is_empty() {
+      let key: Ident = input.parse()?;
+
+      if key == "default" {
+        if default.is_some() {
+          return Err(syn::Error::new(
+            key.span(),
+            "duplicate `default` argument",
+          ));
+        }
+        input.parse::<Token![=]>()?;
+        default = Some(WebIDLDefault(input.parse::<syn::Expr>()?));
+      } else if key == "options" {
+        if !options.is_empty() {
+          return Err(syn::Error::new(
+            key.span(),
+            "duplicate `options` argument",
+          ));
+        }
+        let content;
+        syn::parenthesized!(content in input);
+        let parsed_options =
+          content.parse_terminated(WebIDLPair::parse, Token![,])?;
+        options = parsed_options.into_iter().collect();
+      } else {
+        return Err(syn::Error::new(
+          key.span(),
+          "unknown webidl argument, expected `default` or `options`",
+        ));
+      }
+
+      if !input.is_empty() {
+        input.parse::<Token![,]>()?;
+      }
+    }
+
+    Ok(WebIDLArgs { default, options })
+  }
+}
 
 /// Args are not a 1:1 mapping with Rust types, rather they represent broad classes of types that
 /// tend to have similar argument handling characteristics. This may need one more level of indirection
@@ -298,7 +360,7 @@ pub enum Arg {
   CppGcProtochain(Vec<String>),
   FromV8(String),
   ToV8(String),
-  WebIDL(String, Vec<WebIDLPairs>, Option<WebIDLDefault>),
+  WebIDL(String, Vec<WebIDLPair>, Option<WebIDLDefault>),
   VarArgs,
   This,
 }
@@ -728,7 +790,7 @@ pub struct ParsedSignature {
   // Lifetimes
   pub lifetimes: Vec<String>,
   // Generic bounds: each generic must have one and only simple trait bound
-  pub generic_bounds: BTreeMap<String, String>,
+  pub generic_bounds: BTreeMap<Ident, String>,
   // Metadata keys and values
   pub metadata: BTreeMap<Ident, syn::Lit>,
 }
@@ -777,10 +839,7 @@ pub enum AttributeModifier {
   /// #[from_v8] for types that impl `FromV8`
   FromV8,
   /// #[webidl], for types that impl `WebIdlConverter`
-  WebIDL {
-    options: Vec<WebIDLPairs>,
-    default: Option<WebIDLDefault>,
-  },
+  WebIDL(WebIDLArgs),
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
   /// see https://medium.com/fhinkel/v8-internals-how-small-is-a-small-integer-e0badc18b6da).
   Smi,
@@ -820,7 +879,7 @@ impl AttributeModifier {
       AttributeModifier::Buffer(..) => "buffer",
       AttributeModifier::Smi => "smi",
       AttributeModifier::Serde => "serde",
-      AttributeModifier::WebIDL { .. } => "webidl",
+      AttributeModifier::WebIDL(_) => "webidl",
       AttributeModifier::String(_) => "string",
       AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
@@ -854,10 +913,6 @@ pub enum SignatureError {
   DuplicateGeneric(String),
   #[error("Generic lifetime '{0}' may not have bounds (eg: <'a: 'b>)")]
   LifetimesMayNotHaveBounds(String),
-  #[error(
-    "Invalid generic: '{0}' Only simple generics bounds are allowed (eg: T: Trait)"
-  )]
-  InvalidGeneric(String),
   #[error(
     "Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)"
   )]
@@ -904,8 +959,6 @@ pub enum ArgError {
   InvalidNumberAttributeType(String),
   #[error("Invalid v8 type: {0}")]
   InvalidV8Type(String),
-  #[error("Internal error: {0}")]
-  InternalError(String),
   #[error("Missing a #[{0}] attribute for type: {1}")]
   MissingAttribute(&'static str, String),
   #[error("Argument attribute error")]
@@ -970,7 +1023,7 @@ pub(crate) fn stringify_token(tokens: impl ToTokens) -> String {
 
 struct MetadataPair {
   key: Ident,
-  _eq: syn::Token![=],
+  _eq: Token![=],
   value: syn::Lit,
 }
 
@@ -986,13 +1039,13 @@ impl Parse for MetadataPair {
 
 impl Parse for MetadataPairs {
   fn parse(input: ParseStream) -> syn::Result<Self> {
-    let pairs = input.parse_terminated(MetadataPair::parse, syn::Token![,])?;
+    let pairs = input.parse_terminated(MetadataPair::parse, Token![,])?;
     Ok(Self { pairs })
   }
 }
 
 struct MetadataPairs {
-  pairs: syn::punctuated::Punctuated<MetadataPair, syn::Token![,]>,
+  pairs: syn::punctuated::Punctuated<MetadataPair, Token![,]>,
 }
 
 fn parse_metadata_pairs(
@@ -1108,47 +1161,42 @@ fn parse_lifetimes(generics: &Generics) -> Result<Vec<String>, SignatureError> {
 
 /// Parse a bound as a string. Valid bounds include "Trait" and "Trait + 'static". All
 /// other bounds are invalid.
-fn parse_bound(bound: &Type) -> Result<String, SignatureError> {
+fn parse_bound(
+  bounds: &Punctuated<TypeParamBound, Token![+]>,
+) -> Result<String, SignatureError> {
   let error = || {
     Err(SignatureError::InvalidWherePredicate(stringify_token(
-      bound,
+      bounds,
     )))
   };
 
-  Ok(match bound {
-    Type::TraitObject(t) => {
-      let mut has_static_lifetime = false;
-      let mut bound = None;
-      for b in &t.bounds {
-        match b {
-          TypeParamBound::Lifetime(lt) => {
-            if lt.ident != "static" || has_static_lifetime {
-              return error();
-            }
-            has_static_lifetime = true;
-          }
-          TypeParamBound::Trait(t) => {
-            if bound.is_some() {
-              return error();
-            }
-            bound = Some(stringify_token(t));
-          }
-          _ => return error(),
+  let mut has_static_lifetime = false;
+  let mut bound = None;
+  for b in bounds {
+    match b {
+      TypeParamBound::Lifetime(lt) => {
+        if lt.ident != "static" || has_static_lifetime {
+          return error();
         }
+        has_static_lifetime = true;
       }
-      let Some(bound) = bound else {
-        return error();
-      };
-      if has_static_lifetime {
-        format!("{bound} + 'static")
-      } else {
-        bound
+      TypeParamBound::Trait(t) => {
+        if bound.is_some() {
+          return error();
+        }
+        bound = Some(stringify_token(t));
       }
+      _ => return error(),
     }
-    Type::Path(p) => stringify_token(p),
-    _ => {
-      return error();
-    }
+  }
+  let Some(bound) = bound else {
+    return error();
+  };
+
+  Ok(if has_static_lifetime {
+    format!("{bound} + 'static")
+  } else {
+    bound
   })
 }
 
@@ -1156,24 +1204,26 @@ fn parse_bound(bound: &Type) -> Result<String, SignatureError> {
 /// parameter. Tries to sanity check and return reasonable errors for possible signature errors.
 fn parse_generics(
   generics: &Generics,
-) -> Result<BTreeMap<String, String>, SignatureError> {
-  let mut where_clauses = BTreeMap::new();
+) -> Result<BTreeMap<Ident, String>, SignatureError> {
+  let mut where_clauses = std::collections::HashMap::<Ident, String>::new();
 
   // First, extract the where clause so we can detect duplicated predicates
   if let Some(where_clause) = &generics.where_clause {
     for predicate in &where_clause.predicates {
-      let predicate = predicate.to_token_stream();
-      let (generic_name, bound) = std::panic::catch_unwind(|| {
-        rules!(predicate => {
-          ($t:ident : $bound:ty) => (t.to_string(), bound),
-        })
-      })
-      .map_err(|_| {
-        SignatureError::InvalidWherePredicate(predicate.to_string())
-      })?;
-      let bound = parse_bound(&bound)?;
-      if where_clauses.insert(generic_name.clone(), bound).is_some() {
-        return Err(SignatureError::DuplicateGeneric(generic_name));
+      if let WherePredicate::Type(ty) = predicate
+        && !ty.bounds.is_empty()
+        && let Type::Path(path) = &ty.bounded_ty
+        && let Some(ident) = path.path.get_ident()
+      {
+        let bound = parse_bound(&ty.bounds)?;
+
+        if where_clauses.insert(ident.clone(), bound).is_some() {
+          return Err(SignatureError::DuplicateGeneric(ident.to_string()));
+        }
+      } else {
+        return Err(SignatureError::InvalidWherePredicate(
+          predicate.to_token_stream().to_string(),
+        ));
       }
     }
   }
@@ -1181,37 +1231,33 @@ fn parse_generics(
   let mut res = BTreeMap::new();
   for param in &generics.params {
     if let GenericParam::Type(ty) = param {
-      let ty = ty.to_token_stream();
-      let (name, bound) = std::panic::catch_unwind(|| {
-        rules!(ty => {
-          ($t:ident : $bound:ty) => (t.to_string(), Some(bound)),
-          ($t:ident) => (t.to_string(), None),
-        })
-      })
-      .map_err(|_| SignatureError::InvalidGeneric(ty.to_string()))?;
-      let bound = match bound {
-        Some(bound) => {
-          if where_clauses.contains_key(&name) {
-            return Err(SignatureError::GenericBoundCardinality(name));
-          }
-          parse_bound(&bound)?
+      let name = &ty.ident;
+
+      let bound = if !ty.bounds.is_empty() {
+        if where_clauses.contains_key(name) {
+          return Err(SignatureError::GenericBoundCardinality(
+            name.to_string(),
+          ));
         }
-        None => {
-          let Some(bound) = where_clauses.remove(&name) else {
-            return Err(SignatureError::GenericBoundCardinality(name));
-          };
-          bound
-        }
+        parse_bound(&ty.bounds)?
+      } else {
+        let Some(bound) = where_clauses.remove(name) else {
+          return Err(SignatureError::GenericBoundCardinality(
+            name.to_string(),
+          ));
+        };
+        bound
       };
-      if res.contains_key(&name) {
-        return Err(SignatureError::DuplicateGeneric(name));
+
+      if res.contains_key(name) {
+        return Err(SignatureError::DuplicateGeneric(name.to_string()));
       }
-      res.insert(name, bound);
+      res.insert(name.clone(), bound);
     }
   }
   if !where_clauses.is_empty() {
     return Err(SignatureError::WherePredicateMustAppearInGenerics(
-      where_clauses.into_keys().next().unwrap(),
+      where_clauses.into_keys().next().unwrap().to_string(),
     ));
   }
 
@@ -1268,59 +1314,102 @@ pub fn is_attribute_special(attr: &Attribute) -> bool {
 fn parse_attribute(
   attr: &Attribute,
 ) -> Result<Option<AttributeModifier>, AttributeError> {
-  let tokens = attr.into_token_stream();
   if matches!(attr.style, AttrStyle::Inner(_)) {
     return Err(AttributeError::InvalidInnerAttribute);
   }
-  let res = std::panic::catch_unwind(|| {
-    rules!(tokens => {
-      (#[bigint]) => Some(AttributeModifier::Bigint),
-      (#[number]) => Some(AttributeModifier::Number),
-      (#[undefined]) => Some(AttributeModifier::Undefined),
-      (#[serde]) => Some(AttributeModifier::Serde),
-      (#[validate($value:path)]) => Some(AttributeModifier::Validate(value)),
-      (#[webidl]) => Some(AttributeModifier::WebIDL { options: vec![],default: None }),
-      (#[webidl($(default = $default:expr)?$($(, )?options($($key:ident = $value:expr),*))?)]) => Some(AttributeModifier::WebIDL { options: key.map(|key| key.into_iter().zip(value.unwrap().into_iter()).map(|v| WebIDLPairs(v.0, v.1)).collect()).unwrap_or_default(), default: default.map(WebIDLDefault) }),
-      (#[smi]) => Some(AttributeModifier::Smi),
-      (#[string]) => Some(AttributeModifier::String(StringMode::Default)),
-      (#[string(onebyte)]) => Some(AttributeModifier::String(StringMode::OneByte)),
-      (#[varargs]) => Some(AttributeModifier::VarArgs),
-      (#[buffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::TypedArray)),
-      (#[buffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::TypedArray)),
-      (#[buffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::TypedArray)),
-      (#[buffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::TypedArray)),
-      (#[anybuffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::Any)),
-      (#[anybuffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::Any)),
-      (#[anybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::Any)),
-      (#[anybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::Any)),
-      (#[arraybuffer]) => Some(AttributeModifier::Buffer(BufferMode::Default, BufferSource::ArrayBuffer)),
-      (#[arraybuffer(unsafe)]) => Some(AttributeModifier::Buffer(BufferMode::Unsafe, BufferSource::ArrayBuffer)),
-      (#[arraybuffer(copy)]) => Some(AttributeModifier::Buffer(BufferMode::Copy, BufferSource::ArrayBuffer)),
-      (#[arraybuffer(detach)]) => Some(AttributeModifier::Buffer(BufferMode::Detach, BufferSource::ArrayBuffer)),
-      (#[global]) => Some(AttributeModifier::Global),
-      (#[this]) => Some(AttributeModifier::This),
-      (#[cppgc]) => Some(AttributeModifier::CppGcResource),
-      (#[proto]) => Some(AttributeModifier::CppGcProto),
-      (#[to_v8]) => Some(AttributeModifier::ToV8),
-      (#[from_v8]) => Some(AttributeModifier::FromV8),
-      (#[required ($_attr:literal)]) => Some(AttributeModifier::Ignore),
-      (#[rename ($_attr:literal)]) => Some(AttributeModifier::Ignore),
-      (#[method ($_attr:literal)]) => Some(AttributeModifier::Ignore),
-      (#[method]) => Some(AttributeModifier::Ignore),
-      (#[getter]) => Some(AttributeModifier::Ignore),
-      (#[setter]) => Some(AttributeModifier::Ignore),
-      (#[fast]) => Some(AttributeModifier::Ignore),
-      // async is a keyword and does not work as #[async] so we use #[async_method] instead
-      (#[async_method]) => Some(AttributeModifier::Ignore),
-      (#[static_method]) => Some(AttributeModifier::Ignore),
-      (#[constructor]) => Some(AttributeModifier::Ignore),
-      (#[allow ($_rule:path)]) => None,
-      (#[doc = $_attr:literal]) => None,
-      (#[cfg $_cfg:tt]) => None,
-      (#[meta ($($_key: ident = $_value: literal),*)]) => Some(AttributeModifier::Ignore),
-    })
-  }).map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
-  Ok(res)
+
+  let Some(ident) = attr.path().get_ident() else {
+    return Ok(None);
+  };
+
+  let modifier = match ident.to_string().as_str() {
+    "bigint" => Some(AttributeModifier::Bigint),
+    "number" => Some(AttributeModifier::Number),
+    "undefined" => Some(AttributeModifier::Undefined),
+    "serde" => Some(AttributeModifier::Serde),
+    "smi" => Some(AttributeModifier::Smi),
+    "global" => Some(AttributeModifier::Global),
+    "this" => Some(AttributeModifier::This),
+    "cppgc" => Some(AttributeModifier::CppGcResource),
+    "proto" => Some(AttributeModifier::CppGcProto),
+    "to_v8" => Some(AttributeModifier::ToV8),
+    "from_v8" => Some(AttributeModifier::FromV8),
+    "varargs" => Some(AttributeModifier::VarArgs),
+
+    "validate" => {
+      let value: Path = attr
+        .parse_args()
+        .map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
+      Some(AttributeModifier::Validate(value))
+    }
+
+    "webidl" => {
+      let args = if matches!(attr.meta, Meta::Path(_)) {
+        WebIDLArgs {
+          default: None,
+          options: Vec::new(),
+        }
+      } else {
+        attr.parse_args().map_err(|_| {
+          AttributeError::InvalidAttribute(stringify_token(attr))
+        })?
+      };
+
+      Some(AttributeModifier::WebIDL(args))
+    }
+
+    "string" => {
+      if matches!(attr.meta, Meta::Path(_)) {
+        Some(AttributeModifier::String(StringMode::Default))
+      } else if attr
+        .parse_args::<Ident>()
+        .is_ok_and(|mode| mode == "onebyte")
+      {
+        Some(AttributeModifier::String(StringMode::OneByte))
+      } else {
+        return Err(AttributeError::InvalidAttribute(stringify_token(attr)));
+      }
+    }
+
+    buf @ "buffer" | buf @ "anybuffer" | buf @ "arraybuffer" => {
+      let mode = if matches!(attr.meta, Meta::Path(_)) {
+        BufferMode::Default
+      } else {
+        let ident: Ident = attr.parse_args().map_err(|_| {
+          AttributeError::InvalidAttribute(stringify_token(attr))
+        })?;
+        if ident == "unsafe" {
+          BufferMode::Unsafe
+        } else if ident == "copy" {
+          BufferMode::Copy
+        } else if ident == "detach" {
+          BufferMode::Detach
+        } else {
+          return Err(AttributeError::InvalidAttribute(stringify_token(attr)));
+        }
+      };
+
+      let source = match buf {
+        "buffer" => BufferSource::TypedArray,
+        "anybuffer" => BufferSource::Any,
+        "arraybuffer" => BufferSource::ArrayBuffer,
+        _ => unreachable!(),
+      };
+
+      Some(AttributeModifier::Buffer(mode, source))
+    }
+
+    // async is a keyword and does not work as #[async] so we use #[async_method] instead
+    "required" | "rename" | "method" | "getter" | "setter" | "fast"
+    | "async_method" | "static_method" | "constructor" | "meta" => {
+      Some(AttributeModifier::Ignore)
+    }
+
+    "allow" | "doc" | "cfg" => None,
+    _ => return Err(AttributeError::InvalidAttribute(stringify_token(attr))),
+  };
+
+  Ok(modifier)
 }
 
 fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
@@ -1333,16 +1422,11 @@ fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
     }
   }
 
-  let Ok(Some(res)) = std::panic::catch_unwind(|| {
-    rules!(tp.into_token_stream() => {
-      ( $( std :: ffi :: )? c_void ) => Some(NumericArg::__VOID__),
-      ( $_ty:ty ) => None,
-    })
-  }) else {
-    return Err(ArgError::InvalidNumericType(stringify_token(tp)));
-  };
-
-  Ok(res)
+  syn_match::path_match!(
+    &tp,
+    std?::ffi?::c_void => Ok(NumericArg::__VOID__),
+    _ => Err(ArgError::InvalidNumericType(stringify_token(tp))),
+  )
 }
 
 #[derive(Copy, Clone, Eq, PartialEq)]
@@ -1363,77 +1447,66 @@ fn parse_type_path(
   use ParsedType::*;
   use ParsedTypeContainer::*;
 
-  let tokens = tp.clone().into_token_stream();
   let res = match parse_numeric_type(&tp.path) {
     Ok(numeric) => CBare(TNumeric(numeric)),
     _ => {
-      std::panic::catch_unwind(|| {
-      rules!(tokens => {
-      ( $( std :: str  :: )? String ) => {
-        Ok(CBare(TString(Strings::String)))
-      }
-      // Note that the reference is checked below
-      ( $( std :: str :: )? str ) => {
-        Ok(CBare(TString(Strings::RefStr)))
-      }
-      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? str $(,)? > ) => {
-        Ok(CBare(TString(Strings::CowStr)))
-      }
-      ( $( std :: borrow :: )? Cow < $( $_lt:lifetime , )? [ u8 ] $(,)? > ) => {
-        Ok(CBare(TString(Strings::CowByte)))
-      }
-      ( $( std :: vec ::)? Vec < $ty:path $(,)? > ) => {
-        Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(&ty)?))))
-      }
-      ( $( std :: boxed ::)? Box < [ $ty:path ] $(,)? > ) => {
-        Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&ty)?))))
-      }
-      ( $( serde_v8 :: )? V8Slice < $ty:path $(,)? > ) => {
-        Ok(CBare(TBuffer(BufferType::V8Slice(parse_numeric_type(&ty)?))))
-      }
-      ( $( serde_v8 :: )? JsBuffer ) => {
-        Ok(CBare(TBuffer(BufferType::JsBuffer)))
-      }
-      ( $( bytes :: )? Bytes ) => {
-        Ok(CBare(TBuffer(BufferType::Bytes)))
-      }
-      ( $( bytes :: )? BytesMut ) => {
-        Ok(CBare(TBuffer(BufferType::BytesMut)))
-      }
-      ( OpState ) => Ok(CBare(TSpecial(Special::OpState))),
-      ( JsRuntimeState ) => Ok(CBare(TSpecial(Special::JsRuntimeState))),
-      ( v8 :: Isolate ) => Ok(CBare(TSpecial(Special::Isolate))),
-      ( v8 :: PinScope $( < $_scope:lifetime , $_i:lifetime >)? ) => Ok(CBare(TSpecial(Special::HandleScope))),
-      ( v8 :: FastApiCallbackOptions ) => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
-      ( v8 :: Local < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Local(TV8(parse_v8_type(&v8)?))),
-      ( v8 :: Global < $( $_scope:lifetime , )? v8 :: $v8:ident $(,)? >) => Ok(CV8Global(TV8(parse_v8_type(&v8)?))),
-      ( v8 :: $v8:ident ) => Ok(CBare(TV8(parse_v8_type(&v8)?))),
-      ( $( std :: rc :: )? Rc < RefCell < $ty:ty $(,)? > $(,)? > ) => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs.clone(), &ty)?))),
-      ( $( std :: rc :: )? Rc < $ty:ty $(,)? > ) => Ok(CRc(TSpecial(parse_type_special(position, attrs.clone(), &ty)?))),
-      ( Option < $ty:ty $(,)? > ) => {
-        match parse_type(position, attrs.clone(), &ty)? {
-          Arg::Special(special) => Ok(COption(TSpecial(special))),
-          Arg::String(string) => Ok(COption(TString(string))),
-          Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
-          Arg::Buffer(buffer, ..) => Ok(COption(TBuffer(buffer))),
-          Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
-          Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
-          Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
-          Arg::V8Global(v8) => Ok(COptionV8Global(TV8(v8))),
-          _ => Err(ArgError::InvalidType(stringify_token(ty), "for option"))
+      syn_match::path_match!(&tp.path,
+        std?::str?::String => Ok(CBare(TString(Strings::String))),
+        // Note that the reference is checked below
+        std?::str?::str => Ok(CBare(TString(Strings::RefStr))),
+        std?::borrow?::Cow<'_, str> | std?::borrow?::Cow<str> => Ok(CBare(TString(Strings::CowStr))),
+        std?::borrow?::Cow<'_, [u8]> | std?::borrow?::Cow<[u8]> => Ok(CBare(TString(Strings::CowByte))),
+        std?::vec?::Vec<::$ty> => Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(ty)?)))),
+        std?::boxed?::Box<[$ty]> => {
+          if let Type::Path(tp) = ty {
+            Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&tp.path)?))))
+          } else {
+            Err(ArgError::InvalidNumericType(stringify_token(ty)))
+          }
         }
-      }
-      ( deno_core :: $next:ident $(:: $any:ty)? ) => {
-        // Stylistically it makes more sense just to import deno_core::v8 and other types at the top of the file
-        let any = any.map(|any| format!("::{}", any.into_token_stream())).unwrap_or_default();
-        let instead = format!("{next}{any}");
-        Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), stringify_token(next), instead))
-      }
-      ( $any:ty ) => {
-        Err(ArgError::InvalidTypePath(stringify_token(any)))
-      }
-    })
-    }).map_err(|e| ArgError::InternalError(format!("parse_type_path {e:?}")))??
+        serde_v8?::V8Slice<::$ty> => Ok(CBare(TBuffer(BufferType::V8Slice(parse_numeric_type(ty)?)))),
+        serde_v8?::JsBuffer => Ok(CBare(TBuffer(BufferType::JsBuffer))),
+        bytes?::Bytes => Ok(CBare(TBuffer(BufferType::Bytes))),
+        bytes?::BytesMut => Ok(CBare(TBuffer(BufferType::BytesMut))),
+        OpState => Ok(CBare(TSpecial(Special::OpState))),
+        JsRuntimeState => Ok(CBare(TSpecial(Special::JsRuntimeState))),
+        v8::Isolate => Ok(CBare(TSpecial(Special::Isolate))),
+        v8::PinScope<'_, '_> | v8::PinScope => Ok(CBare(TSpecial(Special::HandleScope))),
+        v8::FastApiCallbackOptions => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
+        v8::Local<'_, v8::$v8> | v8::Local<v8::$v8> => Ok(CV8Local(TV8(parse_v8_type(v8)?))),
+        v8::Global<'_, v8::$v8> | v8::Global<v8::$v8> => Ok(CV8Global(TV8(parse_v8_type(v8)?))),
+        v8::$v8 => Ok(CBare(TV8(parse_v8_type(v8)?))),
+        std?::rc?::Rc<RefCell<$ty>> => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
+        std?::rc?::Rc<$ty> => Ok(CRc(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
+        Option<$ty> => {
+          let syn::GenericArgument::Type(ty) = ty else {
+            return Err(ArgError::InvalidType(
+              stringify_token(ty),
+              "for option",
+            ))
+          };
+
+          match parse_type(position, attrs.clone(), ty)? {
+            Arg::Special(special) => Ok(COption(TSpecial(special))),
+            Arg::String(string) => Ok(COption(TString(string))),
+            Arg::Numeric(numeric, _) => Ok(COption(TNumeric(numeric))),
+            Arg::Buffer(buffer, ..) => Ok(COption(TBuffer(buffer))),
+            Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
+            Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
+            Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
+            Arg::V8Global(v8) => Ok(COptionV8Global(TV8(v8))),
+            _ => Err(ArgError::InvalidType(stringify_token(ty), "for option"))
+          }
+        }
+        deno_core::$next::$any? => {
+          // Stylistically it makes more sense just to import deno_core::v8 and other types at the top of the file
+          let next = stringify_token(next);
+          let any = any.map(|any| format!("::{}", any.into_token_stream())).unwrap_or_default();
+          let instead = format!("{next}{any}");
+          Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), next, instead))
+        }
+        _ => Err(ArgError::InvalidTypePath(stringify_token(tp)))
+      )?
     }
   };
 
@@ -1470,16 +1543,22 @@ fn parse_type_path(
   Ok(res)
 }
 
-fn parse_v8_type(v8: &Ident) -> Result<V8Arg, ArgError> {
-  let v8 = v8.to_string();
+fn parse_v8_type(v8: &syn::PathSegment) -> Result<V8Arg, ArgError> {
+  let v8 = v8.ident.to_string();
   V8Arg::try_from(v8.as_str()).map_err(|_| ArgError::InvalidV8Type(v8))
 }
 
 fn parse_type_special(
   position: Position,
   attrs: Attributes,
-  ty: &Type,
+  ty: &syn::GenericArgument,
 ) -> Result<Special, ArgError> {
+  let syn::GenericArgument::Type(ty) = ty else {
+    return Err(ArgError::InvalidType(
+      stringify_token(ty),
+      "for special type",
+    ));
+  };
   match parse_type(position, attrs, ty)? {
     Arg::Special(special) => Ok(special),
     _ => Err(ArgError::InvalidType(
@@ -1504,42 +1583,51 @@ fn parse_cppgc(
       }
     }
     (Position::Arg, Type::Path(of)) => {
-      rules!(of.to_token_stream() => {
-        ( Option < $ty:ty $(,)? > ) => {
-          match ty {
-            Type::Reference(of) if of.mutability.is_none() => {
-              match &*of.elem {
-                Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path))),
-                _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
-              }
+      if let Some(seg) = of.path.segments.first()
+        && seg.ident == "Option"
+        && let PathArguments::AngleBracketed(args) = &seg.arguments
+        && let Some(GenericArgument::Type(ty)) = args.args.first()
+      {
+        match ty {
+          Type::Reference(of) if of.mutability.is_none() => match &*of.elem {
+            Type::Path(of) => {
+              Ok(Arg::OptionCppGcResource(stringify_token(&of.path)))
             }
-            _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
-          }
+            _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+          },
+          _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
         }
-        ( $_ty:ty ) => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
-      })
+      } else {
+        Err(ArgError::ExpectedCppGcReference(stringify_token(ty)))
+      }
     }
     (Position::Arg, _) => {
       Err(ArgError::ExpectedCppGcReference(stringify_token(ty)))
     }
-    (Position::RetVal, ty) => {
-      rules!(ty.to_token_stream() => {
-        ( Option < $ty:ty $(,)? > ) => {
-          match ty {
-            Type::Path(of) => Ok(Arg::OptionCppGcResource(stringify_token(&of.path))),
-            _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-          }
+    (Position::RetVal, ty) => match ty {
+      Type::Path(tp) => {
+        if let Some(seg) = tp.path.segments.first()
+          && seg.ident == "Option"
+          && let PathArguments::AngleBracketed(args) = &seg.arguments
+          && let Some(GenericArgument::Type(Type::Path(path))) =
+            args.args.first()
+        {
+          Ok(Arg::OptionCppGcResource(stringify_token(&path.path)))
+        } else {
+          Ok(Arg::CppGcResource(proto, stringify_token(&tp.path)))
         }
-        ( ($sup:ty, $ty:ty) ) => match (sup, &ty) {
-           (Type::Path(sup), Type::Path(ty)) => Ok(Arg::CppGcProtochain(vec![stringify_token(&sup.path), stringify_token(&ty.path)])),
-           _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-        },
-        ( $ty:ty ) => match ty {
-          Type::Path(of) => Ok(Arg::CppGcResource(proto, stringify_token(&of.path))),
+      }
+      Type::Tuple(tuple) if tuple.elems.len() == 2 => {
+        match (tuple.elems.get(0).unwrap(), tuple.elems.get(1).unwrap()) {
+          (Type::Path(sup), Type::Path(ty)) => Ok(Arg::CppGcProtochain(vec![
+            stringify_token(&sup.path),
+            stringify_token(&ty.path),
+          ])),
           _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
-        },
-      })
-    }
+        }
+      }
+      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+    },
   }
 }
 
@@ -1612,20 +1700,20 @@ pub(crate) fn parse_type(
       AttributeModifier::Serde
       | AttributeModifier::FromV8
       | AttributeModifier::ToV8
-      | AttributeModifier::WebIDL { .. } => {
+      | AttributeModifier::WebIDL(_) => {
         let make_arg: Box<dyn Fn(String) -> Arg> = match &primary {
           AttributeModifier::Serde => Box::new(Arg::SerdeV8),
           AttributeModifier::FromV8 => Box::new(Arg::FromV8),
           AttributeModifier::ToV8 => Box::new(Arg::ToV8),
-          AttributeModifier::WebIDL { options, default } => {
-            Box::new(move |s| Arg::WebIDL(s, options.clone(), default.clone()))
-          }
+          AttributeModifier::WebIDL(args) => Box::new(move |s| {
+            Arg::WebIDL(s, args.options.clone(), args.default.clone())
+          }),
           _ => unreachable!(),
         };
         match ty {
           Type::Tuple(of) => return Ok(make_arg(stringify_token(of))),
           Type::Path(of) => {
-            if !matches!(primary, AttributeModifier::WebIDL { .. })
+            if !matches!(primary, AttributeModifier::WebIDL(_))
               && better_alternative_exists(position, of)
             {
               return Err(ArgError::InvalidAttributeType(
@@ -1634,23 +1722,33 @@ pub(crate) fn parse_type(
               ));
             }
 
-            let ty = of.into_token_stream();
-            if let Ok(Some(err)) = std::panic::catch_unwind(|| {
-              rules!(ty => {
-                ( Value $( < $_lifetime:lifetime $(,)? >)? ) => Some("a fully-qualified type: v8::Value or serde_json::Value"),
-                ( $_ty:ty ) => None,
-              })
-            }) {
-              if primary == AttributeModifier::Serde {
-                return Err(ArgError::InvalidSerdeType(
-                  stringify_token(ty),
-                  err,
-                ));
-              } else {
-                return Err(ArgError::InvalidAttributeType(
-                  primary.name(),
-                  stringify_token(ty),
-                ));
+            if let Some(seg) = of.path.segments.first()
+              && seg.ident == "Value"
+            {
+              let invalid = match &seg.arguments {
+                PathArguments::None => true,
+                PathArguments::AngleBracketed(args)
+                  if args.args.first().is_some_and(|arg| {
+                    matches!(arg, GenericArgument::Lifetime(_))
+                  }) =>
+                {
+                  true
+                }
+                _ => false,
+              };
+
+              if invalid {
+                if primary == AttributeModifier::Serde {
+                  return Err(ArgError::InvalidSerdeType(
+                    stringify_token(of),
+                    "a fully-qualified type: v8::Value or serde_json::Value",
+                  ));
+                } else {
+                  return Err(ArgError::InvalidAttributeType(
+                    primary.name(),
+                    stringify_token(of),
+                  ));
+                }
               }
             }
 
@@ -1715,11 +1813,7 @@ pub(crate) fn parse_type(
       },
       AttributeModifier::Smi => match ty {
         Type::Path(of) => {
-          let is_option = rules!(of.into_token_stream() => {
-            ( Option < $_ty:ty $(,)? > ) => true,
-            ( $_ty:ty ) => false,
-          });
-          if is_option {
+          if of.path.segments.first().unwrap().ident == "Option" {
             return Ok(Arg::OptionNumeric(
               NumericArg::__SMI__,
               NumericFlag::None,

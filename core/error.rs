@@ -31,6 +31,29 @@ pub type AnyError = anyhow::Error;
 
 deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
 
+impl PartialEq<DataError> for DataError {
+  fn eq(&self, other: &DataError) -> bool {
+    match (self.0, other.0) {
+      (
+        v8::DataError::BadType { actual, expected },
+        v8::DataError::BadType {
+          actual: other_actual,
+          expected: other_expected,
+        },
+      ) => actual == other_actual && expected == other_expected,
+      (
+        v8::DataError::NoData { expected },
+        v8::DataError::NoData {
+          expected: other_expected,
+        },
+      ) => expected == other_expected,
+      _ => false,
+    }
+  }
+}
+
+impl Eq for DataError {}
+
 #[derive(Debug, Error, JsError)]
 #[class(generic)]
 #[error("Failed to parse {0}")]
@@ -1178,7 +1201,9 @@ fn abbrev_file_name<'a>(
   let Ok(url) = Url::parse(file_name) else {
     return None;
   };
-  if let Some(initial_cwd) = maybe_initial_cwd {
+  if let Some(initial_cwd) = maybe_initial_cwd
+    && url.scheme() != "data"
+  {
     return relative_specifier(initial_cwd, &url).map(|s| FileNameParts {
       working_dir_path: Some(initial_cwd.to_string().into()),
       file_name: s.into(),
@@ -1922,6 +1947,8 @@ pub enum ErrorElement {
   EvalOrigin,
   /// Text signifying a call to `Promise.all`
   PromiseAll,
+  /// Other, plain text appearing in the error stack trace
+  PlainText,
 }
 
 /// Applies formatting to various parts of error stack traces.
@@ -1930,11 +1957,19 @@ pub enum ErrorElement {
 /// `format_location` but apply ANSI colors for terminal output,
 /// without adding extra dependencies to `deno_core`.
 pub trait ErrorFormat {
-  fn fmt_element(element: ErrorElement, s: &str) -> Cow<'_, str>;
+  fn fmt_element(
+    element: ErrorElement,
+    in_extension_code: bool,
+    s: &str,
+  ) -> Cow<'_, str>;
 }
 
 impl ErrorFormat for NoAnsiColors {
-  fn fmt_element(_element: ErrorElement, s: &str) -> Cow<'_, str> {
+  fn fmt_element(
+    _element: ErrorElement,
+    _in_extension_code: bool,
+    s: &str,
+  ) -> Cow<'_, str> {
     s.into()
   }
 }
@@ -1944,24 +1979,29 @@ pub fn format_location<F: ErrorFormat>(
   maybe_initial_cwd: Option<&Url>,
 ) -> String {
   use ErrorElement::*;
-  let _internal = frame
+  let in_extension_code = frame
     .file_name
     .as_ref()
     .map(|f| f.starts_with("ext:"))
     .unwrap_or(false);
   if frame.is_native {
-    return F::fmt_element(NativeFrame, "native").to_string();
+    return F::fmt_element(NativeFrame, in_extension_code, "native")
+      .to_string();
   }
   let mut result = String::new();
-  let file_name = frame.file_name.clone().unwrap_or_default();
+  let file_name = frame.file_name.as_deref().unwrap_or("");
   if !file_name.is_empty() {
-    let parts = format_file_name(&file_name, maybe_initial_cwd);
+    let parts = format_file_name(file_name, maybe_initial_cwd);
     if let Some(working_dir_path) = &parts.working_dir_path {
-      result += &F::fmt_element(WorkingDirPath, working_dir_path);
       result +=
-        &F::fmt_element(FileName, parts.file_name.trim_start_matches("./"))
+        &F::fmt_element(WorkingDirPath, in_extension_code, working_dir_path);
+      result += &F::fmt_element(
+        FileName,
+        in_extension_code,
+        parts.file_name.trim_start_matches("./"),
+      )
     } else {
-      result += &F::fmt_element(FileName, &parts.file_name)
+      result += &F::fmt_element(FileName, in_extension_code, &parts.file_name)
     }
   } else {
     if frame.is_eval {
@@ -1969,26 +2009,22 @@ pub fn format_location<F: ErrorFormat>(
       let formatted_eval_origin =
         format_eval_origin(eval_origin, maybe_initial_cwd);
       result +=
-        &(F::fmt_element(ErrorElement::EvalOrigin, &formatted_eval_origin)
-          .to_string()
-          + ", ");
+        &F::fmt_element(EvalOrigin, in_extension_code, &formatted_eval_origin);
+      result += &F::fmt_element(PlainText, in_extension_code, ", ");
     }
-    result += &F::fmt_element(Anonymous, "<anonymous>");
+    result += &F::fmt_element(Anonymous, in_extension_code, "<anonymous>");
   }
   if let Some(line_number) = frame.line_number {
-    write!(
-      result,
-      ":{}",
-      F::fmt_element(LineNumber, &line_number.to_string())
-    )
-    .unwrap();
+    result += &F::fmt_element(PlainText, in_extension_code, ":");
+    result +=
+      &F::fmt_element(LineNumber, in_extension_code, &line_number.to_string());
     if let Some(column_number) = frame.column_number {
-      write!(
-        result,
-        ":{}",
-        F::fmt_element(ColumnNumber, &column_number.to_string())
-      )
-      .unwrap();
+      result += &F::fmt_element(PlainText, in_extension_code, ":");
+      result += &F::fmt_element(
+        ColumnNumber,
+        in_extension_code,
+        &column_number.to_string(),
+      );
     }
   }
   result
@@ -1999,7 +2035,7 @@ pub fn format_frame<F: ErrorFormat>(
   maybe_initial_cwd: Option<&Url>,
 ) -> String {
   use ErrorElement::*;
-  let _internal = frame
+  let in_extension_code = frame
     .file_name
     .as_ref()
     .map(|f| f.starts_with("ext:"))
@@ -2008,11 +2044,12 @@ pub fn format_frame<F: ErrorFormat>(
     !(frame.is_top_level.unwrap_or_default() || frame.is_constructor);
   let mut result = String::new();
   if frame.is_async {
-    result += "async ";
+    result += &F::fmt_element(PlainText, in_extension_code, "async ");
   }
   if frame.is_promise_all {
     result += &F::fmt_element(
       PromiseAll,
+      in_extension_code,
       &format!(
         "Promise.all (index {})",
         frame.promise_index.unwrap_or_default()
@@ -2044,27 +2081,32 @@ pub fn format_frame<F: ErrorFormat>(
         formatted_method += "<anonymous>";
       }
     }
-    result += F::fmt_element(FunctionName, &formatted_method).as_ref();
+    result +=
+      F::fmt_element(FunctionName, in_extension_code, &formatted_method)
+        .as_ref();
   } else if frame.is_constructor {
-    result += "new ";
+    result += &F::fmt_element(PlainText, in_extension_code, "new ");
     if let Some(function_name) = &frame.function_name {
-      write!(result, "{}", F::fmt_element(FunctionName, function_name))
-        .unwrap();
+      write!(
+        result,
+        "{}",
+        F::fmt_element(FunctionName, in_extension_code, function_name)
+      )
+      .unwrap();
     } else {
-      result += F::fmt_element(Anonymous, "<anonymous>").as_ref();
+      result +=
+        F::fmt_element(Anonymous, in_extension_code, "<anonymous>").as_ref();
     }
   } else if let Some(function_name) = &frame.function_name {
-    result += F::fmt_element(FunctionName, function_name).as_ref();
+    result +=
+      F::fmt_element(FunctionName, in_extension_code, function_name).as_ref();
   } else {
     result += &format_location::<F>(frame, maybe_initial_cwd);
     return result;
   }
-  write!(
-    result,
-    " ({})",
-    format_location::<F>(frame, maybe_initial_cwd)
-  )
-  .unwrap();
+  result += &F::fmt_element(PlainText, in_extension_code, " (");
+  result += &format_location::<F>(frame, maybe_initial_cwd);
+  result += &F::fmt_element(PlainText, in_extension_code, ")");
   result
 }
 
@@ -2113,13 +2155,23 @@ mod tests {
       None,
     )
     .into_owned();
-    assert_eq!(
-      file_name.file_name,
-      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
-    );
-
+    let expected =
+      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95";
+    assert_eq!(file_name.file_name, expected,);
+    let file_name = format_file_name(
+      &format!("data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"),
+      Some(&Url::parse("file:///foo").unwrap()),
+    )
+    .into_owned();
+    assert_eq!(file_name.file_name, expected);
     let file_name = format_file_name("file:///foo/bar.ts", None);
     assert_eq!(file_name.file_name, "file:///foo/bar.ts");
+
+    let file_name = format_file_name(
+      "file:///foo/bar.ts",
+      Some(&Url::parse("file:///foo/").unwrap()),
+    );
+    assert_eq!(file_name.file_name, "./bar.ts");
 
     let file_name =
       format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts", None);

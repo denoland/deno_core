@@ -1,10 +1,8 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::op2::signature::*;
-use proc_macro_rules::rules;
 
-use quote::ToTokens;
-
+use syn::PathArguments;
 use syn::ReturnType;
 
 use syn::Type;
@@ -42,10 +40,20 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
       }
       match imp.bounds.first() {
         Some(TypeParamBound::Trait(t)) => {
-          rules!(t.into_token_stream() => {
-            ($($_package:ident ::)* Future < Output = $ty:ty $(,)? >) => Ok(UnwrappedReturn::Future(ty)),
-            ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty), "for impl Future"))),
-          })
+          if let Some(seg) = t.path.segments.last()
+            && seg.ident == "Future"
+            && let PathArguments::AngleBracketed(args) = &seg.arguments
+            && let Some(syn::GenericArgument::AssocType(assoc)) =
+              args.args.first()
+            && assoc.ident == "Output"
+          {
+            Ok(UnwrappedReturn::Future(assoc.ty.clone()))
+          } else {
+            Err(RetError::InvalidType(ArgError::InvalidType(
+              stringify_token(ty),
+              "for impl Future",
+            )))
+          }
         }
         _ => Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
@@ -53,21 +61,16 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
         ))),
       }
     }
-    Type::Path(ty) => {
-      rules!(ty.to_token_stream() => {
-        // x::y::Result<Value>, like io::Result and other specialty result types
-        ($($_package:ident ::)* Result < $ty:ty $(,)? >) => {
-          Ok(UnwrappedReturn::Result(ty))
-        }
-        // x::y::Result<Value, Error>
-        ($($_package:ident ::)* Result < $ty:ty, $_error:ty $(,)? >) => {
-          Ok(UnwrappedReturn::Result(ty))
-        }
-        // Everything else
-        ($ty:ty) => {
-          Ok(UnwrappedReturn::Type(ty))
-        }
-      })
+    Type::Path(tp) => {
+      if let Some(seg) = tp.path.segments.last()
+        && seg.ident == "Result"
+        && let PathArguments::AngleBracketed(args) = &seg.arguments
+        && let Some(syn::GenericArgument::Type(ty)) = args.args.first()
+      {
+        Ok(UnwrappedReturn::Result(ty.clone()))
+      } else {
+        Ok(UnwrappedReturn::Type(ty.clone()))
+      }
     }
     Type::Tuple(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     Type::Ptr(_) => Ok(UnwrappedReturn::Type(ty.clone())),

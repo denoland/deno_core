@@ -121,11 +121,11 @@ impl Display for FastStaticString {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, deno_error::JsError)]
+#[class(type)]
 pub struct FastStringV8AllocationError;
 
 impl std::error::Error for FastStringV8AllocationError {}
-
 impl std::fmt::Display for FastStringV8AllocationError {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(

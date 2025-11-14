@@ -62,7 +62,7 @@ jobs:
       # https://github.com/marketplace/actions/rust-cache
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v0-rust"
+          prefix-key: "v1-rust"
           shared-key: "${{ inputs.label }}-${{ inputs.job }}"
           save-if: ${{ inputs.is_main }}
 
