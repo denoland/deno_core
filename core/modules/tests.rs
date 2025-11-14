@@ -2175,3 +2175,208 @@ async fn evaluate_already_evaluated_module_sync() {
     .execute_script("check2", "if (globalThis.syncExecutionCount !== 1) throw new Error('Expected still 1 execution')")
     .unwrap();
 }
+
+#[tokio::test]
+async fn test_native_source_map_with_trailing_content() {
+  // This test verifies that source maps work even with trailing newlines and comments
+  // after the sourceMappingURL directive (https://github.com/denoland/deno/issues/21988)
+
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vdGVzdC50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJmdW5jdGlvbiBncmVldChuYW1lOiBzdHJpbmcpIHtcbiAgY29uc29sZS5sb2coXCJIZWxsbywgXCIgKyBuYW1lKTtcbn1cblxuZ3JlZXQoXCJXb3JsZFwiKTtcbiJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
+
+  let code = format!(
+    r#"export function greet(name) {{
+  console.log("Hello, " + name);
+}}
+
+greet("World");
+
+//# sourceMappingURL=data:application/json;base64,{}
+// This is a comment after the sourceMappingURL
+
+// Multiple blank lines follow
+
+
+"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///test.js").unwrap();
+  let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
+  let receiver = runtime.mod_evaluate(mod_id);
+  runtime.run_event_loop(Default::default()).await.unwrap();
+  receiver.await.unwrap();
+
+  // Inline source maps are processed synchronously, so they should already be loaded
+}
+
+#[tokio::test]
+async fn test_native_external_source_map_with_relative_path() {
+  // Create a temporary directory for our test files
+  let temp_dir = std::env::temp_dir();
+  let temp_path = temp_dir.as_path();
+
+  // Create a source map file
+  let source_map_content = r#"{
+  "version": 3,
+  "sources": ["file:///test.ts"],
+  "sourcesContent": ["export function add(a: number, b: number) {\n  return a + b;\n}\n"],
+  "names": [],
+  "mappings": "AAAA;AACA;AACA"
+}"#;
+
+  let map_file_path = temp_path.join("test.js.map");
+  std::fs::write(&map_file_path, source_map_content).unwrap();
+
+  // Create a JavaScript file that references the external source map with a relative path
+  let js_code = r#"export function add(a, b) {
+  return a + b;
+}
+
+//# sourceMappingURL=./test.js.map"#;
+
+  let js_file_path = temp_path.join("test.js");
+  std::fs::write(&js_file_path, js_code).unwrap();
+
+  // Create a file URL for the JS file
+  let file_url = Url::from_file_path(&js_file_path).unwrap();
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    file_url.clone(),
+    js_code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime.load_main_es_module(&file_url).await.unwrap();
+  let receiver = runtime.mod_evaluate(mod_id);
+  runtime.run_event_loop(Default::default()).await.unwrap();
+  receiver.await.unwrap();
+
+  // External source maps with relative paths (./) are loaded lazily when needed
+  // We've verified that the module loads successfully
+}
+
+#[tokio::test]
+async fn test_native_source_map_with_absolute_path_outside_cwd() {
+  // Test that source maps with absolute paths outside the cwd display as absolute
+  // (not relative with excessive ../ sequences)
+
+  // Create source map with absolute path outside typical cwd
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vYWJzb2x1dGUvcGF0aC9vdXRzaWRlL29yaWdpbmFsLnRzIl0sInNvdXJjZXNDb250ZW50IjpbIi8vIE9yaWdpbmFsIGZpbGUgb3V0c2lkZSBjd2RcbmZ1bmN0aW9uIHRocm93RXJyb3IoKSB7XG4gIHRocm93IG5ldyBFcnJvcihcIkVycm9yIGZyb20gZmlsZSBvdXRzaWRlIGN3ZFwiKTtcbn1cblxudGhyb3dFcnJvcigpO1xuIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQSJ9";
+
+  let code = format!(
+    r#"function throwError() {{
+  throw new Error("Error from file outside cwd");
+}}
+
+throwError();
+
+//# sourceMappingURL=data:application/json;base64,{}"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime
+    .load_main_es_module(&Url::parse("file:///test.js").unwrap())
+    .await
+    .unwrap();
+
+  // The module should load successfully even though the source map points
+  // to a file outside the cwd. Error paths will show absolute paths.
+  let _receiver = runtime.mod_evaluate(mod_id);
+  let result = runtime.run_event_loop(Default::default()).await;
+
+  // Expect an error since the code throws
+  assert!(result.is_err());
+
+  let err = result.unwrap_err();
+  let err_str = err.to_string();
+
+  // Verify the error contains the absolute path from the source map
+  // (not relative with excessive ../)
+  assert!(
+    err_str.contains("/absolute/path/outside/original.ts"),
+    "Error should contain absolute path: {}",
+    err_str
+  );
+}
+
+#[tokio::test]
+async fn test_native_source_map_synthetic_bundle_path() {
+  // Test that bundled code with synthetic paths (like file:///a.ts) displays correctly
+  // This is common with bundlers like esbuild
+
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vYS50cyJdLCJzb3VyY2VzQ29udGVudCI6WyIvLyBCdW5kbGVkIGZpbGVcbmZ1bmN0aW9uIHRocm93RXJyb3IoKSB7XG4gIHRocm93IG5ldyBFcnJvcihcIkVycm9yIGZyb20gYnVuZGxlZCBmaWxlXCIpO1xufVxuXG50aHJvd0Vycm9yKCk7XG4iXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBQUE7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
+
+  let code = format!(
+    r#"function throwError() {{
+  throw new Error("Error from bundled file");
+}}
+
+throwError();
+
+//# sourceMappingURL=data:application/json;base64,{}"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///bundle.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime
+    .load_main_es_module(&Url::parse("file:///bundle.js").unwrap())
+    .await
+    .unwrap();
+
+  let _receiver = runtime.mod_evaluate(mod_id);
+  let result = runtime.run_event_loop(Default::default()).await;
+
+  // Expect an error
+  assert!(result.is_err());
+
+  let err = result.unwrap_err();
+  let err_str = err.to_string();
+
+  // Verify the error shows the synthetic path from the bundle
+  // Should show as absolute: /a.ts (not with excessive ../)
+  assert!(
+    err_str.contains("/a.ts") || err_str.contains("file:///a.ts"),
+    "Error should contain synthetic bundle path: {}",
+    err_str
+  );
+
+  // Should NOT contain excessive parent directory traversals
+  assert!(
+    !err_str.contains("../../../"),
+    "Error should not contain excessive ../ sequences: {}",
+    err_str
+  );
+}

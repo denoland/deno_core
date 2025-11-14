@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 use std::str;
+use std::sync::Arc;
 
 #[derive(Debug, PartialEq)]
 pub enum SourceMapApplication {
@@ -33,12 +34,14 @@ pub type SourceMapData = Cow<'static, [u8]>;
 pub struct SourceMapper {
   // TODO(bartlomieju): I feel like these two should be cleared when Isolate
   // reaches "near heap limit" to free up some space. This needs to be confirmed though.
-  maps: HashMap<String, Option<SourceMap>>,
+  maps: HashMap<String, Option<Arc<SourceMap>>>,
   source_lines: HashMap<(String, i64), Option<String>>,
 
   loader: Rc<dyn ModuleLoader>,
 
   ext_source_maps: HashMap<ModuleName, SourceMapData>,
+  native_source_maps: HashMap<ModuleName, Arc<SourceMap>>,
+  native_source_map_urls: HashMap<ModuleName, String>,
 }
 
 impl SourceMapper {
@@ -47,6 +50,8 @@ impl SourceMapper {
       maps: Default::default(),
       source_lines: Default::default(),
       ext_source_maps: Default::default(),
+      native_source_maps: Default::default(),
+      native_source_map_urls: Default::default(),
       loader,
     }
   }
@@ -64,6 +69,27 @@ impl SourceMapper {
     &mut self,
   ) -> HashMap<ModuleName, SourceMapData> {
     std::mem::take(&mut self.ext_source_maps)
+  }
+
+  /// Add a native source map extracted from V8 for a module.
+  pub(crate) fn add_native_source_map(
+    &mut self,
+    module_name: ModuleName,
+    source_map: SourceMap,
+  ) {
+    self
+      .native_source_maps
+      .insert(module_name, Arc::new(source_map));
+  }
+
+  pub(crate) fn add_native_source_map_url(
+    &mut self,
+    module_name: ModuleName,
+    source_map_url: String,
+  ) {
+    self
+      .native_source_map_urls
+      .insert(module_name, source_map_url);
   }
 
   /// Apply a source map to the passed location. If there is no source map for
@@ -84,11 +110,28 @@ impl SourceMapper {
     let maybe_source_map =
       self.maps.entry(file_name.to_owned()).or_insert_with(|| {
         None
+          // Try ext: source maps (inline)
           .or_else(|| {
-            SourceMap::from_slice(self.ext_source_maps.get(file_name)?).ok()
+            SourceMap::from_slice(self.ext_source_maps.get(file_name)?)
+              .ok()
+              .map(Arc::new)
           })
+          // Try native source maps extracted from V8 (inline)
+          .or_else(|| self.native_source_maps.get(file_name).cloned())
+          // Try external source maps via ModuleLoader
           .or_else(|| {
-            SourceMap::from_slice(&self.loader.get_source_map(file_name)?).ok()
+            // Check if we have an external source map URL for this file
+            let source_map_url = self.native_source_map_urls.get(file_name)?;
+            // Request the external source map from the loader
+            let source_map_data =
+              self.loader.load_external_source_map(source_map_url)?;
+            SourceMap::from_slice(&source_map_data).ok().map(Arc::new)
+          })
+          // Try loader's inline source maps
+          .or_else(|| {
+            SourceMap::from_slice(&self.loader.get_source_map(file_name)?)
+              .ok()
+              .map(Arc::new)
           })
       });
 
@@ -111,12 +154,18 @@ impl SourceMapper {
         } else {
           // The `source_file_name` written by tsc in the source map is
           // sometimes only the basename of the URL, or has unwanted `<`/`>`
-          // around it. Use the `file_name` we get from V8 if
-          // `source_file_name` does not parse as a URL.
+          // around it. Try to parse it as a URL first. If that fails,
+          // try to resolve it as a relative path from the module URL.
           match resolve_url(source_file_name) {
             Ok(m) if m.scheme() == "blob" => None,
             Ok(m) => Some(m.to_string()),
-            Err(_) => None,
+            Err(_) => {
+              // Try to resolve as a relative path from the module URL
+              resolve_url(file_name)
+                .ok()
+                .and_then(|base_url| base_url.join(source_file_name).ok())
+                .map(|resolved| resolved.to_string())
+            }
           }
         }
       }
@@ -149,11 +198,11 @@ impl SourceMapper {
       return maybe_source_line.clone();
     }
 
-    let s = self
+    let maybe_source_line = self
       .loader
-      .get_source_mapped_source_line(file_name, (line_number - 1) as usize);
-    let maybe_source_line =
-      s.filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH);
+      .get_source_mapped_source_line(file_name, (line_number - 1) as usize)
+      .filter(|s| s.len() <= Self::MAX_SOURCE_LINE_LENGTH);
+
     // Cache and return
     self.source_lines.insert(
       (file_name.to_string(), line_number),

@@ -1154,6 +1154,15 @@ pub fn relative_specifier(from: &Url, to: &Url) -> Option<String> {
   Some(to_percent_decoded_str(&text))
 }
 
+/// Like `relative_specifier`, but returns None if the path would require going up directories.
+fn relative_specifier_within(from: &Url, to: &Url) -> Option<String> {
+  let relative = relative_specifier(from, to)?;
+  if relative.starts_with("../") {
+    return None;
+  }
+  Some(relative)
+}
+
 pub struct FileNameParts<'a> {
   pub working_dir_path: Option<Cow<'a, str>>,
   pub file_name: Cow<'a, str>,
@@ -1201,32 +1210,38 @@ fn abbrev_file_name<'a>(
   let Ok(url) = Url::parse(file_name) else {
     return None;
   };
-  if let Some(initial_cwd) = maybe_initial_cwd
-    && url.scheme() != "data"
-  {
-    return relative_specifier(initial_cwd, &url).map(|s| FileNameParts {
-      working_dir_path: Some(initial_cwd.to_string().into()),
-      file_name: s.into(),
-    });
-  }
-  if url.scheme() != "data" {
-    return None;
-  }
-  if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
+
+  // Handle data URLs - abbreviate if too long
+  if url.scheme() == "data" {
+    if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
+      return Some(FileNameParts {
+        working_dir_path: None,
+        file_name: file_name.into(),
+      });
+    }
+    let (head, tail) = url.path().split_once(',')?;
+    let len = tail.len();
+    let start = tail.get(0..20)?;
+    let end = tail.get(len - 20..)?;
     return Some(FileNameParts {
       working_dir_path: None,
-      file_name: file_name.into(),
+      file_name: format!("{}:{},{}......{}", url.scheme(), head, start, end)
+        .into(),
     });
   }
-  let (head, tail) = url.path().split_once(',')?;
-  let len = tail.len();
-  let start = tail.get(0..20)?;
-  let end = tail.get(len - 20..)?;
-  Some(FileNameParts {
-    working_dir_path: None,
-    file_name: format!("{}:{},{}......{}", url.scheme(), head, start, end)
-      .into(),
-  })
+
+  // For file:// URLs, use relative paths only if the file is within the cwd
+  if let Some(initial_cwd) = maybe_initial_cwd
+    && let Some(relative) = relative_specifier_within(initial_cwd, &url)
+  {
+    return Some(FileNameParts {
+      working_dir_path: Some(initial_cwd.to_string().into()),
+      file_name: relative.into(),
+    });
+  }
+
+  // For all other cases, use absolute paths
+  None
 }
 
 fn format_eval_origin<'a>(
@@ -2229,5 +2244,68 @@ mod tests {
         }
       }
     }
+  }
+
+  #[test]
+  fn test_relative_specifier_within() {
+    // File in the same directory - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/foo.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./foo.ts".to_string()));
+
+    // File in a subdirectory - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/src/bar.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./src/bar.ts".to_string()));
+
+    // File in a deeper subdirectory - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/src/lib/utils.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./src/lib/utils.ts".to_string()));
+
+    // File requires going up one level - should return None
+    let from = Url::parse("file:///Users/dev/project/src/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/main.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // File requires going up multiple levels - should return None
+    let from = Url::parse("file:///Users/dev/project/src/lib/").unwrap();
+    let to = Url::parse("file:///Users/dev/other/file.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // Completely different path (e.g., bundled synthetic path) - should return None
+    let from = Url::parse("file:///Users/dev/workspace/deno/").unwrap();
+    let to = Url::parse("file:///a.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // Same directory (edge case) - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./".to_string()));
+
+    // File in sibling directory - should return None
+    let from = Url::parse("file:///Users/dev/project1/src/").unwrap();
+    let to = Url::parse("file:///Users/dev/project2/foo.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // HTTP URLs (not file://) - should work if in same path
+    let from = Url::parse("http://example.com/app/").unwrap();
+    let to = Url::parse("http://example.com/app/main.js").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./main.js".to_string()));
+
+    // HTTP URLs requiring going up - should return None
+    let from = Url::parse("http://example.com/app/src/").unwrap();
+    let to = Url::parse("http://example.com/app/main.js").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
   }
 }

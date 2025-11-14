@@ -46,6 +46,7 @@ use futures::stream::FuturesUnordered;
 use futures::stream::StreamFuture;
 use futures::task::AtomicWaker;
 use indexmap::IndexMap;
+use sourcemap::DecodedMap;
 use std::future::Future;
 use v8::Function;
 use v8::PromiseState;
@@ -66,6 +67,8 @@ use std::rc::Rc;
 use std::task::Context;
 use std::task::Poll;
 use tokio::sync::oneshot;
+
+const DATA_PREFIX: &str = "data:";
 
 type PrepareLoadFuture =
   dyn Future<Output = (ModuleLoadId, Result<RecursiveModuleLoad, CoreError>)>;
@@ -689,6 +692,48 @@ impl ModuleMap {
           .boxed_local();
       self.code_cache_ready_futs.borrow_mut().push(fut);
       self.pending_code_cache_ready.set(true);
+    }
+
+    // Extract native source map URL from V8
+    let unbound_module_script = module.get_unbound_module_script(tc_scope);
+    let source_mapping_url_value =
+      unbound_module_script.get_source_mapping_url(tc_scope);
+    if !source_mapping_url_value.is_undefined()
+      && !source_mapping_url_value.is_null()
+    {
+      let source_mapping_url =
+        source_mapping_url_value.to_rust_string_lossy(tc_scope);
+
+      let module_name = name
+        .try_clone()
+        .unwrap_or_else(|| ModuleName::from(name.as_str().to_string()));
+
+      if source_mapping_url.starts_with(DATA_PREFIX) {
+        if let Ok(DecodedMap::Regular(sm)) =
+          sourcemap::decode_data_url(&source_mapping_url)
+        {
+          self
+            .source_mapper
+            .borrow_mut()
+            .add_native_source_map(module_name, sm);
+        }
+      } else {
+        // Resolve external source map URL relative to the module URL
+        let resolved_url =
+          if let Ok(module_url) = ModuleSpecifier::parse(name.as_str()) {
+            module_url
+              .join(&source_mapping_url)
+              .unwrap_or(module_url)
+              .to_string()
+          } else {
+            source_mapping_url
+          };
+
+        self
+          .source_mapper
+          .borrow_mut()
+          .add_native_source_map_url(module_name, resolved_url);
+      }
     }
 
     // TODO(bartlomieju): maybe move to a helper function?
