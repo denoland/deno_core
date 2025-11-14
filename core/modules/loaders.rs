@@ -148,6 +148,14 @@ pub trait ModuleLoader {
     None
   }
 
+  /// Loads an external source map file referenced by a module.
+  fn load_external_source_map(
+    &self,
+    _source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    None
+  }
+
   fn get_source_mapped_source_line(
     &self,
     _file_name: &str,
