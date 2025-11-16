@@ -4,7 +4,7 @@ use crate::op2::signature::*;
 
 use syn::PathArguments;
 use syn::ReturnType;
-
+use syn::spanned::Spanned;
 use syn::Type;
 use syn::TypeParamBound;
 
@@ -34,7 +34,7 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
         > 1
       {
         return Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(ty),
+          ty.span(),
           "for impl trait bounds",
         )));
       }
@@ -50,13 +50,13 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
             Ok(UnwrappedReturn::Future(assoc.ty.clone()))
           } else {
             Err(RetError::InvalidType(ArgError::InvalidType(
-              stringify_token(ty),
+              ty.span(),
               "for impl Future",
             )))
           }
         }
         _ => Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(ty),
+          ty.span(),
           "for impl",
         ))),
       }
@@ -76,7 +76,7 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
     Type::Ptr(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     Type::Reference(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     _ => Err(RetError::InvalidType(ArgError::InvalidType(
-      stringify_token(ty),
+      ty.span(),
       "for return type",
     ))),
   }
@@ -111,16 +111,16 @@ pub(crate) fn parse_return(
             attrs,
             &ty,
           )?),
-          _ => {
+          Future(ty) => {
             return Err(RetError::InvalidType(ArgError::InvalidType(
-              stringify_token(rt),
+              ty.span(),
               "for result of future",
             )));
           }
         },
-        _ => {
+        Result(ty) => {
           return Err(RetError::InvalidType(ArgError::InvalidType(
-            stringify_token(rt),
+            ty.span(),
             "for result",
           )));
         }
@@ -130,9 +130,9 @@ pub(crate) fn parse_return(
         Result(ty) => {
           RetVal::FutureResult(parse_type(Position::RetVal, attrs, &ty)?)
         }
-        _ => {
+        Future(ty) => {
           return Err(RetError::InvalidType(ArgError::InvalidType(
-            stringify_token(rt),
+            ty.span(),
             "for future",
           )));
         }
@@ -147,7 +147,7 @@ pub(crate) fn parse_return(
       RetVal::Result(t, ..) => RetVal::FutureResult(t),
       _ => {
         return Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(rt),
+          rt.span(),
           "for async return",
         )));
       }

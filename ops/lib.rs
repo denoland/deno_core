@@ -4,7 +4,6 @@
 #![deny(clippy::unnecessary_wraps)]
 
 use proc_macro::TokenStream;
-use std::error::Error;
 
 mod conversion;
 mod op2;
@@ -20,19 +19,7 @@ pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
 fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
   match op2::op2(attr.into(), item.into()) {
     Ok(output) => output.into(),
-    Err(err) => {
-      let mut err: &dyn Error = &err;
-      let mut output = "Failed to parse #[op2]:\n".to_owned();
-      loop {
-        output += &format!(" - {err}\n");
-        if let Some(source) = err.source() {
-          err = source;
-        } else {
-          break;
-        }
-      }
-      panic!("{output}");
-    }
+    Err(err) => syn::Error::from(err).into_compile_error().into(),
   }
 }
 

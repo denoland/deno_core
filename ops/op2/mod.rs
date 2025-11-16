@@ -65,6 +65,25 @@ pub enum Op2Error {
   MultipleConstructors,
 }
 
+impl From<Op2Error> for syn::Error {
+  fn from(value: Op2Error) -> Self {
+    let msg = value.to_string();
+    let span = match value {
+      Op2Error::ParseError(e) => return e,
+      Op2Error::V8SignatureMappingError(e) => return combine_err(e.into(), msg),
+      Op2Error::SignatureError(e) => return combine_err(e.into(), msg),
+      Op2Error::InvalidAttributeCombination(_, _) => Span::call_site(),
+      Op2Error::ShouldBeFast => Span::call_site(),
+      Op2Error::ShouldNotBeFast(_) => Span::call_site(),
+      Op2Error::ShouldBeAsync => Span::call_site(),
+      Op2Error::ShouldNotBeAsync => Span::call_site(),
+      Op2Error::MultipleConstructors => Span::call_site(), // TODO: should contain the constructors spans
+    };
+
+    syn::Error::new(span, msg)
+  }
+}
+
 #[derive(Debug, Error)]
 #[allow(clippy::enum_variant_names)]
 pub enum V8SignatureMappingError {
@@ -73,6 +92,20 @@ pub enum V8SignatureMappingError {
   #[error("Unable to map argument {1:?} to {0}")]
   NoArgMapping(V8MappingError, Box<Arg>),
 }
+
+impl From<V8SignatureMappingError> for syn::Error {
+  fn from(value: V8SignatureMappingError) -> Self {
+    let msg = value.to_string();
+    let span = match value {
+      V8SignatureMappingError::NoRetValMapping(_, _) => Span::call_site(),
+      V8SignatureMappingError::NoArgMapping(_, _) => Span::call_site(),
+    };
+
+    syn::Error::new(span, msg)
+  }
+}
+
+
 
 pub type V8MappingError = &'static str;
 
@@ -378,6 +411,13 @@ pub(crate) fn generate_op2(
       <#rust_name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
     }
   })
+}
+
+fn combine_err(e: syn::Error, msg: String) -> syn::Error {
+  syn::Error::new(
+    e.span(),
+    format!("{}: {}", msg, e.to_string()),
+  )
 }
 
 mod kw {
