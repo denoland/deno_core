@@ -40,8 +40,7 @@ pub struct SourceMapper {
   loader: Rc<dyn ModuleLoader>,
 
   ext_source_maps: HashMap<ModuleName, SourceMapData>,
-  native_source_maps: HashMap<ModuleName, Arc<SourceMap>>,
-  native_source_map_urls: HashMap<ModuleName, String>,
+  source_map_urls: HashMap<ModuleName, String>,
 }
 
 impl SourceMapper {
@@ -50,8 +49,7 @@ impl SourceMapper {
       maps: Default::default(),
       source_lines: Default::default(),
       ext_source_maps: Default::default(),
-      native_source_maps: Default::default(),
-      native_source_map_urls: Default::default(),
+      source_map_urls: Default::default(),
       loader,
     }
   }
@@ -71,25 +69,23 @@ impl SourceMapper {
     std::mem::take(&mut self.ext_source_maps)
   }
 
-  /// Add a native source map extracted from V8 for a module.
-  pub(crate) fn add_native_source_map(
+  /// Add a source map extracted from V8 for a module.
+  pub(crate) fn add_source_map(
     &mut self,
     module_name: ModuleName,
     source_map: SourceMap,
   ) {
     self
-      .native_source_maps
-      .insert(module_name, Arc::new(source_map));
+      .maps
+      .insert(module_name.to_string(), Some(Arc::new(source_map)));
   }
 
-  pub(crate) fn add_native_source_map_url(
+  pub(crate) fn add_source_map_url(
     &mut self,
     module_name: ModuleName,
     source_map_url: String,
   ) {
-    self
-      .native_source_map_urls
-      .insert(module_name, source_map_url);
+    self.source_map_urls.insert(module_name, source_map_url);
   }
 
   /// Apply a source map to the passed location. If there is no source map for
@@ -116,12 +112,10 @@ impl SourceMapper {
               .ok()
               .map(Arc::new)
           })
-          // Try native source maps extracted from V8 (inline)
-          .or_else(|| self.native_source_maps.get(file_name).cloned())
           // Try external source maps via ModuleLoader
           .or_else(|| {
             // Check if we have an external source map URL for this file
-            let source_map_url = self.native_source_map_urls.get(file_name)?;
+            let source_map_url = self.source_map_urls.get(file_name)?;
             // Request the external source map from the loader
             let source_map_data =
               self.loader.load_external_source_map(source_map_url)?;

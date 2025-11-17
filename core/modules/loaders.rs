@@ -622,6 +622,13 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     self.log.borrow_mut().push(module_specifier.clone());
     self.loader.load(module_specifier, maybe_referrer, options)
   }
+
+  fn load_external_source_map(
+    &self,
+    source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    self.loader.load_external_source_map(source_map_url)
+  }
 }
 
 #[cfg(test)]

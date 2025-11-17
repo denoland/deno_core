@@ -2181,11 +2181,17 @@ async fn test_native_source_map_with_trailing_content() {
   // This test verifies that source maps work even with trailing newlines and comments
   // after the sourceMappingURL directive (https://github.com/denoland/deno/issues/21988)
 
-  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vdGVzdC50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJmdW5jdGlvbiBncmVldChuYW1lOiBzdHJpbmcpIHtcbiAgY29uc29sZS5sb2coXCJIZWxsbywgXCIgKyBuYW1lKTtcbn1cblxuZ3JlZXQoXCJXb3JsZFwiKTtcbiJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
+  // Source map for TypeScript code that throws an error on line 2:
+  // function greet(name: string) {
+  //   throw new Error("Test error");
+  // }
+  //
+  // greet("World");
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vdGVzdC50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJmdW5jdGlvbiBncmVldChuYW1lOiBzdHJpbmcpIHtcbiAgdGhyb3cgbmV3IEVycm9yKFwiVGVzdCBlcnJvclwiKTtcbn1cblxuZ3JlZXQoXCJXb3JsZFwiKTtcbiJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
 
   let code = format!(
     r#"export function greet(name) {{
-  console.log("Hello, " + name);
+  throw new Error("Test error");
 }}
 
 greet("World");
@@ -2212,48 +2218,106 @@ greet("World");
 
   let spec = resolve_url("file:///test.js").unwrap();
   let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
-  let receiver = runtime.mod_evaluate(mod_id);
-  runtime.run_event_loop(Default::default()).await.unwrap();
-  receiver.await.unwrap();
+  let _receiver = runtime.mod_evaluate(mod_id);
 
-  // Inline source maps are processed synchronously, so they should already be loaded
+  // Run event loop - it will propagate the module error
+  let event_loop_result = runtime.run_event_loop(Default::default()).await;
+
+  // The event loop returns the error from the uncaught promise rejection
+  assert!(event_loop_result.is_err());
+  let error = event_loop_result.unwrap_err();
+  let error_string = error.to_string();
+
+  // Verify that the error references the original TypeScript file and line number
+  // The error should be thrown from line 2 of test.ts (not test.js)
+  assert!(
+    error_string.contains("test.ts"),
+    "Error should reference source file test.ts, got: {}",
+    error_string
+  );
+  assert!(
+    error_string.contains("Test error"),
+    "Error should contain the error message, got: {}",
+    error_string
+  );
+}
+
+// Module loader that supports loading external source maps
+struct ExternalSourceMapLoader {
+  module_code: String,
+  source_map_content: String,
+}
+
+impl ModuleLoader for ExternalSourceMapLoader {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    _kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
+  }
+
+  fn load(
+    &self,
+    _module_specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
+  ) -> ModuleLoadResponse {
+    let code = ModuleCodeString::from(self.module_code.clone());
+    ModuleLoadResponse::Sync(Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(code),
+      _module_specifier,
+      None,
+    )))
+  }
+
+  fn load_external_source_map(
+    &self,
+    source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    // Check if this is the source map we're providing
+    if source_map_url.ends_with("test.js.map")
+      || source_map_url.contains("test.js.map")
+    {
+      Some(Cow::Borrowed(self.source_map_content.as_bytes()))
+    } else {
+      None
+    }
+  }
 }
 
 #[tokio::test]
 async fn test_native_external_source_map_with_relative_path() {
-  // Create a temporary directory for our test files
-  let temp_dir = std::env::temp_dir();
-  let temp_path = temp_dir.as_path();
-
-  // Create a source map file
+  // Create a source map file for TypeScript code that throws an error
+  // Original TypeScript:
+  // export function throwError() {
+  //   throw new Error("External source map test");
+  // }
+  // throwError();
   let source_map_content = r#"{
   "version": 3,
   "sources": ["file:///test.ts"],
-  "sourcesContent": ["export function add(a: number, b: number) {\n  return a + b;\n}\n"],
+  "sourcesContent": ["export function throwError() {\n  throw new Error(\"External source map test\");\n}\nthrowError();\n"],
   "names": [],
-  "mappings": "AAAA;AACA;AACA"
+  "mappings": "AAAA;AACA;AACA;AACA"
 }"#;
 
-  let map_file_path = temp_path.join("test.js.map");
-  std::fs::write(&map_file_path, source_map_content).unwrap();
-
   // Create a JavaScript file that references the external source map with a relative path
-  let js_code = r#"export function add(a, b) {
-  return a + b;
+  let js_code = r#"export function throwError() {
+  throw new Error("External source map test");
 }
+throwError();
 
 //# sourceMappingURL=./test.js.map"#;
 
-  let js_file_path = temp_path.join("test.js");
-  std::fs::write(&js_file_path, js_code).unwrap();
+  let file_url = Url::parse("file:///test.js").unwrap();
 
-  // Create a file URL for the JS file
-  let file_url = Url::from_file_path(&js_file_path).unwrap();
-
-  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
-    file_url.clone(),
-    js_code,
-  )));
+  let loader = Rc::new(TestingModuleLoader::new(ExternalSourceMapLoader {
+    module_code: js_code.to_string(),
+    source_map_content: source_map_content.to_string(),
+  }));
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader),
@@ -2261,12 +2325,29 @@ async fn test_native_external_source_map_with_relative_path() {
   });
 
   let mod_id = runtime.load_main_es_module(&file_url).await.unwrap();
-  let receiver = runtime.mod_evaluate(mod_id);
-  runtime.run_event_loop(Default::default()).await.unwrap();
-  receiver.await.unwrap();
+  let _receiver = runtime.mod_evaluate(mod_id);
 
-  // External source maps with relative paths (./) are loaded lazily when needed
-  // We've verified that the module loads successfully
+  // Run event loop - it will propagate the module error
+  let event_loop_result = runtime.run_event_loop(Default::default()).await;
+
+  // The event loop returns the error from the uncaught promise rejection
+  assert!(event_loop_result.is_err());
+
+  let error = event_loop_result.unwrap_err();
+  let error_string = error.to_string();
+
+  // Verify that the error references the original TypeScript file (not the .js file)
+  // External source maps are loaded lazily when an error occurs
+  assert!(
+    error_string.contains("test.ts"),
+    "Error should reference source file test.ts, got: {}",
+    error_string
+  );
+  assert!(
+    error_string.contains("External source map test"),
+    "Error should contain the error message, got: {}",
+    error_string
+  );
 }
 
 #[tokio::test]
@@ -2368,7 +2449,7 @@ throwError();
   // Verify the error shows the synthetic path from the bundle
   // Should show as absolute: /a.ts (not with excessive ../)
   assert!(
-    err_str.contains("/a.ts") || err_str.contains("file:///a.ts"),
+    err_str.contains("file:///a.ts"),
     "Error should contain synthetic bundle path: {}",
     err_str
   );

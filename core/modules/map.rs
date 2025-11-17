@@ -715,7 +715,7 @@ impl ModuleMap {
           self
             .source_mapper
             .borrow_mut()
-            .add_native_source_map(module_name, sm);
+            .add_source_map(module_name, sm);
         }
       } else {
         // Resolve external source map URL relative to the module URL
@@ -732,7 +732,7 @@ impl ModuleMap {
         self
           .source_mapper
           .borrow_mut()
-          .add_native_source_map_url(module_name, resolved_url);
+          .add_source_map_url(module_name, resolved_url);
       }
     }
 
