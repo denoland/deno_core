@@ -55,7 +55,7 @@
     op_get_proxy_details,
     op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
-    op_has_immediate_scheduled,
+    op_immediate_has_count,
     op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
@@ -68,7 +68,6 @@
     op_add_main_module_handler,
     op_set_handled_promise_rejection_handler,
     op_set_has_tick_scheduled,
-    op_set_has_immediate_scheduled,
     op_set_promise_hooks,
     op_set_wasm_streaming_callback,
     op_str_byte_length,
@@ -187,7 +186,11 @@
 
     // Drain immediates queue.
     // TODO: might do it recursively
-    if (op_has_immediate_scheduled()) {
+    console.log(
+      "op_immediate_has_count() =",
+      op_immediate_has_count(),
+    );
+    if (op_immediate_has_count()) {
       for (let i = 0; i < immediateCallbacks.length; i++) {
         inner: while (true) {
           console.log("tick in immediateCallbacks");
@@ -727,8 +730,6 @@
     runMicrotasks: () => op_run_microtasks(),
     hasTickScheduled: () => op_has_tick_scheduled(),
     setHasTickScheduled: (bool) => op_set_has_tick_scheduled(bool),
-    hasImmediateScheduled: () => op_has_immediate_scheduled(),
-    setHasImmediateScheduled: (bool) => op_set_has_immediate_scheduled(bool),
     evalContext: (
       source,
       specifier,

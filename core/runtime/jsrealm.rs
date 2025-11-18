@@ -62,6 +62,19 @@ pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 pub(crate) type UnrefedOps =
   Rc<RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>>;
 
+#[derive(Debug, Default)]
+pub(crate) struct ImmediateInfo {
+  pub count: u32,
+  pub ref_count: u32,
+  pub has_outstanding: bool,
+}
+
+impl ImmediateInfo {
+  pub(crate) fn has_ref(&self) -> bool {
+    self.ref_count > 0
+  }
+}
+
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
@@ -79,7 +92,7 @@ pub struct ContextState {
   pub(crate) isolate: Option<v8::UnsafeRawIsolatePtr>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
-  pub(crate) has_immediate_scheduled: Cell<bool>,
+  pub(crate) immediate_info: RefCell<ImmediateInfo>,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
   pub(crate) ext_import_meta_proto: RefCell<Option<v8::Global<v8::Object>>>,
 }
@@ -98,7 +111,7 @@ impl ContextState {
       isolate: Some(isolate_ptr),
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
-      has_immediate_scheduled: Default::default(),
+      immediate_info: Default::default(),
       js_event_loop_tick_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       wasm_instance_fn: Default::default(),

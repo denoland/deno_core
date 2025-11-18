@@ -220,17 +220,51 @@ pub fn op_set_has_tick_scheduled(scope: &mut v8::PinScope, v: bool) {
 }
 
 #[op2(fast)]
-pub fn op_has_immediate_scheduled(scope: &mut v8::PinScope) -> bool {
-  JsRealm::state_from_scope(scope)
-    .has_immediate_scheduled
-    .get()
+pub fn op_immediate_count(scope: &mut v8::PinScope, increase: bool) -> u32 {
+  let state = JsRealm::state_from_scope(scope);
+  let mut immediate_info = state.immediate_info.borrow_mut();
+
+  if increase {
+    immediate_info.count += 1;
+  } else {
+    immediate_info.count -= 1;
+  }
+
+  immediate_info.count
 }
 
 #[op2(fast)]
-pub fn op_set_has_immediate_scheduled(scope: &mut v8::PinScope, v: bool) {
+pub fn op_immediate_ref_count(scope: &mut v8::PinScope, increase: bool) -> u32 {
+  let state = JsRealm::state_from_scope(scope);
+  let mut immediate_info = state.immediate_info.borrow_mut();
+
+  if increase {
+    immediate_info.ref_count += 1;
+  } else {
+    immediate_info.ref_count -= 1;
+  }
+
+  immediate_info.ref_count
+}
+
+#[op2(fast)]
+pub fn op_immediate_set_has_outstanding(
+  scope: &mut v8::PinScope,
+  has_outstanding: bool,
+) {
   JsRealm::state_from_scope(scope)
-    .has_immediate_scheduled
-    .set(v);
+    .immediate_info
+    .borrow_mut()
+    .has_outstanding = has_outstanding;
+}
+
+#[op2(fast)]
+pub fn op_immediate_has_count(scope: &mut v8::PinScope) -> bool {
+  JsRealm::state_from_scope(scope)
+    .immediate_info
+    .borrow()
+    .count
+    > 0
 }
 
 pub struct EvalContextError<'s> {
