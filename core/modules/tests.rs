@@ -2175,3 +2175,289 @@ async fn evaluate_already_evaluated_module_sync() {
     .execute_script("check2", "if (globalThis.syncExecutionCount !== 1) throw new Error('Expected still 1 execution')")
     .unwrap();
 }
+
+#[tokio::test]
+async fn test_native_source_map_with_trailing_content() {
+  // This test verifies that source maps work even with trailing newlines and comments
+  // after the sourceMappingURL directive (https://github.com/denoland/deno/issues/21988)
+
+  // Source map for TypeScript code that throws an error on line 2:
+  // function greet(name: string) {
+  //   throw new Error("Test error");
+  // }
+  //
+  // greet("World");
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vdGVzdC50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJmdW5jdGlvbiBncmVldChuYW1lOiBzdHJpbmcpIHtcbiAgdGhyb3cgbmV3IEVycm9yKFwiVGVzdCBlcnJvclwiKTtcbn1cblxuZ3JlZXQoXCJXb3JsZFwiKTtcbiJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
+
+  let code = format!(
+    r#"export function greet(name) {{
+  throw new Error("Test error");
+}}
+
+greet("World");
+
+//# sourceMappingURL=data:application/json;base64,{}
+// This is a comment after the sourceMappingURL
+
+// Multiple blank lines follow
+
+
+"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///test.js").unwrap();
+  let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
+  let _receiver = runtime.mod_evaluate(mod_id);
+
+  // Run event loop - it will propagate the module error
+  let event_loop_result = runtime.run_event_loop(Default::default()).await;
+
+  // The event loop returns the error from the uncaught promise rejection
+  assert!(event_loop_result.is_err());
+  let error = event_loop_result.unwrap_err();
+  let error_string = error.to_string();
+
+  // Verify that the error references the original TypeScript file and line number
+  // The error should be thrown from line 2 of test.ts (not test.js)
+  assert!(
+    error_string.contains("test.ts"),
+    "Error should reference source file test.ts, got: {}",
+    error_string
+  );
+  assert!(
+    error_string.contains("Test error"),
+    "Error should contain the error message, got: {}",
+    error_string
+  );
+}
+
+// Module loader that supports loading external source maps
+struct ExternalSourceMapLoader {
+  module_code: String,
+  source_map_content: String,
+}
+
+impl ModuleLoader for ExternalSourceMapLoader {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    _kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
+  }
+
+  fn load(
+    &self,
+    _module_specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
+  ) -> ModuleLoadResponse {
+    let code = ModuleCodeString::from(self.module_code.clone());
+    ModuleLoadResponse::Sync(Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(code),
+      _module_specifier,
+      None,
+    )))
+  }
+
+  fn load_external_source_map(
+    &self,
+    source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    // Check if this is the source map we're providing
+    if source_map_url.ends_with("test.js.map")
+      || source_map_url.contains("test.js.map")
+    {
+      Some(Cow::Borrowed(self.source_map_content.as_bytes()))
+    } else {
+      None
+    }
+  }
+}
+
+#[tokio::test]
+async fn test_native_external_source_map_with_relative_path() {
+  // Create a source map file for TypeScript code that throws an error
+  // Original TypeScript:
+  // export function throwError() {
+  //   throw new Error("External source map test");
+  // }
+  // throwError();
+  let source_map_content = r#"{
+  "version": 3,
+  "sources": ["file:///test.ts"],
+  "sourcesContent": ["export function throwError() {\n  throw new Error(\"External source map test\");\n}\nthrowError();\n"],
+  "names": [],
+  "mappings": "AAAA;AACA;AACA;AACA"
+}"#;
+
+  // Create a JavaScript file that references the external source map with a relative path
+  let js_code = r#"export function throwError() {
+  throw new Error("External source map test");
+}
+throwError();
+
+//# sourceMappingURL=./test.js.map"#;
+
+  let file_url = Url::parse("file:///test.js").unwrap();
+
+  let loader = Rc::new(TestingModuleLoader::new(ExternalSourceMapLoader {
+    module_code: js_code.to_string(),
+    source_map_content: source_map_content.to_string(),
+  }));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime.load_main_es_module(&file_url).await.unwrap();
+  let _receiver = runtime.mod_evaluate(mod_id);
+
+  // Run event loop - it will propagate the module error
+  let event_loop_result = runtime.run_event_loop(Default::default()).await;
+
+  // The event loop returns the error from the uncaught promise rejection
+  assert!(event_loop_result.is_err());
+
+  let error = event_loop_result.unwrap_err();
+  let error_string = error.to_string();
+
+  // Verify that the error references the original TypeScript file (not the .js file)
+  // External source maps are loaded lazily when an error occurs
+  assert!(
+    error_string.contains("test.ts"),
+    "Error should reference source file test.ts, got: {}",
+    error_string
+  );
+  assert!(
+    error_string.contains("External source map test"),
+    "Error should contain the error message, got: {}",
+    error_string
+  );
+}
+
+#[tokio::test]
+async fn test_native_source_map_with_absolute_path_outside_cwd() {
+  // Test that source maps with absolute paths outside the cwd display as absolute
+  // (not relative with excessive ../ sequences)
+
+  // Create source map with absolute path outside typical cwd
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vYWJzb2x1dGUvcGF0aC9vdXRzaWRlL29yaWdpbmFsLnRzIl0sInNvdXJjZXNDb250ZW50IjpbIi8vIE9yaWdpbmFsIGZpbGUgb3V0c2lkZSBjd2RcbmZ1bmN0aW9uIHRocm93RXJyb3IoKSB7XG4gIHRocm93IG5ldyBFcnJvcihcIkVycm9yIGZyb20gZmlsZSBvdXRzaWRlIGN3ZFwiKTtcbn1cblxudGhyb3dFcnJvcigpO1xuIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQSJ9";
+
+  let code = format!(
+    r#"function throwError() {{
+  throw new Error("Error from file outside cwd");
+}}
+
+throwError();
+
+//# sourceMappingURL=data:application/json;base64,{}"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime
+    .load_main_es_module(&Url::parse("file:///test.js").unwrap())
+    .await
+    .unwrap();
+
+  // The module should load successfully even though the source map points
+  // to a file outside the cwd. Error paths will show absolute paths.
+  let _receiver = runtime.mod_evaluate(mod_id);
+  let result = runtime.run_event_loop(Default::default()).await;
+
+  // Expect an error since the code throws
+  assert!(result.is_err());
+
+  let err = result.unwrap_err();
+  let err_str = err.to_string();
+
+  // Verify the error contains the absolute path from the source map
+  // (not relative with excessive ../)
+  assert!(
+    err_str.contains("/absolute/path/outside/original.ts"),
+    "Error should contain absolute path: {}",
+    err_str
+  );
+}
+
+#[tokio::test]
+async fn test_native_source_map_synthetic_bundle_path() {
+  // Test that bundled code with synthetic paths (like file:///a.ts) displays correctly
+  // This is common with bundlers like esbuild
+
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vYS50cyJdLCJzb3VyY2VzQ29udGVudCI6WyIvLyBCdW5kbGVkIGZpbGVcbmZ1bmN0aW9uIHRocm93RXJyb3IoKSB7XG4gIHRocm93IG5ldyBFcnJvcihcIkVycm9yIGZyb20gYnVuZGxlZCBmaWxlXCIpO1xufVxuXG50aHJvd0Vycm9yKCk7XG4iXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBQUE7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
+
+  let code = format!(
+    r#"function throwError() {{
+  throw new Error("Error from bundled file");
+}}
+
+throwError();
+
+//# sourceMappingURL=data:application/json;base64,{}"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///bundle.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime
+    .load_main_es_module(&Url::parse("file:///bundle.js").unwrap())
+    .await
+    .unwrap();
+
+  let _receiver = runtime.mod_evaluate(mod_id);
+  let result = runtime.run_event_loop(Default::default()).await;
+
+  // Expect an error
+  assert!(result.is_err());
+
+  let err = result.unwrap_err();
+  let err_str = err.to_string();
+
+  // Verify the error shows the synthetic path from the bundle
+  // Should show as absolute: /a.ts (not with excessive ../)
+  assert!(
+    err_str.contains("file:///a.ts"),
+    "Error should contain synthetic bundle path: {}",
+    err_str
+  );
+
+  // Should NOT contain excessive parent directory traversals
+  assert!(
+    !err_str.contains("../../../"),
+    "Error should not contain excessive ../ sequences: {}",
+    err_str
+  );
+}

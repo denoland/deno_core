@@ -148,6 +148,14 @@ pub trait ModuleLoader {
     None
   }
 
+  /// Loads an external source map file referenced by a module.
+  fn load_external_source_map(
+    &self,
+    _source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    None
+  }
+
   fn get_source_mapped_source_line(
     &self,
     _file_name: &str,
@@ -613,6 +621,13 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
     self.loader.load(module_specifier, maybe_referrer, options)
+  }
+
+  fn load_external_source_map(
+    &self,
+    source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    self.loader.load_external_source_map(source_map_url)
   }
 }
 
