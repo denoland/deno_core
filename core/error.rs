@@ -22,6 +22,7 @@ use std::fmt::Debug;
 use std::fmt::Display;
 use std::fmt::Formatter;
 use std::fmt::Write as _;
+use std::sync::Arc;
 use thiserror::Error;
 
 /// A generic wrapper that can encapsulate any concrete error type.
@@ -29,6 +30,29 @@ use thiserror::Error;
 pub type AnyError = anyhow::Error;
 
 deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
+
+impl PartialEq<DataError> for DataError {
+  fn eq(&self, other: &DataError) -> bool {
+    match (self.0, other.0) {
+      (
+        v8::DataError::BadType { actual, expected },
+        v8::DataError::BadType {
+          actual: other_actual,
+          expected: other_expected,
+        },
+      ) => actual == other_actual && expected == other_expected,
+      (
+        v8::DataError::NoData { expected },
+        v8::DataError::NoData {
+          expected: other_expected,
+        },
+      ) => expected == other_expected,
+      _ => false,
+    }
+  }
+}
+
+impl Eq for DataError {}
 
 #[derive(Debug, Error, JsError)]
 #[class(generic)]
@@ -176,19 +200,13 @@ impl CoreError {
     err_message
   }
 
-  pub fn to_v8_error(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> v8::Global<v8::Value> {
+  pub fn to_v8_error(&self, scope: &mut v8::PinScope) -> v8::Global<v8::Value> {
     self.as_kind().to_v8_error(scope)
   }
 }
 
 impl CoreErrorKind {
-  pub fn to_v8_error(
-    &self,
-    scope: &mut v8::HandleScope,
-  ) -> v8::Global<v8::Value> {
+  pub fn to_v8_error(&self, scope: &mut v8::PinScope) -> v8::Global<v8::Value> {
     let err_string = self.get_message().to_string();
     let mut error_chain = vec![];
     let mut intermediary_error: Option<&dyn Error> = Some(&self);
@@ -229,7 +247,7 @@ impl From<v8::DataError> for CoreError {
 }
 
 pub fn throw_js_error_class(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   error: &dyn JsErrorClass,
 ) {
   let exception = js_class_and_message_to_exception(
@@ -240,8 +258,8 @@ pub fn throw_js_error_class(
   scope.throw_exception(exception);
 }
 
-fn js_class_and_message_to_exception<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn js_class_and_message_to_exception<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   _class: &str,
   message: &str,
 ) -> v8::Local<'s, v8::Value> {
@@ -260,11 +278,12 @@ fn js_class_and_message_to_exception<'s>(
   v8::Exception::type_error(scope, message)
 }
 
-pub fn to_v8_error<'a>(
-  scope: &mut v8::HandleScope<'a>,
+pub fn to_v8_error<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   error: &dyn JsErrorClass,
-) -> v8::Local<'a, v8::Value> {
-  let tc_scope = &mut v8::TryCatch::new(scope);
+) -> v8::Local<'s, v8::Value> {
+  v8::tc_scope!(let tc_scope, scope);
+
   let cb = JsRealm::exception_state_from_scope(tc_scope)
     .js_build_custom_error_cb
     .borrow()
@@ -314,10 +333,32 @@ pub fn to_v8_error<'a>(
   }
 }
 
+/// Effectively throw an uncatchable error. This will terminate runtime
+/// execution before any more JS code can run, except in the REPL where it
+/// should just output the error to the console.
+pub fn dispatch_exception<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  exception: v8::Local<'s, v8::Value>,
+  promise: bool,
+) {
+  let state = JsRuntime::state_from(scope);
+  if let Some(true) = state.with_inspector(|inspector| {
+    inspector.exception_thrown(scope, exception, false);
+    inspector.is_dispatching_message()
+  }) {
+    // This indicates that the fn is being called from a REPL. Skip termination.
+    return;
+  }
+
+  JsRealm::exception_state_from_scope(scope)
+    .set_dispatched_exception(v8::Global::new(scope, exception), promise);
+  scope.terminate_execution();
+}
+
 #[inline(always)]
-pub(crate) fn call_site_evals_key<'a>(
-  scope: &mut v8::HandleScope<'a>,
-) -> v8::Local<'a, v8::Private> {
+pub(crate) fn call_site_evals_key<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+) -> v8::Local<'s, v8::Private> {
   let name = v8_static_strings::CALL_SITE_EVALS.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
@@ -512,8 +553,8 @@ impl JsStackFrame {
 
   /// Creates a `JsStackFrame` from a `CallSite`` JS object,
   /// provided by V8.
-  fn from_callsite_object<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  fn from_callsite_object<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     callsite: v8::Local<'s, v8::Object>,
   ) -> Option<Self> {
     macro_rules! call {
@@ -585,9 +626,9 @@ impl JsStackFrame {
   /// Gets the source mapped stack frame corresponding to the
   /// (script_resource_name, line_number, column_number) from a v8 message.
   /// For non-syntax errors, it should also correspond to the first stack frame.
-  pub fn from_v8_message<'a>(
-    scope: &'a mut v8::HandleScope,
-    message: v8::Local<'a, v8::Message>,
+  pub fn from_v8_message<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    message: v8::Local<'s, v8::Message>,
   ) -> Option<Self> {
     let f = message.get_script_resource_name(scope)?;
     let f: v8::Local<v8::String> = f.try_into().ok()?;
@@ -617,23 +658,23 @@ impl JsStackFrame {
 }
 
 #[inline(always)]
-fn get_property<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  object: v8::Local<v8::Object>,
+fn get_property<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  object: v8::Local<'s, v8::Object>,
   key: FastStaticString,
-) -> Option<v8::Local<'a, v8::Value>> {
+) -> Option<v8::Local<'s, v8::Value>> {
   let key = key.v8_string(scope).unwrap();
   object.get(scope, key.into())
 }
 
-fn call_method<'a, T>(
-  scope: &mut v8::HandleScope<'a>,
-  object: v8::Local<v8::Object>,
+fn call_method<'s, 'i, T>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  object: v8::Local<'s, v8::Object>,
   key: FastStaticString,
-  args: &[v8::Local<'a, v8::Value>],
-) -> Option<v8::Local<'a, T>>
+  args: &[v8::Local<'s, v8::Value>],
+) -> Option<v8::Local<'s, T>>
 where
-  v8::Local<'a, T>: TryFrom<v8::Local<'a, v8::Value>, Error: Debug>,
+  v8::Local<'s, T>: TryFrom<v8::Local<'s, v8::Value>, Error: Debug>,
 {
   let func = match get_property(scope, object, key)?.try_cast::<v8::Function>()
   {
@@ -698,9 +739,9 @@ impl JsError {
       && a.aggregated == b.aggregated
   }
 
-  pub fn from_v8_exception(
-    scope: &mut v8::HandleScope,
-    exception: v8::Local<v8::Value>,
+  pub fn from_v8_exception<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    exception: v8::Local<'s, v8::Value>,
   ) -> Box<Self> {
     Box::new(Self::inner_from_v8_exception(
       scope,
@@ -709,13 +750,13 @@ impl JsError {
     ))
   }
 
-  pub fn from_v8_message<'a>(
-    scope: &'a mut v8::HandleScope,
-    msg: v8::Local<'a, v8::Message>,
+  pub fn from_v8_message<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    msg: v8::Local<'s, v8::Message>,
   ) -> Box<Self> {
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
-    let scope = &mut v8::HandleScope::new(scope);
+    v8::scope!(let scope, scope);
 
     let exception_message = msg.get(scope).to_rust_string_lossy(scope);
 
@@ -756,14 +797,14 @@ impl JsError {
     })
   }
 
-  fn inner_from_v8_exception<'a>(
-    scope: &'a mut v8::HandleScope,
-    exception: v8::Local<'a, v8::Value>,
-    mut seen: HashSet<v8::Local<'a, v8::Object>>,
+  fn inner_from_v8_exception<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    exception: v8::Local<'s, v8::Value>,
+    mut seen: HashSet<v8::Local<'s, v8::Object>>,
   ) -> Self {
     // Create a new HandleScope because we're creating a lot of new local
     // handles below.
-    let scope = &mut v8::HandleScope::new(scope);
+    v8::scope!(let scope, scope);
 
     let msg = v8::Exception::create_message(scope, exception);
 
@@ -837,7 +878,8 @@ impl JsError {
           let mut buf = Vec::with_capacity(frames_v8.length() as usize);
           for i in 0..frames_v8.length() {
             let callsite = frames_v8.get_index(scope, i).unwrap().cast();
-            let tc_scope = &mut v8::TryCatch::new(scope);
+            v8::tc_scope!(let tc_scope, scope);
+
             let Some(stack_frame) =
               JsStackFrame::from_callsite_object(tc_scope, callsite)
             else {
@@ -993,9 +1035,9 @@ impl Display for JsError {
 /// of `instanceof`. `Value::is_native_error()` also checks for static class
 /// inheritance rather than just scanning the prototype chain, which doesn't
 /// work with our WebIDL implementation of `DOMException`.
-pub(crate) fn is_instance_of_error(
-  scope: &mut v8::HandleScope,
-  value: v8::Local<v8::Value>,
+pub(crate) fn is_instance_of_error<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  value: v8::Local<'s, v8::Value>,
 ) -> bool {
   if !value.is_object() {
     return false;
@@ -1028,9 +1070,9 @@ pub(crate) fn is_instance_of_error(
 /// NOTE: There is currently no way to detect `AggregateError` via `rusty_v8`,
 /// as v8 itself doesn't expose `v8__Exception__AggregateError`,
 /// and we cannot create bindings for it. This forces us to rely on `name` inference.
-pub(crate) fn is_aggregate_error(
-  scope: &mut v8::HandleScope,
-  value: v8::Local<v8::Value>,
+pub(crate) fn is_aggregate_error<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  value: v8::Local<'s, v8::Value>,
 ) -> bool {
   let mut maybe_prototype = Some(value);
   while let Some(prototype) = maybe_prototype {
@@ -1061,9 +1103,9 @@ pub(crate) fn is_aggregate_error(
 
 /// Check if the error has a proper stack trace. The stack trace checked is the
 /// one passed to `prepareStackTrace()`, not `msg.get_stack_trace()`.
-pub(crate) fn has_call_site(
-  scope: &mut v8::HandleScope,
-  exception: v8::Local<v8::Value>,
+pub(crate) fn has_call_site<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  exception: v8::Local<'s, v8::Value>,
 ) -> bool {
   if !exception.is_object() {
     return false;
@@ -1088,44 +1130,156 @@ pub(crate) fn has_call_site(
 
 const DATA_URL_ABBREV_THRESHOLD: usize = 150;
 
-pub fn format_file_name(file_name: &str) -> String {
-  abbrev_file_name(file_name).unwrap_or_else(|| {
+fn to_percent_decoded_str(s: &str) -> String {
+  match percent_encoding::percent_decode_str(s).decode_utf8() {
+    Ok(s) => s.to_string(),
+    // when failed to decode, return the original string
+    Err(_) => s.to_string(),
+  }
+}
+
+pub fn relative_specifier(from: &Url, to: &Url) -> Option<String> {
+  let is_dir = to.path().ends_with('/');
+
+  if is_dir && from == to {
+    return Some("./".to_string());
+  }
+
+  let text = from.make_relative(to)?;
+  let text = if text.starts_with("../") || text.starts_with("./") {
+    text
+  } else {
+    format!("./{text}")
+  };
+  Some(to_percent_decoded_str(&text))
+}
+
+/// Like `relative_specifier`, but returns None if the path would require going up directories.
+fn relative_specifier_within(from: &Url, to: &Url) -> Option<String> {
+  let relative = relative_specifier(from, to)?;
+  if relative.starts_with("../") {
+    return None;
+  }
+  Some(relative)
+}
+
+pub struct FileNameParts<'a> {
+  pub working_dir_path: Option<Cow<'a, str>>,
+  pub file_name: Cow<'a, str>,
+}
+
+impl<'a> FileNameParts<'a> {
+  pub fn into_owned(self) -> FileNameParts<'static> {
+    FileNameParts {
+      working_dir_path: self.working_dir_path.map(|s| match s {
+        Cow::Borrowed(s) => Cow::Owned(s.to_owned()),
+        Cow::Owned(s) => Cow::Owned(s),
+      }),
+      file_name: match self.file_name {
+        Cow::Borrowed(s) => Cow::Owned(s.to_owned()),
+        Cow::Owned(s) => Cow::Owned(s),
+      },
+    }
+  }
+}
+
+pub fn format_file_name<'a>(
+  file_name: &'a str,
+  maybe_initial_cwd: Option<&Url>,
+) -> FileNameParts<'a> {
+  abbrev_file_name(file_name, maybe_initial_cwd).unwrap_or_else(|| {
     // same as to_percent_decoded_str() in cli/util/path.rs
     match percent_encoding::percent_decode_str(file_name).decode_utf8() {
-      Ok(s) => s.to_string(),
+      Ok(file_name) => FileNameParts {
+        working_dir_path: None,
+        file_name,
+      },
       // when failing as utf-8, just return the original string
-      Err(_) => file_name.to_string(),
+      Err(_) => FileNameParts {
+        working_dir_path: None,
+        file_name: file_name.into(),
+      },
     }
   })
 }
 
-fn abbrev_file_name(file_name: &str) -> Option<String> {
-  if !file_name.starts_with("data:") {
+fn abbrev_file_name<'a>(
+  file_name: &'a str,
+  maybe_initial_cwd: Option<&Url>,
+) -> Option<FileNameParts<'a>> {
+  let Ok(url) = Url::parse(file_name) else {
     return None;
+  };
+
+  // Handle data URLs - abbreviate if too long
+  if url.scheme() == "data" {
+    if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
+      return Some(FileNameParts {
+        working_dir_path: None,
+        file_name: file_name.into(),
+      });
+    }
+    let (head, tail) = url.path().split_once(',')?;
+    let len = tail.len();
+    let start = tail.get(0..20)?;
+    let end = tail.get(len - 20..)?;
+    return Some(FileNameParts {
+      working_dir_path: None,
+      file_name: format!("{}:{},{}......{}", url.scheme(), head, start, end)
+        .into(),
+    });
   }
-  if file_name.len() <= DATA_URL_ABBREV_THRESHOLD {
-    return Some(file_name.to_string());
+
+  // For file:// URLs, use relative paths only if the file is within the cwd
+  if let Some(initial_cwd) = maybe_initial_cwd
+    && let Some(relative) = relative_specifier_within(initial_cwd, &url)
+  {
+    return Some(FileNameParts {
+      working_dir_path: Some(initial_cwd.to_string().into()),
+      file_name: relative.into(),
+    });
   }
-  let url = Url::parse(file_name).ok()?;
-  let (head, tail) = url.path().split_once(',')?;
-  let len = tail.len();
-  let start = tail.get(0..20)?;
-  let end = tail.get(len - 20..)?;
-  Some(format!("{}:{},{}......{}", url.scheme(), head, start, end))
+
+  // For all other cases, use absolute paths
+  None
 }
 
-pub(crate) fn exception_to_err_result<T>(
-  scope: &mut v8::HandleScope,
-  exception: v8::Local<v8::Value>,
+fn format_eval_origin<'a>(
+  eval_origin: &'a str,
+  maybe_initial_cwd: Option<&Url>,
+) -> Cow<'a, str> {
+  let Some((before, (file, line, col), after)) = parse_eval_origin(eval_origin)
+  else {
+    return eval_origin.into();
+  };
+  let formatted_file = format_file_name(file, maybe_initial_cwd);
+
+  Cow::Owned(format!(
+    "{before}{}:{line}:{col}{after}",
+    if let Some(working_dir_path) = formatted_file.working_dir_path {
+      Cow::Owned(format!(
+        "{}{}",
+        working_dir_path,
+        formatted_file.file_name.trim_start_matches("./")
+      ))
+    } else {
+      formatted_file.file_name
+    }
+  ))
+}
+
+pub(crate) fn exception_to_err_result<'s, 'i, T>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  exception: v8::Local<'s, v8::Value>,
   in_promise: bool,
   clear_error: bool,
 ) -> Result<T, Box<JsError>> {
   Err(exception_to_err(scope, exception, in_promise, clear_error))
 }
 
-pub(crate) fn exception_to_err(
-  scope: &mut v8::HandleScope,
-  exception: v8::Local<v8::Value>,
+pub(crate) fn exception_to_err<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  exception: v8::Local<'s, v8::Value>,
   mut in_promise: bool,
   clear_error: bool,
 ) -> Box<JsError> {
@@ -1210,22 +1364,22 @@ v8_static_strings::v8_static_strings! {
 }
 
 #[inline(always)]
-pub(crate) fn original_call_site_key<'a>(
-  scope: &mut v8::HandleScope<'a>,
-) -> v8::Local<'a, v8::Private> {
+pub(crate) fn original_call_site_key<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+) -> v8::Local<'s, v8::Private> {
   let name = ORIGINAL.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
 
-pub(crate) fn source_mapped_info_key<'a>(
-  scope: &mut v8::HandleScope<'a>,
-) -> v8::Local<'a, v8::Private> {
+pub(crate) fn source_mapped_info_key<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+) -> v8::Local<'s, v8::Private> {
   let name = SOURCE_MAPPED_INFO.v8_string(scope).unwrap();
   v8::Private::for_api(scope, Some(name))
 }
 
-fn make_patched_callsite<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn make_patched_callsite<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   callsite: v8::Local<'s, v8::Object>,
   prototype: v8::Local<'s, v8::Object>,
 ) -> v8::Local<'s, v8::Object> {
@@ -1240,10 +1394,10 @@ fn make_patched_callsite<'s>(
   out_obj
 }
 
-fn original_call_site<'a>(
-  scope: &mut v8::HandleScope<'a>,
-  this: v8::Local<'_, v8::Object>,
-) -> Option<v8::Local<'a, v8::Object>> {
+fn original_call_site<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  this: v8::Local<'s, v8::Object>,
+) -> Option<v8::Local<'s, v8::Object>> {
   let orig_key = original_call_site_key(scope);
   let Some(orig) = this
     .get_private(scope, orig_key)
@@ -1261,9 +1415,9 @@ fn original_call_site<'a>(
 
 macro_rules! make_callsite_fn {
   ($fn:ident, $field:ident) => {
-    pub fn $fn(
-      scope: &mut v8::HandleScope<'_>,
-      args: v8::FunctionCallbackArguments<'_>,
+    pub fn $fn<'s, 'i>(
+      scope: &mut v8::PinScope<'s, 'i>,
+      args: v8::FunctionCallbackArguments<'s>,
       mut rv: v8::ReturnValue<'_>,
     ) {
       let Some(orig) = original_call_site(scope, args.this()) else {
@@ -1313,32 +1467,32 @@ pub mod callsite_fns {
       column_number: v8::Local<'a, v8::Value>,
     },
   }
-  impl<'a> SourceMappedCallsiteInfo<'a> {
+  impl<'s> SourceMappedCallsiteInfo<'s> {
     #[inline]
-    fn file_name(
+    fn file_name<'i>(
       &self,
-      scope: &mut v8::HandleScope<'a>,
-    ) -> v8::Local<'a, v8::Value> {
+      scope: &mut v8::PinScope<'s, 'i>,
+    ) -> v8::Local<'s, v8::Value> {
       match self {
         Self::Ref(array) => array.get_index(scope, 0).unwrap(),
         Self::Value { file_name, .. } => *file_name,
       }
     }
     #[inline]
-    fn line_number(
+    fn line_number<'i>(
       &self,
-      scope: &mut v8::HandleScope<'a>,
-    ) -> v8::Local<'a, v8::Value> {
+      scope: &mut v8::PinScope<'s, 'i>,
+    ) -> v8::Local<'s, v8::Value> {
       match self {
         Self::Ref(array) => array.get_index(scope, 1).unwrap(),
         Self::Value { line_number, .. } => *line_number,
       }
     }
     #[inline]
-    fn column_number(
+    fn column_number<'i>(
       &self,
-      scope: &mut v8::HandleScope<'a>,
-    ) -> v8::Local<'a, v8::Value> {
+      scope: &mut v8::PinScope<'s, 'i>,
+    ) -> v8::Local<'s, v8::Value> {
       match self {
         Self::Ref(array) => array.get_index(scope, 2).unwrap(),
         Self::Value { column_number, .. } => *column_number,
@@ -1348,11 +1502,11 @@ pub mod callsite_fns {
 
   type MaybeValue<'a> = Option<v8::Local<'a, v8::Value>>;
 
-  fn maybe_apply_source_map<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    file_name: MaybeValue<'a>,
-    line_number: MaybeValue<'a>,
-    column_number: MaybeValue<'a>,
+  fn maybe_apply_source_map<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    file_name: MaybeValue<'s>,
+    line_number: MaybeValue<'s>,
+    column_number: MaybeValue<'s>,
   ) -> Option<(String, i64, i64)> {
     let file_name = serde_v8::to_utf8(file_name?.try_cast().ok()?, scope);
     let convert::Number(line_number) =
@@ -1375,10 +1529,10 @@ pub mod callsite_fns {
       mapped_column_number,
     ))
   }
-  fn source_mapped_call_site_info<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    callsite: v8::Local<'a, v8::Object>,
-  ) -> Option<SourceMappedCallsiteInfo<'a>> {
+  fn source_mapped_call_site_info<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    callsite: v8::Local<'s, v8::Object>,
+  ) -> Option<SourceMappedCallsiteInfo<'s>> {
     let key = source_mapped_info_key(scope);
     // return the cached value if it exists
     if let Some(info) = callsite.get_private(scope, key)
@@ -1447,9 +1601,9 @@ pub mod callsite_fns {
   make_callsite_fn!(get_function_name, GET_FUNCTION_NAME);
   make_callsite_fn!(get_method_name, GET_METHOD_NAME);
 
-  pub fn get_file_name<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    args: v8::FunctionCallbackArguments<'a>,
+  pub fn get_file_name<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    args: v8::FunctionCallbackArguments<'s>,
     mut rv: v8::ReturnValue<'_>,
   ) {
     if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
@@ -1457,9 +1611,9 @@ pub mod callsite_fns {
     }
   }
 
-  pub fn get_line_number<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    args: v8::FunctionCallbackArguments<'a>,
+  pub fn get_line_number<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    args: v8::FunctionCallbackArguments<'s>,
     mut rv: v8::ReturnValue<'_>,
   ) {
     if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
@@ -1467,9 +1621,9 @@ pub mod callsite_fns {
     }
   }
 
-  pub fn get_column_number<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    args: v8::FunctionCallbackArguments<'a>,
+  pub fn get_column_number<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    args: v8::FunctionCallbackArguments<'s>,
     mut rv: v8::ReturnValue<'_>,
   ) {
     if let Some(info) = source_mapped_call_site_info(scope, args.this()) {
@@ -1491,12 +1645,12 @@ pub mod callsite_fns {
   );
 
   // the bulk of the to_string logic
-  fn to_string_inner<'e>(
-    scope: &mut v8::HandleScope<'e>,
-    this: v8::Local<'e, v8::Object>,
-    orig: v8::Local<'e, v8::Object>,
-    orig_to_string_v8: v8::Local<'e, v8::String>,
-  ) -> Option<v8::Local<'e, v8::String>> {
+  fn to_string_inner<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    this: v8::Local<'s, v8::Object>,
+    orig: v8::Local<'s, v8::Object>,
+    orig_to_string_v8: v8::Local<'s, v8::String>,
+  ) -> Option<v8::Local<'s, v8::String>> {
     let orig_to_string = serde_v8::to_utf8(orig_to_string_v8, scope);
     // `this[kOriginalCallsite].getFileName()`
     let orig_file_name =
@@ -1542,9 +1696,9 @@ pub mod callsite_fns {
     .unwrap()
   }
 
-  pub fn to_string<'a>(
-    scope: &mut v8::HandleScope<'a>,
-    args: v8::FunctionCallbackArguments<'a>,
+  pub fn to_string<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    args: v8::FunctionCallbackArguments<'s>,
     mut rv: v8::ReturnValue<'_>,
   ) {
     let this = args.this();
@@ -1584,8 +1738,8 @@ pub mod callsite_fns {
 ///   }
 /// }
 /// ```
-pub(crate) fn make_callsite_prototype<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub(crate) fn make_callsite_prototype<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
 ) -> v8::Local<'s, v8::Object> {
   let template = v8::ObjectTemplate::new(scope);
 
@@ -1632,8 +1786,8 @@ pub(crate) fn make_callsite_prototype<'s>(
 }
 
 #[inline(always)]
-fn prepare_stack_trace_inner<'s, const PATCH_CALLSITES: bool>(
-  scope: &mut v8::HandleScope<'s>,
+fn prepare_stack_trace_inner<'s, 'i, const PATCH_CALLSITES: bool>(
+  scope: &mut v8::PinScope<'s, 'i>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
@@ -1696,8 +1850,8 @@ fn prepare_stack_trace_inner<'s, const PATCH_CALLSITES: bool>(
 ///
 /// This function is not used by default, but it can
 /// be set directly on the [v8 isolate][v8::Isolate::set_prepare_stack_trace_callback]
-pub fn prepare_stack_trace_callback_with_original_callsites<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn prepare_stack_trace_callback_with_original_callsites<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
@@ -1710,19 +1864,28 @@ pub fn prepare_stack_trace_callback_with_original_callsites<'s>(
 ///
 /// This function is the default callback, set on creating a `JsRuntime`, but the callback can also
 /// be set directly on the [v8 isolate][v8::Isolate::set_prepare_stack_trace_callback]
-pub fn prepare_stack_trace_callback<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn prepare_stack_trace_callback<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
   prepare_stack_trace_inner::<true>(scope, error, callsites)
 }
 
-pub fn format_stack_trace<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub struct InitialCwd(pub Arc<Url>);
+
+pub fn format_stack_trace<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   error: v8::Local<'s, v8::Value>,
   callsites: v8::Local<'s, v8::Array>,
 ) -> v8::Local<'s, v8::Value> {
+  let state = JsRuntime::state_from(scope);
+  let maybe_initial_cwd = state
+    .op_state
+    .borrow()
+    .try_borrow::<InitialCwd>()
+    .map(|i| &i.0)
+    .cloned();
   let mut result = String::new();
 
   if let Ok(obj) = error.try_cast() {
@@ -1747,7 +1910,8 @@ pub fn format_stack_trace<'s>(
   // format each stack frame
   for i in 0..callsites.length() {
     let callsite = callsites.get_index(scope, i).unwrap().cast::<v8::Object>();
-    let tc_scope = &mut v8::TryCatch::new(scope);
+    v8::tc_scope!(let tc_scope, scope);
+
     let Some(frame) = JsStackFrame::from_callsite_object(tc_scope, callsite)
     else {
       let message = tc_scope
@@ -1762,8 +1926,12 @@ pub fn format_stack_trace<'s>(
       }
       break;
     };
-    write!(result, "\n    at {}", format_frame::<NoAnsiColors>(&frame))
-      .unwrap();
+    write!(
+      result,
+      "\n    at {}",
+      format_frame::<NoAnsiColors>(&frame, maybe_initial_cwd.as_deref())
+    )
+    .unwrap();
   }
 
   let result = v8::String::new(scope, &result).unwrap();
@@ -1788,10 +1956,14 @@ pub enum ErrorElement {
   FunctionName,
   /// The name of a source file
   FileName,
+  /// The path to the working directory, as in part of a file name
+  WorkingDirPath,
   /// The origin of an error coming from `eval`ed code
   EvalOrigin,
   /// Text signifying a call to `Promise.all`
   PromiseAll,
+  /// Other, plain text appearing in the error stack trace
+  PlainText,
 }
 
 /// Applies formatting to various parts of error stack traces.
@@ -1800,62 +1972,85 @@ pub enum ErrorElement {
 /// `format_location` but apply ANSI colors for terminal output,
 /// without adding extra dependencies to `deno_core`.
 pub trait ErrorFormat {
-  fn fmt_element(element: ErrorElement, s: &str) -> Cow<'_, str>;
+  fn fmt_element(
+    element: ErrorElement,
+    in_extension_code: bool,
+    s: &str,
+  ) -> Cow<'_, str>;
 }
 
 impl ErrorFormat for NoAnsiColors {
-  fn fmt_element(_element: ErrorElement, s: &str) -> Cow<'_, str> {
+  fn fmt_element(
+    _element: ErrorElement,
+    _in_extension_code: bool,
+    s: &str,
+  ) -> Cow<'_, str> {
     s.into()
   }
 }
 
-pub fn format_location<F: ErrorFormat>(frame: &JsStackFrame) -> String {
+pub fn format_location<F: ErrorFormat>(
+  frame: &JsStackFrame,
+  maybe_initial_cwd: Option<&Url>,
+) -> String {
   use ErrorElement::*;
-  let _internal = frame
+  let in_extension_code = frame
     .file_name
     .as_ref()
     .map(|f| f.starts_with("ext:"))
     .unwrap_or(false);
   if frame.is_native {
-    return F::fmt_element(NativeFrame, "native").to_string();
+    return F::fmt_element(NativeFrame, in_extension_code, "native")
+      .to_string();
   }
   let mut result = String::new();
-  let file_name = frame.file_name.clone().unwrap_or_default();
+  let file_name = frame.file_name.as_deref().unwrap_or("");
   if !file_name.is_empty() {
-    result += &F::fmt_element(FileName, &format_file_name(&file_name))
+    let parts = format_file_name(file_name, maybe_initial_cwd);
+    if let Some(working_dir_path) = &parts.working_dir_path {
+      result +=
+        &F::fmt_element(WorkingDirPath, in_extension_code, working_dir_path);
+      result += &F::fmt_element(
+        FileName,
+        in_extension_code,
+        parts.file_name.trim_start_matches("./"),
+      )
+    } else {
+      result += &F::fmt_element(FileName, in_extension_code, &parts.file_name)
+    }
   } else {
     if frame.is_eval {
-      result += &(F::fmt_element(
-        ErrorElement::EvalOrigin,
-        frame.eval_origin.as_ref().unwrap(),
-      )
-      .to_string()
-        + ", ");
+      let eval_origin = frame.eval_origin.as_ref().unwrap();
+      let formatted_eval_origin =
+        format_eval_origin(eval_origin, maybe_initial_cwd);
+      result +=
+        &F::fmt_element(EvalOrigin, in_extension_code, &formatted_eval_origin);
+      result += &F::fmt_element(PlainText, in_extension_code, ", ");
     }
-    result += &F::fmt_element(Anonymous, "<anonymous>");
+    result += &F::fmt_element(Anonymous, in_extension_code, "<anonymous>");
   }
   if let Some(line_number) = frame.line_number {
-    write!(
-      result,
-      ":{}",
-      F::fmt_element(LineNumber, &line_number.to_string())
-    )
-    .unwrap();
+    result += &F::fmt_element(PlainText, in_extension_code, ":");
+    result +=
+      &F::fmt_element(LineNumber, in_extension_code, &line_number.to_string());
     if let Some(column_number) = frame.column_number {
-      write!(
-        result,
-        ":{}",
-        F::fmt_element(ColumnNumber, &column_number.to_string())
-      )
-      .unwrap();
+      result += &F::fmt_element(PlainText, in_extension_code, ":");
+      result += &F::fmt_element(
+        ColumnNumber,
+        in_extension_code,
+        &column_number.to_string(),
+      );
     }
   }
   result
 }
 
-pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
+pub fn format_frame<F: ErrorFormat>(
+  frame: &JsStackFrame,
+  maybe_initial_cwd: Option<&Url>,
+) -> String {
   use ErrorElement::*;
-  let _internal = frame
+  let in_extension_code = frame
     .file_name
     .as_ref()
     .map(|f| f.starts_with("ext:"))
@@ -1864,11 +2059,12 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
     !(frame.is_top_level.unwrap_or_default() || frame.is_constructor);
   let mut result = String::new();
   if frame.is_async {
-    result += "async ";
+    result += &F::fmt_element(PlainText, in_extension_code, "async ");
   }
   if frame.is_promise_all {
     result += &F::fmt_element(
       PromiseAll,
+      in_extension_code,
       &format!(
         "Promise.all (index {})",
         frame.promise_index.unwrap_or_default()
@@ -1900,22 +2096,32 @@ pub fn format_frame<F: ErrorFormat>(frame: &JsStackFrame) -> String {
         formatted_method += "<anonymous>";
       }
     }
-    result += F::fmt_element(FunctionName, &formatted_method).as_ref();
+    result +=
+      F::fmt_element(FunctionName, in_extension_code, &formatted_method)
+        .as_ref();
   } else if frame.is_constructor {
-    result += "new ";
+    result += &F::fmt_element(PlainText, in_extension_code, "new ");
     if let Some(function_name) = &frame.function_name {
-      write!(result, "{}", F::fmt_element(FunctionName, function_name))
-        .unwrap();
+      write!(
+        result,
+        "{}",
+        F::fmt_element(FunctionName, in_extension_code, function_name)
+      )
+      .unwrap();
     } else {
-      result += F::fmt_element(Anonymous, "<anonymous>").as_ref();
+      result +=
+        F::fmt_element(Anonymous, in_extension_code, "<anonymous>").as_ref();
     }
   } else if let Some(function_name) = &frame.function_name {
-    result += F::fmt_element(FunctionName, function_name).as_ref();
+    result +=
+      F::fmt_element(FunctionName, in_extension_code, function_name).as_ref();
   } else {
-    result += &format_location::<F>(frame);
+    result += &format_location::<F>(frame, maybe_initial_cwd);
     return result;
   }
-  write!(result, " ({})", format_location::<F>(frame)).unwrap();
+  result += &F::fmt_element(PlainText, in_extension_code, " (");
+  result += &format_location::<F>(frame, maybe_initial_cwd);
+  result += &F::fmt_element(PlainText, in_extension_code, ")");
   result
 }
 
@@ -1923,19 +2129,22 @@ pub fn throw_error_one_byte_info(
   info: &v8::FunctionCallbackInfo,
   message: &str,
 ) {
-  let mut scope = unsafe { v8::CallbackScope::new(info) };
-  throw_error_one_byte(&mut scope, message);
+  v8::callback_scope!(unsafe scope, info);
+  throw_error_one_byte(scope, message);
 }
 
-pub fn throw_error_js_error_class(
-  scope: &mut v8::CallbackScope<'_>,
+pub fn throw_error_js_error_class<'s, 'i>(
+  scope: &mut v8::PinCallbackScope<'s, 'i>,
   err: &dyn JsErrorClass,
 ) {
   let exc = to_v8_error(scope, err);
   scope.throw_exception(exc);
 }
 
-pub fn throw_error_one_byte(scope: &mut v8::CallbackScope, message: &str) {
+pub fn throw_error_one_byte<'s, 'i>(
+  scope: &mut v8::PinCallbackScope<'s, 'i>,
+  message: &str,
+) {
   let msg = deno_core::v8::String::new_from_one_byte(
     scope,
     message.as_bytes(),
@@ -1952,24 +2161,36 @@ mod tests {
 
   #[test]
   fn test_format_file_name() {
-    let file_name = format_file_name("data:,Hello%2C%20World%21");
-    assert_eq!(file_name, "data:,Hello%2C%20World%21");
+    let file_name = format_file_name("data:,Hello%2C%20World%21", None);
+    assert_eq!(file_name.file_name, "data:,Hello%2C%20World%21");
 
     let too_long_name = "a".repeat(DATA_URL_ABBREV_THRESHOLD + 1);
-    let file_name = format_file_name(&format!(
-      "data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"
-    ));
-    assert_eq!(
-      file_name,
-      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95"
-    );
+    let file_name = format_file_name(
+      &format!("data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"),
+      None,
+    )
+    .into_owned();
+    let expected =
+      "data:text/plain;base64,aaaaaaaaaaaaaaaaaaaa......aaaaaaa_%F0%9F%A6%95";
+    assert_eq!(file_name.file_name, expected,);
+    let file_name = format_file_name(
+      &format!("data:text/plain;base64,{too_long_name}_%F0%9F%A6%95"),
+      Some(&Url::parse("file:///foo").unwrap()),
+    )
+    .into_owned();
+    assert_eq!(file_name.file_name, expected);
+    let file_name = format_file_name("file:///foo/bar.ts", None);
+    assert_eq!(file_name.file_name, "file:///foo/bar.ts");
 
-    let file_name = format_file_name("file:///foo/bar.ts");
-    assert_eq!(file_name, "file:///foo/bar.ts");
+    let file_name = format_file_name(
+      "file:///foo/bar.ts",
+      Some(&Url::parse("file:///foo/").unwrap()),
+    );
+    assert_eq!(file_name.file_name, "./bar.ts");
 
     let file_name =
-      format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts");
-    assert_eq!(file_name, "file:///東京/🦕.ts");
+      format_file_name("file:///%E6%9D%B1%E4%BA%AC/%F0%9F%A6%95.ts", None);
+    assert_eq!(file_name.file_name, "file:///東京/🦕.ts");
   }
 
   #[test]
@@ -2023,5 +2244,68 @@ mod tests {
         }
       }
     }
+  }
+
+  #[test]
+  fn test_relative_specifier_within() {
+    // File in the same directory - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/foo.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./foo.ts".to_string()));
+
+    // File in a subdirectory - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/src/bar.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./src/bar.ts".to_string()));
+
+    // File in a deeper subdirectory - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/src/lib/utils.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./src/lib/utils.ts".to_string()));
+
+    // File requires going up one level - should return None
+    let from = Url::parse("file:///Users/dev/project/src/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/main.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // File requires going up multiple levels - should return None
+    let from = Url::parse("file:///Users/dev/project/src/lib/").unwrap();
+    let to = Url::parse("file:///Users/dev/other/file.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // Completely different path (e.g., bundled synthetic path) - should return None
+    let from = Url::parse("file:///Users/dev/workspace/deno/").unwrap();
+    let to = Url::parse("file:///a.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // Same directory (edge case) - should return relative path
+    let from = Url::parse("file:///Users/dev/project/").unwrap();
+    let to = Url::parse("file:///Users/dev/project/").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./".to_string()));
+
+    // File in sibling directory - should return None
+    let from = Url::parse("file:///Users/dev/project1/src/").unwrap();
+    let to = Url::parse("file:///Users/dev/project2/foo.ts").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
+
+    // HTTP URLs (not file://) - should work if in same path
+    let from = Url::parse("http://example.com/app/").unwrap();
+    let to = Url::parse("http://example.com/app/main.js").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, Some("./main.js".to_string()));
+
+    // HTTP URLs requiring going up - should return None
+    let from = Url::parse("http://example.com/app/src/").unwrap();
+    let to = Url::parse("http://example.com/app/main.js").unwrap();
+    let result = relative_specifier_within(&from, &to);
+    assert_eq!(result, None);
   }
 }

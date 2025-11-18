@@ -27,13 +27,12 @@ use super::signature::RefType;
 use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
-use super::signature::WebIDLPairs;
+use super::signature::WebIDLPair;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use syn::Type;
 use syn::parse2;
 
 pub(crate) fn generate_dispatch_slow_call(
@@ -146,9 +145,11 @@ pub(crate) fn generate_dispatch_slow(
     quote!()
   };
 
-  let with_required_check = if generator_state.needs_args && config.required > 0
+  let with_required_check = if generator_state.needs_args
+    && let Some(required) = config.required
+    && required > 0
   {
-    with_required_check(generator_state, config.required)
+    with_required_check(generator_state, required)
   } else {
     quote!()
   };
@@ -218,13 +219,14 @@ pub(crate) fn with_isolate(
 ) -> TokenStream {
   generator_state.needs_opctx = true;
   gs_quote!(generator_state(opctx, scope) =>
-    (let mut #scope = unsafe { &mut *#opctx.isolate };)
+    (let mut #scope = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+    let mut scope = &mut #scope;)
   )
 }
 
 pub(crate) fn with_scope(generator_state: &mut GeneratorState) -> TokenStream {
   gs_quote!(generator_state(info, scope) =>
-    (let mut #scope = unsafe { deno_core::v8::CallbackScope::new(#info) };)
+    (let #scope = ::std::pin::pin!(unsafe { deno_core::v8::CallbackScope::new(#info) }); let mut scope = scope.init();)
   )
 }
 
@@ -353,7 +355,7 @@ pub(crate) fn with_self(
     });
 
     generator_state.moves.push(quote! {
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     });
 
     tokens
@@ -362,7 +364,7 @@ pub(crate) fn with_self(
       let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
       };
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     })
   }
 }
@@ -512,7 +514,8 @@ pub fn from_arg(
         let mut #arg_temp: [::std::mem::MaybeUninit<u8>; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
         let #arg_ident = if !#arg_ident.is_string() {
             #maybe_scope
-            let mut tc = deno_core::v8::TryCatch::new(&mut #scope);
+            let tc = ::std::pin::pin!(deno_core::v8::TryCatch::new(&mut #scope));
+            let mut tc = tc.init();
             match #arg_ident.to_string(&mut tc) {
                 Some(v) => v.into(),
                 None => {
@@ -593,9 +596,19 @@ pub fn from_arg(
     Arg::External(External::Ptr(_)) => {
       from_arg_option(generator_state, &arg_ident, "external")
     }
-    Arg::Special(Special::Isolate) => {
+    Arg::Ref(RefType::Ref, Special::Isolate) => {
       *needs_opctx = true;
-      quote!(let #arg_ident = #opctx.isolate;)
+      quote!(
+        let #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+        let #arg_ident = &#arg_ident;
+      )
+    }
+    Arg::Ref(RefType::Mut, Special::Isolate) => {
+      *needs_opctx = true;
+      quote!(
+        let mut #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#opctx.isolate) };
+        let #arg_ident = &mut #arg_ident;
+      )
     }
     Arg::Ref(_, Special::HandleScope) => {
       *needs_scope = true;
@@ -616,42 +629,6 @@ pub fn from_arg(
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
-    }
-    Arg::State(RefType::Ref, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = ::std::cell::RefCell::borrow(&#opstate);
-        let #arg_ident = deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
-      }
-    }
-    Arg::State(RefType::Mut, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = ::std::cell::RefCell::borrow_mut(&#opstate);
-        let #arg_ident = deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
-      }
-    }
-    Arg::OptionState(RefType::Ref, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = &::std::cell::RefCell::borrow(&#opstate);
-        let #arg_ident = #arg_ident.try_borrow::<#state>();
-      }
-    }
-    Arg::OptionState(RefType::Mut, state) => {
-      *needs_opstate = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opstate);
-        let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
-      }
     }
     Arg::V8Local(v8)
     | Arg::OptionV8Local(v8)
@@ -725,7 +702,7 @@ pub fn from_arg(
       } else {
         let inner = options
           .iter()
-          .map(|WebIDLPairs(k, v)| quote!(#k: #v))
+          .map(|WebIDLPair(k, v)| quote!(#k: #v))
           .collect::<Vec<_>>();
 
         let alias = format_ident!("{arg_ident}_webidl_alias");
@@ -830,7 +807,7 @@ pub fn from_arg(
           #arg_ident.root();
         };
         generator_state.moves.push(quote! {
-          let #arg_ident = &*#arg_ident;
+          let #arg_ident = unsafe { #arg_ident.as_ref() };
         });
         tokens
       } else {
@@ -838,7 +815,7 @@ pub fn from_arg(
           let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
           };
-          let #arg_ident = &*#arg_ident;
+          let #arg_ident = unsafe { #arg_ident.as_ref() };
         }
       }
     }
@@ -869,7 +846,7 @@ pub fn from_arg(
         };
 
         generator_state.moves.push(quote! {
-          let #arg_ident = #arg_ident.as_deref();
+          let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
         });
 
         tokens
@@ -882,7 +859,7 @@ pub fn from_arg(
           } else {
             #throw_exception;
           };
-          let #arg_ident = #arg_ident.as_deref();
+          let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
         }
       }
     }

@@ -76,7 +76,7 @@ pub struct ContextState {
   pub(crate) op_ctxs: Box<[OpCtx]>,
   pub(crate) op_method_decls: Vec<OpMethodDecl>,
   pub(crate) methods_ctx_offset: usize,
-  pub(crate) isolate: Option<*mut v8::Isolate>,
+  pub(crate) isolate: Option<v8::UnsafeRawIsolatePtr>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
   pub(crate) has_immediate_scheduled: Cell<bool>,
@@ -87,7 +87,7 @@ pub struct ContextState {
 impl ContextState {
   pub(crate) fn new(
     op_driver: Rc<OpDriverImpl>,
-    isolate_ptr: *mut v8::Isolate,
+    isolate_ptr: v8::UnsafeRawIsolatePtr,
     op_ctxs: Box<[OpCtx]>,
     op_method_decls: Vec<OpMethodDecl>,
     methods_ctx_offset: usize,
@@ -191,27 +191,19 @@ impl JsRealmInner {
     self.function_templates.clone()
   }
 
-  /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].
-  #[inline(always)]
-  pub fn handle_scope<'s>(
-    &self,
-    isolate: &'s mut v8::Isolate,
-  ) -> v8::HandleScope<'s> {
-    v8::HandleScope::with_context(isolate, &self.context)
-  }
-
   pub fn destroy(self) {
     let state = self.state();
     let raw_ptr = self.state().isolate.unwrap();
     // SAFETY: We know the isolate outlives the realm
-    let isolate = unsafe { raw_ptr.as_mut().unwrap() };
+    let mut isolate = unsafe { v8::Isolate::from_raw_isolate_ptr(raw_ptr) };
+    v8::scope!(let scope, &mut isolate);
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
     {
-      let ctx = self.context().open(isolate);
+      let ctx = self.context().open(scope);
       // SAFETY: Clear all embedder data
       unsafe {
         let ctx_state =
@@ -252,6 +244,15 @@ unsafe fn clone_rc_raw<T>(raw: *const T) -> Rc<T> {
     Rc::from_raw(raw)
   }
 }
+macro_rules! context_scope {
+  ($scope: ident, $self: expr, $isolate: expr) => {
+    v8::scope!($scope, $isolate);
+    let context = v8::Local::new($scope, $self.context());
+    let $scope = &mut v8::ContextScope::new($scope, context);
+  };
+}
+
+pub(crate) use context_scope;
 
 impl JsRealm {
   pub(crate) fn new(inner: JsRealmInner) -> Self {
@@ -259,9 +260,7 @@ impl JsRealm {
   }
 
   #[inline(always)]
-  pub(crate) fn state_from_scope(
-    scope: &mut v8::HandleScope,
-  ) -> Rc<ContextState> {
+  pub(crate) fn state_from_scope(scope: &mut v8::PinScope) -> Rc<ContextState> {
     let context = scope.get_current_context();
     // SAFETY: slot is valid and set during realm creation
     unsafe {
@@ -272,7 +271,7 @@ impl JsRealm {
   }
 
   #[inline(always)]
-  pub(crate) fn module_map_from(scope: &mut v8::HandleScope) -> Rc<ModuleMap> {
+  pub(crate) fn module_map_from(scope: &mut v8::PinScope) -> Rc<ModuleMap> {
     let context = scope.get_current_context();
     // SAFETY: slot is valid and set during realm creation
     unsafe {
@@ -284,7 +283,7 @@ impl JsRealm {
 
   #[inline(always)]
   pub(crate) fn exception_state_from_scope(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
   ) -> Rc<ExceptionState> {
     Self::state_from_scope(scope).exception_state.clone()
   }
@@ -299,15 +298,6 @@ impl JsRealm {
   #[inline(always)]
   pub fn num_unrefed_ops(&self) -> usize {
     self.0.context_state.unrefed_ops.borrow().len()
-  }
-
-  /// For info on the [`v8::Isolate`] parameter, check [`JsRealm#panics`].
-  #[inline(always)]
-  pub fn handle_scope<'s>(
-    &self,
-    isolate: &'s mut v8::Isolate,
-  ) -> v8::HandleScope<'s> {
-    self.0.handle_scope(isolate)
   }
 
   #[inline(always)]
@@ -333,13 +323,13 @@ impl JsRealm {
     name: impl IntoModuleName,
     source_code: impl IntoModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, Box<JsError>> {
-    let scope = &mut self.0.handle_scope(isolate);
+    context_scope!(scope, self, isolate);
 
     let source = source_code.into_module_code().v8_string(scope).unwrap();
     let name = name.into_module_name().v8_string(scope).unwrap();
     let origin = script_origin(scope, name, false, None);
 
-    let tc_scope = &mut v8::TryCatch::new(scope);
+    v8::tc_scope!(let tc_scope, scope);
 
     let script = match v8::Script::compile(tc_scope, source, Some(&origin)) {
       Some(script) => script,
@@ -375,7 +365,7 @@ impl JsRealm {
     ) -> SourceCodeCacheInfo,
     cache_ready: &dyn Fn(ModuleSpecifier, u64, &[u8]),
   ) -> Result<v8::Global<v8::Value>, CoreError> {
-    let scope = &mut self.0.handle_scope(isolate);
+    context_scope!(scope, self, isolate);
 
     let specifier = name.clone();
     let code = source_code.into_module_code();
@@ -387,7 +377,7 @@ impl JsRealm {
     let name = name.into_module_name().v8_string(scope).unwrap();
     let source = source.v8_string(scope).unwrap();
     let origin = script_origin(scope, name, false, None);
-    let tc_scope = &mut v8::TryCatch::new(scope);
+    v8::tc_scope!(let tc_scope, scope);
 
     let (maybe_script, maybe_code_cache_hash) =
       if let Some(data) = &code_cache.data {
@@ -458,15 +448,13 @@ impl JsRealm {
     isolate: &mut v8::Isolate,
     module_id: ModuleId,
   ) -> Result<v8::Global<v8::Object>, CoreError> {
-    self
-      .0
-      .module_map()
-      .get_module_namespace(&mut self.handle_scope(isolate), module_id)
+    context_scope!(scope, self, isolate);
+    self.0.module_map().get_module_namespace(scope, module_id)
   }
 
   pub(crate) fn instantiate_module(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     id: ModuleId,
   ) -> Result<(), v8::Global<v8::Value>> {
     self.0.module_map().instantiate_module(scope, id)
@@ -496,7 +484,7 @@ impl JsRealm {
   ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
-      let scope = &mut self.handle_scope(isolate);
+      context_scope!(scope, self, isolate);
       // true for main module
       module_map_rc
         .new_es_module(scope, true, specifier.to_owned(), code, false, None)
@@ -507,15 +495,15 @@ impl JsRealm {
       ModuleMap::load_main(module_map_rc.clone(), &specifier).await?;
 
     while let Some(load_result) = load.next().await {
-      let (request, info) = load_result?;
-      let scope = &mut self.handle_scope(isolate);
+      let (reference, info) = load_result?;
+      context_scope!(scope, self, isolate);
       load
-        .register_and_recurse(scope, &request, info)
+        .register_and_recurse(scope, &reference, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
-    let scope = &mut self.handle_scope(isolate);
+    context_scope!(scope, self, isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
       exception_to_err(scope, exception, false, false)
@@ -542,26 +530,30 @@ impl JsRealm {
     let module_map_rc = self.0.module_map();
     if let Some(code) = code {
       let specifier = specifier.to_owned();
-      let scope = &mut self.handle_scope(isolate);
+      context_scope!(scope, self, isolate);
       // false for side module (not main module)
       module_map_rc
         .new_es_module(scope, false, specifier, code, false, None)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
-    let mut load =
-      ModuleMap::load_side(module_map_rc.clone(), &specifier).await?;
+    let mut load = ModuleMap::load_side(
+      module_map_rc.clone(),
+      &specifier,
+      crate::modules::SideModuleKind::Async,
+    )
+    .await?;
 
     while let Some(load_result) = load.next().await {
-      let (request, info) = load_result?;
-      let scope = &mut self.handle_scope(isolate);
+      let (reference, info) = load_result?;
+      context_scope!(scope, self, isolate);
       load
-        .register_and_recurse(scope, &request, info)
+        .register_and_recurse(scope, &reference, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let root_id = load.root_module_id.expect("Root module should be loaded");
-    let scope = &mut self.handle_scope(isolate);
+    context_scope!(scope, self, isolate);
     self.instantiate_module(scope, root_id).map_err(|e| {
       let exception = v8::Local::new(scope, e);
       exception_to_err(scope, exception, false, false)
@@ -583,7 +575,7 @@ impl JsRealm {
     code: ModuleCodeString,
   ) -> Result<v8::Global<v8::Value>, CoreError> {
     let module_map_rc = self.0.module_map();
-    let scope = &mut self.handle_scope(isolate);
+    context_scope!(scope, self, isolate);
     module_map_rc.lazy_load_es_module_with_code(
       scope,
       module_specifier.as_str(),

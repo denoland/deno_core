@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::rc::Rc;
 
@@ -13,6 +12,7 @@ use deno_core::stats::RuntimeActivityStats;
 use deno_core::stats::RuntimeActivityStatsFactory;
 use deno_core::stats::RuntimeActivityStatsFilter;
 use deno_core::v8;
+use deno_core::v8::cppgc::GcCell;
 use deno_error::JsErrorBox;
 
 use super::Output;
@@ -25,9 +25,9 @@ pub fn op_log_debug(#[string] s: &str) {
 }
 
 #[op2(fast)]
-pub fn op_log_info(#[state] output: &mut Output, #[string] s: String) {
+pub fn op_log_info(state: &mut OpState, #[string] s: String) {
   println!("{s}");
-  output.line(s);
+  state.borrow_mut::<Output>().line(s);
 }
 
 #[op2(fast)]
@@ -45,9 +45,10 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
 #[op2]
 #[serde]
 pub fn op_stats_dump(
+  state: &OpState,
   #[string] name: String,
-  #[state] test_data: &mut TestData,
 ) -> RuntimeActivitySnapshot {
+  let test_data = state.borrow::<TestData>();
   let stats = test_data.get::<RuntimeActivityStats>(name);
   stats.dump()
 }
@@ -55,33 +56,35 @@ pub fn op_stats_dump(
 #[op2]
 #[serde]
 pub fn op_stats_diff(
+  state: &OpState,
   #[string] before: String,
   #[string] after: String,
-  #[state] test_data: &mut TestData,
 ) -> RuntimeActivityDiff {
+  let test_data = state.borrow::<TestData>();
   let before = test_data.get::<RuntimeActivityStats>(before);
   let after = test_data.get::<RuntimeActivityStats>(after);
   RuntimeActivityStats::diff(before, after)
 }
 
 #[op2(fast)]
-pub fn op_stats_delete(
-  #[string] name: String,
-  #[state] test_data: &mut TestData,
-) {
-  test_data.take::<RuntimeActivityStats>(name);
+pub fn op_stats_delete(state: &mut OpState, #[string] name: String) {
+  state
+    .borrow_mut::<TestData>()
+    .take::<RuntimeActivityStats>(name);
 }
 
 pub struct TestObjectWrap {}
 
-impl GarbageCollected for TestObjectWrap {
+unsafe impl GarbageCollected for TestObjectWrap {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestObjectWrap"
   }
 }
 
 fn int(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   value: v8::Local<v8::Value>,
 ) -> Result<(), JsErrorBox> {
   if value.is_int32() {
@@ -92,7 +95,7 @@ fn int(
 }
 
 fn int_op(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   args: &v8::FunctionCallbackArguments,
 ) -> Result<(), JsErrorBox> {
   if args.length() != 1 {
@@ -120,7 +123,7 @@ impl TestObjectWrap {
   }
 
   #[fast]
-  fn with_scope_fast(&self, _scope: &mut v8::HandleScope) {}
+  fn with_scope_fast(&self, _scope: &mut v8::PinScope) {}
 
   #[fast]
   #[undefined]
@@ -161,7 +164,9 @@ impl TestObjectWrap {
 
 pub struct DOMPoint {}
 
-impl GarbageCollected for DOMPoint {
+unsafe impl GarbageCollected for DOMPoint {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"DOMPoint"
   }
@@ -169,11 +174,11 @@ impl GarbageCollected for DOMPoint {
 
 impl DOMPointReadOnly {
   fn from_point_inner(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     fn get(
-      scope: &mut v8::HandleScope,
+      scope: &mut v8::PinScope,
       other: v8::Local<v8::Object>,
       key: &str,
     ) -> Option<f64> {
@@ -184,22 +189,24 @@ impl DOMPointReadOnly {
     }
 
     Ok(DOMPointReadOnly {
-      x: get(scope, other, "x").unwrap_or(0.0).into(),
-      y: get(scope, other, "y").unwrap_or(0.0).into(),
-      z: get(scope, other, "z").unwrap_or(0.0).into(),
-      w: get(scope, other, "w").unwrap_or(0.0).into(),
+      x: GcCell::new(get(scope, other, "x").unwrap_or(0.0)),
+      y: GcCell::new(get(scope, other, "y").unwrap_or(0.0)),
+      z: GcCell::new(get(scope, other, "z").unwrap_or(0.0)),
+      w: GcCell::new(get(scope, other, "w").unwrap_or(0.0)),
     })
   }
 }
 
 pub struct DOMPointReadOnly {
-  x: Cell<f64>,
-  y: Cell<f64>,
-  z: Cell<f64>,
-  w: Cell<f64>,
+  x: GcCell<f64>,
+  y: GcCell<f64>,
+  z: GcCell<f64>,
+  w: GcCell<f64>,
 }
 
-impl GarbageCollected for DOMPointReadOnly {
+unsafe impl GarbageCollected for DOMPointReadOnly {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"DOMPointReadOnly"
   }
@@ -208,23 +215,23 @@ impl GarbageCollected for DOMPointReadOnly {
 #[op2(base)]
 impl DOMPointReadOnly {
   #[getter]
-  fn x(&self) -> f64 {
-    self.x.get()
+  fn x(&self, isolate: &v8::Isolate) -> f64 {
+    *self.x.get(isolate)
   }
 
   #[getter]
-  fn y(&self) -> f64 {
-    self.y.get()
+  fn y(&self, isolate: &v8::Isolate) -> f64 {
+    *self.y.get(isolate)
   }
 
   #[getter]
-  fn z(&self) -> f64 {
-    self.z.get()
+  fn z(&self, isolate: &v8::Isolate) -> f64 {
+    *self.z.get(isolate)
   }
 
   #[getter]
-  fn w(&self) -> f64 {
-    self.w.get()
+  fn w(&self, isolate: &v8::Isolate) -> f64 {
+    *self.w.get(isolate)
   }
 }
 
@@ -239,10 +246,10 @@ impl DOMPoint {
     w: Option<f64>,
   ) -> (DOMPointReadOnly, DOMPoint) {
     let ro = DOMPointReadOnly {
-      x: Cell::new(x.unwrap_or(0.0)),
-      y: Cell::new(y.unwrap_or(0.0)),
-      z: Cell::new(z.unwrap_or(0.0)),
-      w: Cell::new(w.unwrap_or(0.0)),
+      x: GcCell::new(x.unwrap_or(0.0)),
+      y: GcCell::new(y.unwrap_or(0.0)),
+      z: GcCell::new(z.unwrap_or(0.0)),
+      w: GcCell::new(w.unwrap_or(0.0)),
     };
 
     (ro, DOMPoint {})
@@ -252,7 +259,7 @@ impl DOMPoint {
   #[static_method]
   #[cppgc]
   fn from_point(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     DOMPointReadOnly::from_point_inner(scope, other)
@@ -262,50 +269,70 @@ impl DOMPoint {
   #[cppgc]
   fn from_point(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     DOMPointReadOnly::from_point_inner(scope, other)
   }
 
   #[setter]
-  fn x(&self, x: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.x.set(x);
+  fn x(
+    &self,
+    isolate: &mut v8::Isolate,
+    x: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.x.set(isolate, x);
   }
 
   #[getter]
-  fn x(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.x.get()
+  fn x(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    *ro.x.get(isolate)
   }
 
   #[setter]
-  fn y(&self, y: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.y.set(y);
+  fn y(
+    &self,
+    isolate: &mut v8::Isolate,
+    y: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.y.set(isolate, y);
   }
 
   #[getter]
-  fn y(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.y.get()
+  fn y(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    *ro.y.get(isolate)
   }
 
   #[setter]
-  fn z(&self, z: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.z.set(z);
+  fn z(
+    &self,
+    isolate: &mut v8::Isolate,
+    z: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.z.set(isolate, z);
   }
 
   #[getter]
-  fn z(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.z.get()
+  fn z(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    *ro.z.get(isolate)
   }
 
   #[setter]
-  fn w(&self, w: f64, #[proto] ro: &DOMPointReadOnly) {
-    ro.w.set(w);
+  fn w(
+    &self,
+    isolate: &mut v8::Isolate,
+    w: f64,
+    #[proto] ro: &DOMPointReadOnly,
+  ) {
+    ro.w.set(isolate, w);
   }
 
   #[getter]
-  fn w(&self, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    ro.w.get()
+  fn w(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
+    *ro.w.get(isolate)
   }
 
   #[fast]
@@ -333,7 +360,9 @@ pub enum TestEnumWrap {
   A,
 }
 
-impl GarbageCollected for TestEnumWrap {
+unsafe impl GarbageCollected for TestEnumWrap {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestEnumWrap"
   }

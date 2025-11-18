@@ -34,13 +34,13 @@ enum EnumPayloads {
   Tuple(bool, i64, ()),
 }
 
-fn dedo(
-  code: &str,
-  f: impl FnOnce(&mut v8::HandleScope, v8::Local<v8::Value>),
-) {
+fn dedo<F>(code: &str, f: F)
+where
+  F: for<'a, 'b> FnOnce(&mut v8::PinScope<'a, 'b>, v8::Local<'a, v8::Value>),
+{
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    v8::scope!(handle_scope, isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let v = js_exec(scope, code);

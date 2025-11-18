@@ -40,10 +40,10 @@ impl DerefMut for DetachedBuffer {
 }
 
 impl ToV8 for DetachedBuffer {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     let buffer = v8::ArrayBuffer::with_backing_store(scope, &self.0.store);
     let Range { start, end } = self.0.range;
     let (off, len) = (start, end - start);
@@ -53,9 +53,9 @@ impl ToV8 for DetachedBuffer {
 }
 
 impl FromV8 for DetachedBuffer {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope<'scope, 'i>,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     let (b, range) = to_ranged_buffer(scope, value)
       .map_err(|_| crate::Error::ExpectedBuffer(value.type_repr()))?;

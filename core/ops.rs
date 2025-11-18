@@ -18,7 +18,6 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use v8::Isolate;
 use v8::fast_api::CFunction;
 
 pub type PromiseId = i32;
@@ -85,7 +84,7 @@ pub struct OpCtx {
 
   /// A stashed Isolate that ops can make use of. This is a raw isolate pointer, and as such, is
   /// extremely dangerous to use.
-  pub isolate: *mut Isolate,
+  pub isolate: v8::UnsafeRawIsolatePtr,
 
   #[doc(hidden)]
   pub state: Rc<RefCell<OpState>>,
@@ -104,7 +103,7 @@ impl OpCtx {
   #[allow(clippy::too_many_arguments)]
   pub(crate) fn new(
     id: OpId,
-    isolate: *mut Isolate,
+    isolate: v8::UnsafeRawIsolatePtr,
     op_driver: Rc<OpDriverImpl>,
     decl: OpDecl,
     state: Rc<RefCell<OpState>>,

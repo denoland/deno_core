@@ -11,14 +11,16 @@ pub struct Foo {
   x: Cell<u32>,
 }
 
-impl GarbageCollected for Foo {
+unsafe impl GarbageCollected for Foo {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"Foo"
   }
 }
 
 fn f(
-  _: &mut v8::HandleScope,
+  _: &mut v8::PinScope,
   _: &v8::FunctionCallbackArguments,
 ) -> Result<(), JsErrorBox> {
   Ok(())

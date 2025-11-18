@@ -2,8 +2,8 @@
 
 use std::sync::Once;
 
-pub fn js_exec<'s>(
-  scope: &mut v8::HandleScope<'s>,
+pub fn js_exec<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   src: &str,
 ) -> v8::Local<'s, v8::Value> {
   let code = v8::String::new(scope, src).unwrap();

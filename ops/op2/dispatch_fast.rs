@@ -341,7 +341,8 @@ fn throw_type_error(
   let create_scope = create_scope(generator_state);
   let message = format!("{message}");
   quote!({
-    let mut scope = #create_scope;
+    let scope = ::std::pin::pin!(#create_scope);
+    let mut scope = scope.init();
     deno_core::_ops::throw_error_one_byte(&mut scope, #message);
     // SAFETY: All fast return types have zero as a valid value
     return unsafe { std::mem::zeroed() };
@@ -359,7 +360,8 @@ pub(crate) fn generate_fast_result_early_exit(
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
-        let mut scope = #create_scope;
+        let scope = ::std::pin::pin!(#create_scope);
+        let mut scope = scope.init();
         let exception = deno_core::error::to_v8_error(
           &mut scope,
           &err,
@@ -502,7 +504,7 @@ pub(crate) fn generate_dispatch_fast(
       let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, this.into()) else {
         #throw_exception
       };
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     })
   } else {
     quote!()
@@ -514,7 +516,7 @@ pub(crate) fn generate_dispatch_fast(
   {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(scope, fast_api_callback_options) =>
-      (let mut #scope = unsafe { &mut *#fast_api_callback_options.isolate };)
+      (let mut #scope = unsafe { #fast_api_callback_options.isolate_unchecked_mut() };)
     )
   } else {
     quote!()
@@ -522,7 +524,8 @@ pub(crate) fn generate_dispatch_fast(
   let with_scope = if generator_state.needs_scope {
     let create_scope = create_scope(generator_state);
     gs_quote!(generator_state(scope) => {
-      let mut #scope = #create_scope;
+      let #scope = ::std::pin::pin!(#create_scope);
+      let mut #scope = scope.init();
     })
   } else {
     quote!()
@@ -726,10 +729,18 @@ fn map_v8_fastcall_arg_to_arg(
         *buffer,
       )?
     }
-    Arg::Special(Special::Isolate) => {
+    Arg::Ref(RefType::Ref, Special::Isolate) => {
       *needs_fast_api_callback_options = true;
       gs_quote!(generator_state(fast_api_callback_options) => {
-       let #arg_ident = #fast_api_callback_options.isolate;
+        let #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#fast_api_callback_options.isolate) };
+        let #arg_ident = &#arg_ident;
+      })
+    }
+    Arg::Ref(RefType::Mut, Special::Isolate) => {
+      *needs_fast_api_callback_options = true;
+      gs_quote!(generator_state(fast_api_callback_options) => {
+        let mut #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#fast_api_callback_options.isolate) };
+        let #arg_ident = &mut #arg_ident;
       })
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
@@ -750,42 +761,6 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
-    }
-    Arg::State(RefType::Ref, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = ::std::cell::RefCell::borrow(&#opctx.state);
-        let #arg_ident = deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
-      }
-    }
-    Arg::State(RefType::Mut, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = ::std::cell::RefCell::borrow_mut(&#opctx.state);
-        let #arg_ident = deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
-      }
-    }
-    Arg::OptionState(RefType::Ref, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = &::std::cell::RefCell::borrow(&#opctx.state);
-        let #arg_ident = #arg_ident.try_borrow::<#state>();
-      }
-    }
-    Arg::OptionState(RefType::Mut, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);
-        let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
-      }
     }
     Arg::VarArgs => quote!(let #arg_ident = None;),
     Arg::This => {
@@ -835,16 +810,15 @@ fn map_v8_fastcall_arg_to_arg(
         let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) else {
           #throw_exception
         };
-        let #arg_ident = &*#arg_ident;
+        let #arg_ident = unsafe { #arg_ident.as_ref() };
       })
     }
     Arg::OptionCppGcResource(ty) => {
-      let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-
       *needs_fast_isolate = true;
       let throw_exception =
-        throw_type_error(generator_state, format!("expected {ty:?}"));
+        throw_type_error(generator_state, format!("expected {ty}"));
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
@@ -853,7 +827,7 @@ fn map_v8_fastcall_arg_to_arg(
         } else {
           #throw_exception
         };
-        let #arg_ident = #arg_ident.as_deref();
+        let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
       })
     }
     _ => quote!(let #arg_ident = #arg_ident as _;),
@@ -914,11 +888,9 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(RefType::Mut, Special::HandleScope)
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
-    | Arg::State(..)
     | Arg::VarArgs
     | Arg::This
-    | Arg::Special(Special::Isolate)
-    | Arg::OptionState(..) => V8FastCallType::Virtual,
+    | Arg::Ref(_, Special::Isolate) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
     | Arg::Option(_)

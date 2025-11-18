@@ -32,19 +32,20 @@ pub async fn op_async_yield() {
 
 #[op2(fast)]
 pub fn op_async_barrier_create(
-  #[state] test_data: &mut TestData,
+  state: &mut OpState,
   #[string] name: String,
   count: u32,
 ) {
   let barrier = Rc::new(tokio::sync::Barrier::new(count as _));
-  test_data.insert(name, barrier);
+  state.borrow_mut::<TestData>().insert(name, barrier);
 }
 
 #[op2(async)]
 pub fn op_async_barrier_await(
-  #[state] test_data: &TestData,
+  state: &OpState,
   #[string] name: String,
 ) -> impl Future<Output = ()> + use<> {
+  let test_data = state.borrow::<TestData>();
   let barrier: &Rc<tokio::sync::Barrier> = test_data.get(name);
   let barrier = barrier.clone();
   async move {
@@ -67,7 +68,9 @@ pub struct TestResource {
   value: u32,
 }
 
-impl GarbageCollected for TestResource {
+unsafe impl GarbageCollected for TestResource {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"TestResource"
   }

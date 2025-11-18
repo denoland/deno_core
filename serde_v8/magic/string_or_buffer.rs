@@ -35,9 +35,9 @@ impl<'a> TryFrom<&'a StringOrBuffer> for &'a str {
 }
 
 impl FromV8 for StringOrBuffer {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope<'scope, 'i>,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     match JsBuffer::from_v8(scope, value) {
       Ok(buf) => {

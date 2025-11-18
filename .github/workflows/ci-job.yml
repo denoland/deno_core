@@ -62,7 +62,7 @@ jobs:
       # https://github.com/marketplace/actions/rust-cache
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v0-rust"
+          prefix-key: "v1-rust"
           shared-key: "${{ inputs.label }}-${{ inputs.job }}"
           save-if: ${{ inputs.is_main }}
 
@@ -132,4 +132,11 @@ jobs:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
       RUST_BACKTRACE: full
-      RUSTFLAGS: -D warnings
+        # NOTE(bartlomieju): during upgrade to V8 14.0 we had to disable debug info
+      # because we were running into PDB errors.
+      RUSTFLAGS: >-
+        -D warnings ${{ inputs.os == 'windows-2022' &&
+        '-Csymbol-mangling-version=v0' || '' }}
+      RUSTDOCFLAGS: >-
+        -D warnings ${{ inputs.os == 'windows-2022' &&
+        '-Csymbol-mangling-version=v0' || '' }}

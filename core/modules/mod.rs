@@ -26,6 +26,8 @@ pub use loaders::ExtCodeCache;
 pub(crate) use loaders::ExtModuleLoader;
 pub use loaders::FsModuleLoader;
 pub(crate) use loaders::LazyEsmModuleLoader;
+pub use loaders::ModuleLoadOptions;
+pub use loaders::ModuleLoadReferrer;
 pub use loaders::ModuleLoadResponse;
 pub use loaders::ModuleLoader;
 pub use loaders::ModuleLoaderError;
@@ -35,6 +37,7 @@ pub(crate) use map::ModuleMap;
 pub(crate) use map::script_origin;
 pub(crate) use map::synthetic_module_evaluation_steps;
 pub(crate) use module_map_data::ModuleMapSnapshotData;
+pub(crate) use recursive_load::SideModuleKind;
 
 pub type ModuleId = usize;
 pub(crate) type ModuleLoadId = i32;
@@ -53,6 +56,19 @@ impl ModuleSourceCode {
     match self {
       Self::String(s) => s.as_bytes(),
       Self::Bytes(b) => b.as_bytes(),
+    }
+  }
+
+  pub fn into_cheap_copy(self) -> (Self, Self) {
+    match self {
+      Self::String(s) => {
+        let (s1, s2) = s.into_cheap_copy();
+        (Self::String(s1), Self::String(s2))
+      }
+      Self::Bytes(b) => {
+        let (b1, b2) = b.into_cheap_copy();
+        (Self::Bytes(b1), Self::Bytes(b2))
+      }
     }
   }
 }
@@ -159,6 +175,28 @@ impl ModuleCodeBytes {
       ModuleCodeBytes::Arc(s) => s.to_vec(),
     }
   }
+
+  /// Creates a cheap copy of this [`ModuleCodeBytes`], potentially transmuting
+  /// it to a faster form. Note that this is not a clone operation as it
+  /// consumes the old [`ModuleCodeBytes`].
+  pub fn into_cheap_copy(self) -> (Self, Self) {
+    match self {
+      ModuleCodeBytes::Boxed(b) => {
+        let b = Arc::<[u8]>::from(b);
+        (Self::Arc(b.clone()), Self::Arc(b))
+      }
+      _ => (self.try_clone().unwrap(), self),
+    }
+  }
+
+  /// If this [`ModuleCodeBytes`] is cheaply cloneable, returns a clone.
+  pub fn try_clone(&self) -> Option<Self> {
+    match &self {
+      Self::Static(b) => Some(Self::Static(b)),
+      Self::Boxed(_) => None,
+      Self::Arc(b) => Some(Self::Arc(b.clone())),
+    }
+  }
 }
 
 impl From<Arc<[u8]>> for ModuleCodeBytes {
@@ -182,13 +220,13 @@ impl From<&'static [u8]> for ModuleCodeBytes {
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.
 pub type ValidateImportAttributesCb =
-  Box<dyn Fn(&mut v8::HandleScope, &HashMap<String, String>)>;
+  Box<dyn Fn(&mut v8::PinScope, &HashMap<String, String>)>;
 
 /// Callback to validate import attributes. If the validation fails and exception
 /// should be thrown using `scope.throw_exception()`.
 pub type CustomModuleEvaluationCb = Box<
   dyn Fn(
-    &mut v8::HandleScope,
+    &mut v8::PinScope,
     Cow<'_, str>,
     &FastString,
     ModuleSourceCode,
@@ -234,9 +272,9 @@ pub(crate) enum ImportAttributesKind {
   DynamicImport,
 }
 
-pub(crate) fn parse_import_attributes(
-  scope: &mut v8::HandleScope,
-  attributes: v8::Local<v8::FixedArray>,
+pub(crate) fn parse_import_attributes<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  attributes: v8::Local<'s, v8::FixedArray>,
   kind: ImportAttributesKind,
 ) -> HashMap<String, String> {
   let mut assertions: HashMap<String, String> = HashMap::default();
@@ -312,9 +350,9 @@ impl std::fmt::Display for ModuleType {
 }
 
 impl ModuleType {
-  pub fn to_v8<'s>(
+  pub fn to_v8<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> v8::Local<'s, v8::Value> {
     match self {
       ModuleType::JavaScript => v8::Integer::new(scope, 0).into(),
@@ -326,9 +364,9 @@ impl ModuleType {
     }
   }
 
-  pub fn try_from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  pub fn try_from_v8<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Option<Self> {
     Some(if let Some(int) = value.to_integer(scope) {
       match int.int32_value(scope).unwrap_or_default() {
@@ -467,6 +505,12 @@ impl ModuleSource {
       }
     }
   }
+
+  pub fn into_cheap_copy_of_code(self) -> (Self, ModuleSourceCode) {
+    let (code, code_copy) = self.code.into_cheap_copy();
+    let copy = Self { code, ..self };
+    (copy, code_copy)
+  }
 }
 
 pub type ModuleSourceFuture =
@@ -537,9 +581,9 @@ pub enum RequestedModuleType {
 }
 
 impl RequestedModuleType {
-  pub fn to_v8<'s>(
+  pub fn to_v8<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> v8::Local<'s, v8::Value> {
     match self {
       RequestedModuleType::None => v8::Integer::new(scope, 0).into(),
@@ -552,9 +596,9 @@ impl RequestedModuleType {
     }
   }
 
-  pub fn try_from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  pub fn try_from_v8<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
   ) -> Option<Self> {
     Some(if let Some(int) = value.to_integer(scope) {
       match int.int32_value(scope).unwrap_or_default() {
@@ -632,9 +676,20 @@ impl std::fmt::Display for RequestedModuleType {
 /// import assertions explicitly constrains an import to JSON, in
 /// which case this will have a `RequestedModuleType::Json`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ModuleRequest {
+pub(crate) struct ModuleReference {
   pub specifier: ModuleSpecifier,
   pub requested_module_type: RequestedModuleType,
+}
+
+/// Describes a request for a module as parsed from the source code.
+/// Usually executable (`JavaScriptOrWasm`) is used, except when an
+/// import assertions explicitly constrains an import to JSON, in
+/// which case this will have a `RequestedModuleType::Json`.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
+pub(crate) struct ModuleRequest {
+  pub reference: ModuleReference,
+  /// None if this is a root request.
+  pub referrer_source_offset: Option<i32>,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
@@ -682,7 +737,7 @@ pub enum ModuleError {
 impl ModuleError {
   pub fn into_error(
     self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     in_promise: bool,
     clear_error: bool,
   ) -> CoreError {

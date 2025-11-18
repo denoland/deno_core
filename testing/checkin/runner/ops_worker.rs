@@ -11,6 +11,7 @@ use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
 use deno_core::op2;
 use deno_core::url::Url;
+use deno_core::v8;
 use deno_core::v8::IsolateHandle;
 use deno_error::JsErrorBox;
 use std::cell::RefCell;
@@ -34,7 +35,9 @@ pub struct WorkerControl {
   shutdown_flag: Option<UnboundedSender<()>>,
 }
 
-impl GarbageCollected for WorkerControl {
+unsafe impl GarbageCollected for WorkerControl {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
   fn get_name(&self) -> &'static std::ffi::CStr {
     c"WorkerControl"
   }
@@ -98,13 +101,13 @@ pub fn worker_create(
 #[op2]
 #[cppgc]
 pub fn op_worker_spawn(
-  #[state] this_worker: &Worker,
-  #[state] output: &Output,
-  #[state] snapshot: &Snapshot,
+  state: &OpState,
   #[string] base_url: String,
   #[string] main_script: String,
 ) -> Result<WorkerControl, std::sync::mpsc::RecvError> {
-  let output = output.clone();
+  let this_worker = state.borrow::<Worker>();
+  let output = state.borrow::<Output>().clone();
+  let snapshot = state.borrow::<Snapshot>();
   let snapshot = snapshot.0;
   let close_watcher = this_worker.close_watcher.clone();
   let (init_send, init_recv) = channel();

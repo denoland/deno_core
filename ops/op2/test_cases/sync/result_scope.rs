@@ -8,7 +8,7 @@ use deno_error::JsErrorBox;
 
 #[op2(fast)]
 pub fn op_void_with_result(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
 ) -> Result<(), JsErrorBox> {
   Ok(())
 }
