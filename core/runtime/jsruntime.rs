@@ -2092,6 +2092,10 @@ impl JsRuntime {
     // background task is done.
     #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
+      eprintln!(
+        "pending_state.has_scheduled_immediate && pending_state.has_immediate_ref {} {}",
+        pending_state.has_scheduled_immediate, pending_state.has_immediate_ref
+      );
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
         || pending_state.has_outstanding_immediate
@@ -2716,9 +2720,9 @@ impl JsRuntime {
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
-    let has_immediate_ref = context_state.immediate_info.borrow().has_ref();
+    // let has_immediate_ref = context_state.immediate_info.borrow().has_ref();
     dispatched_ops |= has_tick_scheduled;
-    dispatched_ops |= has_immediate_ref;
+    // dispatched_ops |= has_immediate_ref;
 
     while let Some((promise, result)) = exception_state
       .pending_handled_promise_rejections

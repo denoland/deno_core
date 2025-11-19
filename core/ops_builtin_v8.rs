@@ -260,11 +260,11 @@ pub fn op_immediate_set_has_outstanding(
 }
 
 #[op2(fast)]
-pub fn op_immediate_has_count(scope: &mut v8::PinScope) -> bool {
+pub fn op_immediate_has_ref_count(scope: &mut v8::PinScope) -> bool {
   JsRealm::state_from_scope(scope)
     .immediate_info
     .borrow()
-    .count
+    .ref_count
     > 0
 }
 

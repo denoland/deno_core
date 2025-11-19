@@ -55,7 +55,7 @@
     op_get_proxy_details,
     op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
-    op_immediate_has_count,
+    op_immediate_has_ref_count,
     op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
@@ -185,7 +185,8 @@
     }
 
     // Drain immediates queue.
-    if (op_immediate_has_count()) {
+    console.log("eventLoopTick start", op_immediate_has_ref_count());
+    if (op_immediate_has_ref_count()) {
       for (let i = 0; i < immediateCallbacks.length; i++) {
         inner: while (true) {
           console.log("tick in immediateCallbacks");
