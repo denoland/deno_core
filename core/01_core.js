@@ -185,11 +185,6 @@
     }
 
     // Drain immediates queue.
-    // TODO: might do it recursively
-    console.log(
-      "op_immediate_has_count() =",
-      op_immediate_has_count(),
-    );
     if (op_immediate_has_count()) {
       for (let i = 0; i < immediateCallbacks.length; i++) {
         inner: while (true) {
