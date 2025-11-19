@@ -671,9 +671,28 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
 #[allow(clippy::unnecessary_wraps)]
 pub fn host_import_module_dynamically_callback<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
+  host_defined_options: v8::Local<'s, v8::Data>,
+  resource_name: v8::Local<'s, v8::Value>,
+  specifier: v8::Local<'s, v8::String>,
+  import_attributes: v8::Local<'s, v8::FixedArray>,
+) -> Option<v8::Local<'s, v8::Promise>> {
+  host_import_module_with_phase_dynamically_callback(
+    scope,
+    host_defined_options,
+    resource_name,
+    specifier,
+    v8::ModuleImportPhase::kEvaluation,
+    import_attributes,
+  )
+}
+
+#[allow(clippy::unnecessary_wraps)]
+pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   _host_defined_options: v8::Local<'s, v8::Data>,
   resource_name: v8::Local<'s, v8::Value>,
   specifier: v8::Local<'s, v8::String>,
+  _phase: v8::ModuleImportPhase,
   import_attributes: v8::Local<'s, v8::FixedArray>,
 ) -> Option<v8::Local<'s, v8::Promise>> {
   let cped = scope.get_continuation_preserved_embedder_data();
