@@ -13,19 +13,20 @@ use anyhow::Context;
 use deno_ast::MediaType;
 use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
-use deno_core::error::ModuleLoaderError;
-use deno_core::resolve_import;
-use deno_core::resolve_path;
 use deno_core::JsRuntime;
+use deno_core::ModuleLoadOptions;
+use deno_core::ModuleLoadReferrer;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
 use deno_core::ModuleSource;
 use deno_core::ModuleSourceCode;
 use deno_core::ModuleSpecifier;
 use deno_core::ModuleType;
-use deno_core::RequestedModuleType;
 use deno_core::ResolutionKind;
 use deno_core::RuntimeOptions;
+use deno_core::error::ModuleLoaderError;
+use deno_core::resolve_import;
+use deno_core::resolve_path;
 use deno_error::JsErrorBox;
 
 // TODO(bartlomieju): this is duplicated in `testing/checkin`
@@ -44,15 +45,14 @@ impl ModuleLoader for TypescriptModuleLoader {
     referrer: &str,
     _kind: ResolutionKind,
   ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    Ok(resolve_import(specifier, referrer)?)
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
   }
 
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(
@@ -78,17 +78,15 @@ impl ModuleLoader for TypescriptModuleLoader {
         | MediaType::Tsx => (ModuleType::JavaScript, true),
         MediaType::Json => (ModuleType::Json, false),
         _ => {
-          return Err(
-            JsErrorBox::generic(format!(
-              "Unknown extension {:?}",
-              path.extension()
-            ))
-            .into(),
-          )
+          return Err(JsErrorBox::generic(format!(
+            "Unknown extension {:?}",
+            path.extension()
+          )));
         }
       };
 
-      let code = std::fs::read_to_string(&path)?;
+      let code =
+        std::fs::read_to_string(&path).map_err(JsErrorBox::from_err)?;
       let code = if should_transpile {
         let parsed = deno_ast::parse_module(ParseParams {
           specifier: module_specifier.clone(),
@@ -135,7 +133,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     ModuleLoadResponse::Sync(load(source_maps, module_specifier))
   }
 
-  fn get_source_map(&self, specifier: &str) -> Option<Cow<[u8]>> {
+  fn get_source_map(&self, specifier: &str) -> Option<Cow<'_, [u8]>> {
     self
       .source_maps
       .borrow()

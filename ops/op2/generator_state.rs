@@ -45,7 +45,6 @@ pub struct GeneratorState {
   pub needs_args: bool,
   pub needs_retval: bool,
   pub needs_scope: bool,
-  pub needs_fast_scope: bool,
   pub needs_fast_isolate: bool,
   pub needs_isolate: bool,
   pub needs_opstate: bool,
@@ -56,6 +55,8 @@ pub struct GeneratorState {
   pub needs_self: bool,
   /// Wrap the `this` with cppgc object
   pub use_this_cppgc: bool,
+  pub use_proto_cppgc: bool,
+  pub try_unwrap_cppgc: Ident,
 }
 
 /// Quotes a set of generator_state fields, along with variables captured from

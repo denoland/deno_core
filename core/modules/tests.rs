@@ -2,26 +2,6 @@
 
 #![allow(clippy::print_stderr)]
 
-use crate::ascii_str;
-use crate::error::exception_to_err_result;
-use crate::error::CoreError;
-use crate::modules::loaders::ModuleLoadEventCounts;
-use crate::modules::loaders::TestingModuleLoader;
-use crate::modules::loaders::*;
-use crate::modules::CustomModuleEvaluationKind;
-use crate::modules::IntoModuleName;
-use crate::modules::ModuleCodeBytes;
-use crate::modules::ModuleConcreteError;
-use crate::modules::ModuleError;
-use crate::modules::ModuleInfo;
-use crate::modules::ModuleRequest;
-use crate::modules::ModuleSourceCode;
-use crate::modules::RequestedModuleType;
-use crate::modules::SourceCodeCacheInfo;
-use crate::resolve_import;
-use crate::resolve_url;
-use crate::runtime::JsRuntime;
-use crate::runtime::JsRuntimeForSnapshot;
 use crate::FastString;
 use crate::ModuleCodeString;
 use crate::ModuleSource;
@@ -29,23 +9,43 @@ use crate::ModuleSpecifier;
 use crate::ModuleType;
 use crate::ResolutionKind;
 use crate::RuntimeOptions;
+use crate::ascii_str;
+use crate::error::CoreErrorKind;
+use crate::error::exception_to_err_result;
+use crate::modules::CustomModuleEvaluationKind;
+use crate::modules::IntoModuleName;
+use crate::modules::ModuleCodeBytes;
+use crate::modules::ModuleConcreteError;
+use crate::modules::ModuleError;
+use crate::modules::ModuleInfo;
+use crate::modules::ModuleLoadOptions;
+use crate::modules::ModuleRequest;
+use crate::modules::ModuleSourceCode;
+use crate::modules::RequestedModuleType;
+use crate::modules::SourceCodeCacheInfo;
+use crate::modules::loaders::ModuleLoadEventCounts;
+use crate::modules::loaders::TestingModuleLoader;
+use crate::modules::loaders::*;
+use crate::resolve_import;
+use crate::resolve_url;
+use crate::runtime::JsRuntime;
+use crate::runtime::JsRuntimeForSnapshot;
 use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
 use deno_ops::op2;
-use futures::future::poll_fn;
 use futures::future::FutureExt;
 use parking_lot::Mutex;
-use std::any::Any;
 use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::fmt;
 use std::future::Future;
+use std::future::poll_fn;
 use std::pin::Pin;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Arc;
 use std::task::Context;
 use std::task::Poll;
 use tokio::task::LocalSet;
@@ -215,13 +215,11 @@ impl JsErrorClass for MockError {
     unimplemented!()
   }
 
-  fn get_additional_properties(
-    &self,
-  ) -> Vec<(Cow<'static, str>, Cow<'static, str>)> {
+  fn get_additional_properties(&self) -> deno_error::AdditionalProperties {
     unimplemented!()
   }
 
-  fn as_any(&self) -> &dyn Any {
+  fn get_ref(&self) -> &(dyn std::error::Error + Send + Sync + 'static) {
     self
   }
 }
@@ -269,7 +267,7 @@ impl Future for DelayedSourceCodeFuture {
           }),
         )))
       }
-      None => Poll::Ready(Err(JsErrorBox::from_err(MockError::LoadErr).into())),
+      None => Poll::Ready(Err(JsErrorBox::from_err(MockError::LoadErr))),
     }
   }
 }
@@ -290,23 +288,22 @@ impl ModuleLoader for MockLoader {
     let output_specifier = match resolve_import(specifier, referrer) {
       Ok(specifier) => specifier,
       Err(..) => {
-        return Err(JsErrorBox::from_err(MockError::ResolveErr).into())
+        return Err(JsErrorBox::from_err(MockError::ResolveErr));
       }
     };
 
     if mock_source_code(output_specifier.as_ref()).is_some() {
       Ok(output_specifier)
     } else {
-      Err(JsErrorBox::from_err(MockError::ResolveErr).into())
+      Err(JsErrorBox::from_err(MockError::ResolveErr))
     }
   }
 
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut loads = self.loads.lock();
     loads.push(module_specifier.to_string());
@@ -382,27 +379,39 @@ fn test_recursive_load() {
     modules.get_requested_modules(a_id),
     Some(vec![
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(19),
       },
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(46),
       },
     ])
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     },])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     },])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
@@ -423,7 +432,7 @@ fn test_mods() {
   deno_core::extension!(test_ext, ops = [op_test]);
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     module_loader: Some(loader.clone()),
     ..Default::default()
   });
@@ -446,7 +455,7 @@ fn test_mods() {
   let module_map = runtime.module_map().clone();
 
   let (mod_a, mod_b) = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let mod_a = module_map
       .new_es_module(
         scope,
@@ -468,8 +477,11 @@ fn test_mods() {
     assert_eq!(
       imports,
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(29),
       },])
     );
 
@@ -505,7 +517,7 @@ fn test_lazy_loaded_esm() {
   deno_core::extension!(test_ext, lazy_loaded_esm = [dir "modules/testdata", "lazy_loaded.js"]);
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops_and_esm()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -532,7 +544,7 @@ fn test_lazy_loaded_esm() {
 }
 
 #[test]
-fn test_json_module() {
+fn test_json_text_bytes_modules() {
   let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::default()));
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(loader.clone()),
@@ -554,8 +566,8 @@ fn test_json_module() {
 
   let module_map = runtime.module_map().clone();
 
-  let (mod_b, mod_c) = {
-    let scope = &mut runtime.handle_scope();
+  let (mod_b, mod_c, mod_d, mod_e) = {
+    deno_core::scope!(scope, runtime);
     let specifier_b = ascii_str!("file:///b.js");
 
     let mod_b = module_map
@@ -568,6 +580,13 @@ fn test_json_module() {
           import jsonData from './c.json' with {type: "json"};
           assert(jsonData.a == "b");
           assert(jsonData.c.d == 10);
+          import txt from './d.txt' with {type: "text"};
+          assert(txt == "hello there");
+          import bytes from './e.bin' with {type: "bytes"};
+          assert(bytes.length === 3);
+          assert(bytes[0] === 1);
+          assert(bytes[1] === 2);
+          assert(bytes[2] === 3);
         "#
         ),
         false,
@@ -578,10 +597,29 @@ fn test_json_module() {
     let imports = module_map.get_requested_modules(mod_b);
     assert_eq!(
       imports,
-      Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
-        requested_module_type: RequestedModuleType::Json,
-      },])
+      Some(vec![
+        ModuleRequest {
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///c.json").unwrap(),
+            requested_module_type: RequestedModuleType::Json,
+          },
+          referrer_source_offset: Some(32),
+        },
+        ModuleRequest {
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///d.txt").unwrap(),
+            requested_module_type: RequestedModuleType::Text,
+          },
+          referrer_source_offset: Some(165),
+        },
+        ModuleRequest {
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///e.bin").unwrap(),
+            requested_module_type: RequestedModuleType::Bytes,
+          },
+          referrer_source_offset: Some(264),
+        },
+      ])
     );
 
     let mod_c = module_map
@@ -591,13 +629,34 @@ fn test_json_module() {
         ascii_str!("{\"a\": \"b\", \"c\": {\"d\": 10}}"),
       )
       .unwrap();
-    let imports = module_map.get_requested_modules(mod_c).unwrap();
-    assert_eq!(imports.len(), 0);
-    (mod_b, mod_c)
+    assert_eq!(module_map.get_requested_modules(mod_c).unwrap().len(), 0);
+
+    let mod_d = module_map
+      .new_text_module(
+        scope,
+        ascii_str!("file:///d.txt"),
+        ascii_str!("hello there"),
+      )
+      .unwrap();
+    assert_eq!(module_map.get_requested_modules(mod_d).unwrap().len(), 0);
+
+    let mod_e = module_map
+      .new_bytes_module(
+        scope,
+        ascii_str!("file:///e.bin"),
+        ModuleCodeBytes::Static(&[1, 2, 3]),
+      )
+      .unwrap();
+    assert_eq!(module_map.get_requested_modules(mod_e).unwrap().len(), 0);
+
+    (mod_b, mod_c, mod_d, mod_e)
   };
 
+  runtime.instantiate_module(mod_e).unwrap();
+  runtime.instantiate_module(mod_d).unwrap();
   runtime.instantiate_module(mod_c).unwrap();
-  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(1, 0, 0, 0));
+
+  assert_eq!(loader.counts(), ModuleLoadEventCounts::new(3, 0, 0, 0));
 
   runtime.instantiate_module(mod_b).unwrap();
 
@@ -619,7 +678,7 @@ fn test_validate_import_attributes_default() {
   });
 
   let module_map_rc = runtime.module_map().clone();
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
   module_map_rc
     .new_es_module(
       scope,
@@ -649,7 +708,7 @@ fn test_validate_import_attributes_callback() {
   // attributes.
 
   fn validate_import_attributes(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     assertions: &HashMap<String, String>,
   ) {
     for (key, value) in assertions {
@@ -682,7 +741,7 @@ fn test_validate_import_attributes_callback() {
   let module_map_rc = runtime.module_map().clone();
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -707,7 +766,7 @@ fn test_validate_import_attributes_callback() {
   }
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map_rc
       .new_es_module(
         scope,
@@ -735,7 +794,7 @@ fn test_validate_import_attributes_callback() {
 #[test]
 fn test_validate_import_attributes_callback2() {
   fn validate_import_attrs(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     _attrs: &HashMap<String, String>,
   ) {
     let msg = v8::String::new(scope, "boom!").unwrap();
@@ -753,7 +812,7 @@ fn test_validate_import_attributes_callback2() {
   let module_map = runtime.module_map().clone();
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let module_err = module_map
       .new_es_module(
         scope,
@@ -786,7 +845,7 @@ fn test_custom_module_type_default() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -815,12 +874,12 @@ fn test_custom_module_type_default() {
 #[test]
 fn test_custom_module_type_callback_synthetic() {
   fn custom_eval_cb(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     module_type: Cow<'_, str>,
     _module_name: &FastString,
     module_code: ModuleSourceCode,
   ) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
-    if module_type != "bytes" {
+    if module_type != "bar" {
       return Err(JsErrorBox::generic(format!(
         "Can't load '{}' module",
         module_type
@@ -851,7 +910,7 @@ fn test_custom_module_type_callback_synthetic() {
   let module_map = runtime.module_map().clone();
 
   let err = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///a.png").into();
     module_map
       .new_module(
@@ -877,7 +936,7 @@ fn test_custom_module_type_callback_synthetic() {
   };
 
   {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
@@ -889,7 +948,7 @@ fn test_custom_module_type_callback_synthetic() {
           module_url_found: None,
           code_cache: None,
           module_url_specified: specifier_a,
-          module_type: ModuleType::Other("bytes".into()),
+          module_type: ModuleType::Other("bar".into()),
         },
       )
       .unwrap()
@@ -899,7 +958,7 @@ fn test_custom_module_type_callback_synthetic() {
 #[test]
 fn test_custom_module_type_callback_computed() {
   fn custom_eval_cb(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     module_type: Cow<'_, str>,
     module_name: &FastString,
     module_code: ModuleSourceCode,
@@ -948,7 +1007,7 @@ export const foo = bytes;
   let module_map = runtime.module_map().clone();
 
   let mod_id = {
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let specifier_a = ascii_str!("file:///b.png").into();
     module_map
       .new_module(
@@ -976,10 +1035,13 @@ export const foo = bytes;
       main: true,
       name: "file:///b.png".into_module_name(),
       requests: vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.png").unwrap(),
-        requested_module_type: RequestedModuleType::Other(
-          "foobar-synth".into()
-        )
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.png").unwrap(),
+          requested_module_type: RequestedModuleType::Other(
+            "foobar-synth".into()
+          ),
+        },
+        referrer_source_offset: Some(19),
       }],
       module_type: ModuleType::Other("foobar".into()),
     }
@@ -1177,22 +1239,30 @@ fn test_circular_load() {
     assert_eq!(
       modules.get_requested_modules(circular1_id),
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(8),
       }])
     );
 
     assert_eq!(
       modules.get_requested_modules(circular2_id),
       Some(vec![ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///circular3.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///circular3.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(8),
       }])
     );
 
-    assert!(modules
-      .get_id("file:///circular3.js", RequestedModuleType::None)
-      .is_some());
+    assert!(
+      modules
+        .get_id("file:///circular3.js", RequestedModuleType::None)
+        .is_some()
+    );
     let circular3_id = modules
       .get_id("file:///circular3.js", RequestedModuleType::None)
       .unwrap();
@@ -1200,12 +1270,18 @@ fn test_circular_load() {
       modules.get_requested_modules(circular3_id),
       Some(vec![
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///circular1.js").unwrap(),
-          requested_module_type: RequestedModuleType::None,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///circular1.js").unwrap(),
+            requested_module_type: RequestedModuleType::None,
+          },
+          referrer_source_offset: Some(8),
         },
         ModuleRequest {
-          specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
-          requested_module_type: RequestedModuleType::None,
+          reference: crate::modules::ModuleReference {
+            specifier: ModuleSpecifier::parse("file:///circular2.js").unwrap(),
+            requested_module_type: RequestedModuleType::None,
+          },
+          referrer_source_offset: Some(32),
         }
       ])
     );
@@ -1224,61 +1300,61 @@ fn test_redirect_load() {
     ..Default::default()
   });
 
-  let fut =
-    async move {
-      let spec = resolve_url("file:///redirect1.js").unwrap();
-      let result = runtime.load_main_es_module(&spec).await;
-      assert!(result.is_ok());
-      let redirect1_id = result.unwrap();
-      #[allow(clippy::let_underscore_future)]
-      let _ = runtime.mod_evaluate(redirect1_id);
-      runtime.run_event_loop(Default::default()).await.unwrap();
-      let l = loads.lock();
-      assert_eq!(
-        l.to_vec(),
-        vec![
-          "file:///redirect1.js",
-          "file:///redirect2.js",
-          "file:///dir/redirect3.js"
-        ]
-      );
+  let fut = async move {
+    let spec = resolve_url("file:///redirect1.js").unwrap();
+    let result = runtime.load_main_es_module(&spec).await;
+    assert!(result.is_ok());
+    let redirect1_id = result.unwrap();
+    #[allow(clippy::let_underscore_future)]
+    let _ = runtime.mod_evaluate(redirect1_id);
+    runtime.run_event_loop(Default::default()).await.unwrap();
+    let l = loads.lock();
+    assert_eq!(
+      l.to_vec(),
+      vec![
+        "file:///redirect1.js",
+        "file:///redirect2.js",
+        "file:///dir/redirect3.js"
+      ]
+    );
 
-      let module_map_rc = runtime.module_map();
-      let modules = module_map_rc;
+    let module_map_rc = runtime.module_map();
+    let modules = module_map_rc;
 
-      assert_eq!(
-        modules.get_id("file:///redirect1.js", RequestedModuleType::None),
-        Some(redirect1_id)
-      );
+    assert_eq!(
+      modules.get_id("file:///redirect1.js", RequestedModuleType::None),
+      Some(redirect1_id)
+    );
 
-      let redirect2_id = modules
-        .get_id("file:///dir/redirect2.js", RequestedModuleType::None)
-        .unwrap();
-      assert!(
-        modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
-      );
-      assert!(!modules
-        .is_alias("file:///dir/redirect2.js", RequestedModuleType::None));
-      assert_eq!(
-        modules.get_id("file:///redirect2.js", RequestedModuleType::None),
-        Some(redirect2_id)
-      );
+    let redirect2_id = modules
+      .get_id("file:///dir/redirect2.js", RequestedModuleType::None)
+      .unwrap();
+    assert!(
+      modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
+    );
+    assert!(
+      !modules.is_alias("file:///dir/redirect2.js", RequestedModuleType::None)
+    );
+    assert_eq!(
+      modules.get_id("file:///redirect2.js", RequestedModuleType::None),
+      Some(redirect2_id)
+    );
 
-      let redirect3_id = modules
-        .get_id("file:///redirect3.js", RequestedModuleType::None)
-        .unwrap();
-      assert!(
-        modules.is_alias("file:///dir/redirect3.js", RequestedModuleType::None)
-      );
-      assert!(
-        !modules.is_alias("file:///redirect3.js", RequestedModuleType::None)
-      );
-      assert_eq!(
-        modules.get_id("file:///dir/redirect3.js", RequestedModuleType::None),
-        Some(redirect3_id)
-      );
-    }
-    .boxed_local();
+    let redirect3_id = modules
+      .get_id("file:///redirect3.js", RequestedModuleType::None)
+      .unwrap();
+    assert!(
+      modules.is_alias("file:///dir/redirect3.js", RequestedModuleType::None)
+    );
+    assert!(
+      !modules.is_alias("file:///redirect3.js", RequestedModuleType::None)
+    );
+    assert_eq!(
+      modules.get_id("file:///dir/redirect3.js", RequestedModuleType::None),
+      Some(redirect3_id)
+    );
+  }
+  .boxed_local();
 
   futures::executor::block_on(fut);
 }
@@ -1292,39 +1368,39 @@ fn test_concurrent_redirect_load() {
     ..Default::default()
   });
 
-  let fut =
-    async move {
-      let spec = resolve_url("file:///concurrent_redirect.js").unwrap();
-      let result = runtime.load_main_es_module(&spec).await;
-      assert!(result.is_ok());
-      let concurrent_redirect = result.unwrap();
-      #[allow(clippy::let_underscore_future)]
-      let _ = runtime.mod_evaluate(concurrent_redirect);
-      runtime.run_event_loop(Default::default()).await.unwrap();
-      let l = loads.lock();
-      assert_eq!(
-        l.to_vec(),
-        vec![
-          "file:///concurrent_redirect.js",
-          "file:///redirect2.js",
-          "file:///dir/redirect3.js"
-        ]
-      );
+  let fut = async move {
+    let spec = resolve_url("file:///concurrent_redirect.js").unwrap();
+    let result = runtime.load_main_es_module(&spec).await;
+    assert!(result.is_ok());
+    let concurrent_redirect = result.unwrap();
+    #[allow(clippy::let_underscore_future)]
+    let _ = runtime.mod_evaluate(concurrent_redirect);
+    runtime.run_event_loop(Default::default()).await.unwrap();
+    let l = loads.lock();
+    assert_eq!(
+      l.to_vec(),
+      vec![
+        "file:///concurrent_redirect.js",
+        "file:///redirect2.js",
+        "file:///dir/redirect3.js"
+      ]
+    );
 
-      let module_map_rc = runtime.module_map();
-      let modules = module_map_rc;
+    let module_map_rc = runtime.module_map();
+    let modules = module_map_rc;
 
-      assert_eq!(
-        modules.get_id("file:///redirect2.js", RequestedModuleType::None),
-        modules.get_id("file:///dir/redirect2.js", RequestedModuleType::None)
-      );
-      assert!(
-        modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
-      );
-      assert!(!modules
-        .is_alias("file:///dir/redirect2.js", RequestedModuleType::None));
-    }
-    .boxed_local();
+    assert_eq!(
+      modules.get_id("file:///redirect2.js", RequestedModuleType::None),
+      modules.get_id("file:///dir/redirect2.js", RequestedModuleType::None)
+    );
+    assert!(
+      modules.is_alias("file:///redirect2.js", RequestedModuleType::None)
+    );
+    assert!(
+      !modules.is_alias("file:///dir/redirect2.js", RequestedModuleType::None)
+    );
+  }
+  .boxed_local();
 
   futures::executor::block_on(fut);
 }
@@ -1386,14 +1462,11 @@ async fn loader_disappears_after_error() {
   let spec = resolve_url("file:///bad_import.js").unwrap();
   let result = runtime.load_main_es_module(&spec).await;
 
-  let CoreError::ModuleLoader(err) = result.unwrap_err() else {
-    unreachable!();
-  };
-  let ModuleLoaderError::Core(CoreError::JsBox(err)) = *err else {
+  let CoreErrorKind::JsBox(err) = result.unwrap_err().into_kind() else {
     unreachable!();
   };
   assert_eq!(
-    err.as_any().downcast_ref::<MockError>().unwrap(),
+    err.get_ref().downcast_ref::<MockError>().unwrap(),
     &MockError::ResolveErr
   );
 }
@@ -1456,27 +1529,39 @@ fn recursive_load_main_with_code() {
     modules.get_requested_modules(main_id),
     Some(vec![
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///b.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(23),
       },
       ModuleRequest {
-        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-        requested_module_type: RequestedModuleType::None,
+        reference: crate::modules::ModuleReference {
+          specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+          requested_module_type: RequestedModuleType::None,
+        },
+        referrer_source_offset: Some(54),
       }
     ])
   );
   assert_eq!(
     modules.get_requested_modules(b_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///c.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     }])
   );
   assert_eq!(
     modules.get_requested_modules(c_id),
     Some(vec![ModuleRequest {
-      specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
-      requested_module_type: RequestedModuleType::None,
+      reference: crate::modules::ModuleReference {
+        specifier: ModuleSpecifier::parse("file:///d.js").unwrap(),
+        requested_module_type: RequestedModuleType::None,
+      },
+      referrer_source_offset: Some(19),
     }])
   );
   assert_eq!(modules.get_requested_modules(d_id), Some(vec![]));
@@ -1660,15 +1745,14 @@ async fn no_duplicate_loads() {
         referrer
       };
 
-      Ok(resolve_import(specifier, referrer)?)
+      resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
     }
 
     fn load(
       &self,
       module_specifier: &ModuleSpecifier,
-      _maybe_referrer: Option<&ModuleSpecifier>,
-      _is_dyn_import: bool,
-      _requested_module_type: RequestedModuleType,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
+      _options: ModuleLoadOptions,
     ) -> ModuleLoadResponse {
       let found_specifier =
         if module_specifier.as_str() == "https://example.com/foo.js" {
@@ -1719,25 +1803,53 @@ async fn no_duplicate_loads() {
 }
 
 #[tokio::test]
-async fn import_meta_resolve_cb() {
-  fn import_meta_resolve_cb(
-    _loader: &dyn ModuleLoader,
-    specifier: String,
-    _referrer: String,
-  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
-    if specifier == "foo" {
-      return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
+async fn import_meta_resolve() {
+  struct Loader;
+
+  impl ModuleLoader for Loader {
+    fn resolve(
+      &self,
+      specifier: &str,
+      referrer: &str,
+      _kind: ResolutionKind,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+      let referrer = if referrer == "." {
+        "file:///"
+      } else {
+        referrer
+      };
+      resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
     }
 
-    if specifier == "./mod.js" {
-      return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
+    fn import_meta_resolve(
+      &self,
+      specifier: &str,
+      _referrer: &str,
+    ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+      if specifier == "foo" {
+        return Ok(ModuleSpecifier::parse("foo:bar").unwrap());
+      }
+
+      if specifier == "./mod.js" {
+        return Ok(ModuleSpecifier::parse("file:///mod.js").unwrap());
+      }
+
+      Err(JsErrorBox::generic("unexpected"))
     }
 
-    Err(JsErrorBox::generic("unexpected").into())
+    fn load(
+      &self,
+      _module_specifier: &ModuleSpecifier,
+      _maybe_referrer: Option<&ModuleLoadReferrer>,
+      _options: ModuleLoadOptions,
+    ) -> ModuleLoadResponse {
+      unreachable!();
+    }
   }
 
+  let loader = Rc::new(Loader);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    import_meta_resolve_callback: Some(Box::new(import_meta_resolve_cb)),
+    module_loader: Some(loader),
     ..Default::default()
   });
 
@@ -1972,5 +2084,380 @@ fn invalid_utf8_module() {
   assert_eq!(
     get_string_source,
     FastString::from_static("// \u{FFFD}\u{FFFD}\u{FFFD}\u{FFFD}")
+  );
+}
+
+#[tokio::test]
+async fn evaluate_already_evaluated_module() {
+  // This test verifies that calling mod_evaluate on an already-evaluated module
+  // doesn't panic, but instead returns Ok(()) immediately. This can happen when
+  // the same module is specified both as a preload module and as the main module.
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///main.js").unwrap(),
+    ascii_str!(
+      "globalThis.executionCount = (globalThis.executionCount || 0) + 1;"
+    ),
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///main.js").unwrap();
+
+  // Load and evaluate the module for the first time
+  let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
+  let receiver = runtime.mod_evaluate(mod_id);
+  runtime.run_event_loop(Default::default()).await.unwrap();
+  receiver.await.unwrap();
+
+  // Verify it executed once
+  runtime
+    .execute_script("check1", "if (globalThis.executionCount !== 1) throw new Error('Expected 1 execution')")
+    .unwrap();
+
+  // Try to evaluate the same module again - this should not panic
+  let receiver2 = runtime.mod_evaluate(mod_id);
+  runtime.run_event_loop(Default::default()).await.unwrap();
+  receiver2.await.unwrap();
+
+  // Verify it still only executed once (module was not re-executed)
+  runtime
+    .execute_script("check2", "if (globalThis.executionCount !== 1) throw new Error('Expected still 1 execution')")
+    .unwrap();
+}
+
+#[tokio::test]
+async fn evaluate_already_evaluated_module_sync() {
+  // This test verifies that calling mod_evaluate_sync on an already-evaluated module
+  // doesn't panic, but instead returns Ok(()) immediately.
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///main.js").unwrap(),
+    ascii_str!(
+      "globalThis.syncExecutionCount = (globalThis.syncExecutionCount || 0) + 1;"
+    ),
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader.clone()),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///main.js").unwrap();
+
+  // Load the module
+  let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
+
+  // Evaluate synchronously using scope
+  {
+    let module_map = runtime.module_map();
+    deno_core::scope!(scope, runtime);
+    module_map.mod_evaluate_sync(scope, mod_id).unwrap();
+  }
+
+  // Verify it executed once
+  runtime
+    .execute_script("check1", "if (globalThis.syncExecutionCount !== 1) throw new Error('Expected 1 execution')")
+    .unwrap();
+
+  // Try to evaluate the same module again synchronously - should not panic
+  {
+    let module_map = runtime.module_map();
+    deno_core::scope!(scope, runtime);
+    module_map.mod_evaluate_sync(scope, mod_id).unwrap();
+  }
+
+  // Verify it still only executed once (module was not re-executed)
+  runtime
+    .execute_script("check2", "if (globalThis.syncExecutionCount !== 1) throw new Error('Expected still 1 execution')")
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_native_source_map_with_trailing_content() {
+  // This test verifies that source maps work even with trailing newlines and comments
+  // after the sourceMappingURL directive (https://github.com/denoland/deno/issues/21988)
+
+  // Source map for TypeScript code that throws an error on line 2:
+  // function greet(name: string) {
+  //   throw new Error("Test error");
+  // }
+  //
+  // greet("World");
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vdGVzdC50cyJdLCJzb3VyY2VzQ29udGVudCI6WyJmdW5jdGlvbiBncmVldChuYW1lOiBzdHJpbmcpIHtcbiAgdGhyb3cgbmV3IEVycm9yKFwiVGVzdCBlcnJvclwiKTtcbn1cblxuZ3JlZXQoXCJXb3JsZFwiKTtcbiJdLCJuYW1lcyI6W10sIm1hcHBpbmdzIjoiQUFBQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
+
+  let code = format!(
+    r#"export function greet(name) {{
+  throw new Error("Test error");
+}}
+
+greet("World");
+
+//# sourceMappingURL=data:application/json;base64,{}
+// This is a comment after the sourceMappingURL
+
+// Multiple blank lines follow
+
+
+"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let spec = resolve_url("file:///test.js").unwrap();
+  let mod_id = runtime.load_main_es_module(&spec).await.unwrap();
+  let _receiver = runtime.mod_evaluate(mod_id);
+
+  // Run event loop - it will propagate the module error
+  let event_loop_result = runtime.run_event_loop(Default::default()).await;
+
+  // The event loop returns the error from the uncaught promise rejection
+  assert!(event_loop_result.is_err());
+  let error = event_loop_result.unwrap_err();
+  let error_string = error.to_string();
+
+  // Verify that the error references the original TypeScript file and line number
+  // The error should be thrown from line 2 of test.ts (not test.js)
+  assert!(
+    error_string.contains("test.ts"),
+    "Error should reference source file test.ts, got: {}",
+    error_string
+  );
+  assert!(
+    error_string.contains("Test error"),
+    "Error should contain the error message, got: {}",
+    error_string
+  );
+}
+
+// Module loader that supports loading external source maps
+struct ExternalSourceMapLoader {
+  module_code: String,
+  source_map_content: String,
+}
+
+impl ModuleLoader for ExternalSourceMapLoader {
+  fn resolve(
+    &self,
+    specifier: &str,
+    referrer: &str,
+    _kind: ResolutionKind,
+  ) -> Result<ModuleSpecifier, ModuleLoaderError> {
+    resolve_import(specifier, referrer).map_err(JsErrorBox::from_err)
+  }
+
+  fn load(
+    &self,
+    _module_specifier: &ModuleSpecifier,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
+  ) -> ModuleLoadResponse {
+    let code = ModuleCodeString::from(self.module_code.clone());
+    ModuleLoadResponse::Sync(Ok(ModuleSource::new(
+      ModuleType::JavaScript,
+      ModuleSourceCode::String(code),
+      _module_specifier,
+      None,
+    )))
+  }
+
+  fn load_external_source_map(
+    &self,
+    source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    // Check if this is the source map we're providing
+    if source_map_url.ends_with("test.js.map")
+      || source_map_url.contains("test.js.map")
+    {
+      Some(Cow::Borrowed(self.source_map_content.as_bytes()))
+    } else {
+      None
+    }
+  }
+}
+
+#[tokio::test]
+async fn test_native_external_source_map_with_relative_path() {
+  // Create a source map file for TypeScript code that throws an error
+  // Original TypeScript:
+  // export function throwError() {
+  //   throw new Error("External source map test");
+  // }
+  // throwError();
+  let source_map_content = r#"{
+  "version": 3,
+  "sources": ["file:///test.ts"],
+  "sourcesContent": ["export function throwError() {\n  throw new Error(\"External source map test\");\n}\nthrowError();\n"],
+  "names": [],
+  "mappings": "AAAA;AACA;AACA;AACA"
+}"#;
+
+  // Create a JavaScript file that references the external source map with a relative path
+  let js_code = r#"export function throwError() {
+  throw new Error("External source map test");
+}
+throwError();
+
+//# sourceMappingURL=./test.js.map"#;
+
+  let file_url = Url::parse("file:///test.js").unwrap();
+
+  let loader = Rc::new(TestingModuleLoader::new(ExternalSourceMapLoader {
+    module_code: js_code.to_string(),
+    source_map_content: source_map_content.to_string(),
+  }));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime.load_main_es_module(&file_url).await.unwrap();
+  let _receiver = runtime.mod_evaluate(mod_id);
+
+  // Run event loop - it will propagate the module error
+  let event_loop_result = runtime.run_event_loop(Default::default()).await;
+
+  // The event loop returns the error from the uncaught promise rejection
+  assert!(event_loop_result.is_err());
+
+  let error = event_loop_result.unwrap_err();
+  let error_string = error.to_string();
+
+  // Verify that the error references the original TypeScript file (not the .js file)
+  // External source maps are loaded lazily when an error occurs
+  assert!(
+    error_string.contains("test.ts"),
+    "Error should reference source file test.ts, got: {}",
+    error_string
+  );
+  assert!(
+    error_string.contains("External source map test"),
+    "Error should contain the error message, got: {}",
+    error_string
+  );
+}
+
+#[tokio::test]
+async fn test_native_source_map_with_absolute_path_outside_cwd() {
+  // Test that source maps with absolute paths outside the cwd display as absolute
+  // (not relative with excessive ../ sequences)
+
+  // Create source map with absolute path outside typical cwd
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vYWJzb2x1dGUvcGF0aC9vdXRzaWRlL29yaWdpbmFsLnRzIl0sInNvdXJjZXNDb250ZW50IjpbIi8vIE9yaWdpbmFsIGZpbGUgb3V0c2lkZSBjd2RcbmZ1bmN0aW9uIHRocm93RXJyb3IoKSB7XG4gIHRocm93IG5ldyBFcnJvcihcIkVycm9yIGZyb20gZmlsZSBvdXRzaWRlIGN3ZFwiKTtcbn1cblxudGhyb3dFcnJvcigpO1xuIl0sIm5hbWVzIjpbXSwibWFwcGluZ3MiOiJBQUFBO0FBQ0E7QUFDQTtBQUNBO0FBQ0E7QUFDQSJ9";
+
+  let code = format!(
+    r#"function throwError() {{
+  throw new Error("Error from file outside cwd");
+}}
+
+throwError();
+
+//# sourceMappingURL=data:application/json;base64,{}"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///test.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime
+    .load_main_es_module(&Url::parse("file:///test.js").unwrap())
+    .await
+    .unwrap();
+
+  // The module should load successfully even though the source map points
+  // to a file outside the cwd. Error paths will show absolute paths.
+  let _receiver = runtime.mod_evaluate(mod_id);
+  let result = runtime.run_event_loop(Default::default()).await;
+
+  // Expect an error since the code throws
+  assert!(result.is_err());
+
+  let err = result.unwrap_err();
+  let err_str = err.to_string();
+
+  // Verify the error contains the absolute path from the source map
+  // (not relative with excessive ../)
+  assert!(
+    err_str.contains("/absolute/path/outside/original.ts"),
+    "Error should contain absolute path: {}",
+    err_str
+  );
+}
+
+#[tokio::test]
+async fn test_native_source_map_synthetic_bundle_path() {
+  // Test that bundled code with synthetic paths (like file:///a.ts) displays correctly
+  // This is common with bundlers like esbuild
+
+  let source_map_base64 = "eyJ2ZXJzaW9uIjozLCJzb3VyY2VzIjpbImZpbGU6Ly8vYS50cyJdLCJzb3VyY2VzQ29udGVudCI6WyIvLyBCdW5kbGVkIGZpbGVcbmZ1bmN0aW9uIHRocm93RXJyb3IoKSB7XG4gIHRocm93IG5ldyBFcnJvcihcIkVycm9yIGZyb20gYnVuZGxlZCBmaWxlXCIpO1xufVxuXG50aHJvd0Vycm9yKCk7XG4iXSwibmFtZXMiOltdLCJtYXBwaW5ncyI6IkFBQUE7QUFDQTtBQUNBO0FBQ0E7QUFDQTtBQUNBIn0=";
+
+  let code = format!(
+    r#"function throwError() {{
+  throw new Error("Error from bundled file");
+}}
+
+throwError();
+
+//# sourceMappingURL=data:application/json;base64,{}"#,
+    source_map_base64
+  );
+
+  let loader = Rc::new(TestingModuleLoader::new(StaticModuleLoader::with(
+    Url::parse("file:///bundle.js").unwrap(),
+    code,
+  )));
+
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+
+  let mod_id = runtime
+    .load_main_es_module(&Url::parse("file:///bundle.js").unwrap())
+    .await
+    .unwrap();
+
+  let _receiver = runtime.mod_evaluate(mod_id);
+  let result = runtime.run_event_loop(Default::default()).await;
+
+  // Expect an error
+  assert!(result.is_err());
+
+  let err = result.unwrap_err();
+  let err_str = err.to_string();
+
+  // Verify the error shows the synthetic path from the bundle
+  // Should show as absolute: /a.ts (not with excessive ../)
+  assert!(
+    err_str.contains("file:///a.ts"),
+    "Error should contain synthetic bundle path: {}",
+    err_str
+  );
+
+  // Should NOT contain excessive parent directory traversals
+  assert!(
+    !err_str.contains("../../../"),
+    "Error should not contain excessive ../ sequences: {}",
+    err_str
   );
 }

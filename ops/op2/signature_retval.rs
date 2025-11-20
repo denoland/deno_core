@@ -1,10 +1,8 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::op2::signature::*;
-use proc_macro_rules::rules;
 
-use quote::ToTokens;
-
+use syn::PathArguments;
 use syn::ReturnType;
 
 use syn::Type;
@@ -21,39 +19,58 @@ enum UnwrappedReturn {
 fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
   match ty {
     Type::ImplTrait(imp) => {
-      if imp.bounds.len() != 1 {
+      if imp
+        .bounds
+        .iter()
+        .filter(|b| {
+          matches!(
+            b,
+            TypeParamBound::Lifetime(_)
+              | TypeParamBound::Trait(_)
+              | TypeParamBound::Verbatim(_)
+          )
+        })
+        .count()
+        > 1
+      {
         return Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
           "for impl trait bounds",
         )));
       }
-      if let Some(TypeParamBound::Trait(t)) = imp.bounds.first() {
-        rules!(t.into_token_stream() => {
-          ($($_package:ident ::)* Future < Output = $ty:ty $(,)? >) => Ok(UnwrappedReturn::Future(ty)),
-          ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty), "for impl Future"))),
-        })
-      } else {
-        Err(RetError::InvalidType(ArgError::InvalidType(
+      match imp.bounds.first() {
+        Some(TypeParamBound::Trait(t)) => {
+          if let Some(seg) = t.path.segments.last()
+            && seg.ident == "Future"
+            && let PathArguments::AngleBracketed(args) = &seg.arguments
+            && let Some(syn::GenericArgument::AssocType(assoc)) =
+              args.args.first()
+            && assoc.ident == "Output"
+          {
+            Ok(UnwrappedReturn::Future(assoc.ty.clone()))
+          } else {
+            Err(RetError::InvalidType(ArgError::InvalidType(
+              stringify_token(ty),
+              "for impl Future",
+            )))
+          }
+        }
+        _ => Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(ty),
           "for impl",
-        )))
+        ))),
       }
     }
-    Type::Path(ty) => {
-      rules!(ty.to_token_stream() => {
-        // x::y::Result<Value>, like io::Result and other specialty result types
-        ($($_package:ident ::)* Result < $ty:ty $(,)? >) => {
-          Ok(UnwrappedReturn::Result(ty))
-        }
-        // x::y::Result<Value, Error>
-        ($($_package:ident ::)* Result < $ty:ty, $_error:ty $(,)? >) => {
-          Ok(UnwrappedReturn::Result(ty))
-        }
-        // Everything else
-        ($ty:ty) => {
-          Ok(UnwrappedReturn::Type(ty))
-        }
-      })
+    Type::Path(tp) => {
+      if let Some(seg) = tp.path.segments.last()
+        && seg.ident == "Result"
+        && let PathArguments::AngleBracketed(args) = &seg.arguments
+        && let Some(syn::GenericArgument::Type(ty)) = args.args.first()
+      {
+        Ok(UnwrappedReturn::Result(ty.clone()))
+      } else {
+        Ok(UnwrappedReturn::Type(ty.clone()))
+      }
     }
     Type::Tuple(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     Type::Ptr(_) => Ok(UnwrappedReturn::Type(ty.clone())),
@@ -98,14 +115,14 @@ pub(crate) fn parse_return(
             return Err(RetError::InvalidType(ArgError::InvalidType(
               stringify_token(rt),
               "for result of future",
-            )))
+            )));
           }
         },
         _ => {
           return Err(RetError::InvalidType(ArgError::InvalidType(
             stringify_token(rt),
             "for result",
-          )))
+          )));
         }
       },
       Future(ty) => match unwrap_return(&ty)? {
@@ -117,7 +134,7 @@ pub(crate) fn parse_return(
           return Err(RetError::InvalidType(ArgError::InvalidType(
             stringify_token(rt),
             "for future",
-          )))
+          )));
         }
       },
     },
@@ -132,7 +149,7 @@ pub(crate) fn parse_return(
         return Err(RetError::InvalidType(ArgError::InvalidType(
           stringify_token(rt),
           "for async return",
-        )))
+        )));
       }
     };
     Ok(res)

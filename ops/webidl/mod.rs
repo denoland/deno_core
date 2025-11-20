@@ -4,17 +4,17 @@ mod dictionary;
 mod r#enum;
 
 use proc_macro2::TokenStream;
-use quote::quote;
 use quote::ToTokens;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::parse2;
-use syn::spanned::Spanned;
+use quote::quote;
 use syn::Attribute;
 use syn::Data;
 use syn::DeriveInput;
 use syn::Error;
 use syn::Token;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::parse2;
+use syn::spanned::Spanned;
 
 pub fn webidl(item: TokenStream) -> Result<TokenStream, Error> {
   let input = parse2::<DeriveInput>(item)?;
@@ -106,8 +106,8 @@ fn create_impl(ident: impl ToTokens, body: TokenStream) -> TokenStream {
     impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
       type Options = ();
 
-      fn convert<'b>(
-        __scope: &mut ::deno_core::v8::HandleScope<'a>,
+      fn convert<'b, 'i>(
+        __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
         __prefix: std::borrow::Cow<'static, str>,
         __context: ::deno_core::webidl::ContextFn<'b>,
@@ -125,8 +125,8 @@ mod tests {
   use super::*;
   use proc_macro2::Ident;
   use std::path::PathBuf;
-  use syn::punctuated::Punctuated;
   use syn::Item;
+  use syn::punctuated::Punctuated;
 
   fn derives_webidl<'a>(
     attrs: impl IntoIterator<Item = &'a Attribute>,

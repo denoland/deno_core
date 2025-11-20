@@ -90,25 +90,26 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
-            let mut scope = unsafe {
-                deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
-            };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(& * fast_api_callback_options)
+                }
+            );
+            let mut scope = scope.init();
             let opctx: &'s _ = unsafe {
                 &*(deno_core::v8::Local::<
                     deno_core::v8::External,
                 >::cast_unchecked(unsafe { fast_api_callback_options.data })
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            let result = {
-                let arg0 = &mut scope;
-                Self::call(arg0)
-            };
+            let result = { Self::call(&mut scope) };
             let result = match result {
                 Ok(result) => result,
                 Err(err) => {
-                    let mut scope = unsafe {
-                        deno_core::v8::CallbackScope::new(&*fast_api_callback_options)
-                    };
+                    let scope = ::std::pin::pin!(
+                        unsafe { deno_core::v8::CallbackScope::new(& *
+                        fast_api_callback_options) }
+                    );
+                    let mut scope = scope.init();
                     let exception = deno_core::error::to_v8_error(&mut scope, &err);
                     scope.throw_exception(exception);
                     return unsafe { std::mem::zeroed() };
@@ -123,7 +124,10 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -185,7 +189,7 @@ pub const fn op_void_with_result() -> ::deno_core::_ops::OpDecl {
     }
     impl op_void_with_result {
         #[allow(clippy::too_many_arguments)]
-        pub fn call(_scope: &mut v8::HandleScope) -> Result<(), JsErrorBox> {
+        pub fn call(_scope: &mut v8::PinScope) -> Result<(), JsErrorBox> {
             Ok(())
         }
     }

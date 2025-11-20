@@ -1,6 +1,15 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::_ops::OpMethodDecl;
+use crate::ExtensionFileSource;
+use crate::FastString;
+use crate::ModuleCodeString;
+use crate::OpDecl;
+use crate::OpMetricsFactoryFn;
+use crate::OpState;
+use crate::SourceMapData;
 use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::extensions::Extension;
 use crate::extensions::ExtensionSourceType;
 use crate::extensions::GlobalObjectMiddlewareFn;
@@ -11,23 +20,23 @@ use crate::ops::OpCtx;
 use crate::runtime::ExtensionTranspiler;
 use crate::runtime::JsRuntimeState;
 use crate::runtime::OpDriverImpl;
-use crate::ExtensionFileSource;
-use crate::FastString;
-use crate::ModuleCodeString;
-use crate::OpDecl;
-use crate::OpMetricsFactoryFn;
-use crate::OpState;
-use crate::SourceMapData;
-use crate::_ops::OpMethodDecl;
 use std::cell::RefCell;
 use std::iter::Chain;
 use std::rc::Rc;
 
 /// Contribute to the `OpState` from each extension.
-pub fn setup_op_state(op_state: &mut OpState, extensions: &mut [Extension]) {
+pub fn setup_op_state(
+  op_state: &mut OpState,
+  extensions: &mut [Extension],
+) -> Vec<&'static str> {
+  let mut lazy_extensions = Vec::with_capacity(extensions.len());
   for ext in extensions {
+    if ext.needs_lazy_init {
+      lazy_extensions.push(ext.name);
+    }
     ext.take_state(op_state);
   }
+  lazy_extensions
 }
 
 // TODO(bartlomieju): `deno_core_ext` ops should be returned as a separate
@@ -151,7 +160,7 @@ pub fn create_op_ctxs(
 
     OpCtx::new(
       index as _,
-      std::ptr::null_mut(),
+      v8::UnsafeRawIsolatePtr::null(),
       op_driver.clone(),
       decl,
       op_state.clone(),
@@ -192,7 +201,7 @@ pub fn get_middlewares_and_external_refs(
 ) -> (
   Vec<GlobalTemplateMiddlewareFn>,
   Vec<GlobalObjectMiddlewareFn>,
-  Vec<v8::ExternalReference<'static>>,
+  Vec<v8::ExternalReference>,
 ) {
   // TODO(bartlomieju): these numbers were chosen arbitrarily. This is a very
   // niche features and it's unlikely a lot of extensions use it.
@@ -284,7 +293,7 @@ fn load(
   if let Some(transpiler) = transpiler {
     (source_code, source_map) =
       transpiler(ModuleName::from_static(source.specifier), source_code)
-        .map_err(CoreError::ExtensionTranspiler)?;
+        .map_err(CoreErrorKind::ExtensionTranspiler)?;
   }
   let mut maybe_source_map = None;
   if let Some(source_map) = source_map {
@@ -296,16 +305,20 @@ fn load(
 pub fn into_sources_and_source_maps(
   transpiler: Option<&ExtensionTranspiler>,
   extensions: &[Extension],
+  extensions_in_snapshot: Option<&[&'static str]>,
   mut load_callback: impl FnMut(&ExtensionFileSource),
 ) -> Result<LoadedSources, CoreError> {
   let mut sources = LoadedSources::default();
 
-  for extension in extensions {
-    if let Some(esm_entry_point) = extension.esm_entry_point {
-      sources
-        .esm_entry_points
-        .push(FastString::from_static(esm_entry_point));
-    }
+  let extensions_in_snapshot = extensions_in_snapshot
+    .unwrap_or_default()
+    .iter()
+    .map(Some)
+    .chain(std::iter::repeat(None));
+
+  for (extension, extension_in_snapshot) in
+    extensions.iter().zip(extensions_in_snapshot)
+  {
     for file in &*extension.lazy_loaded_esm_files {
       let (code, maybe_source_map) =
         load(transpiler, file, &mut load_callback)?;
@@ -315,6 +328,27 @@ pub fn into_sources_and_source_maps(
         code,
         maybe_source_map,
       });
+    }
+
+    if let Some(name) = extension_in_snapshot {
+      if extension.name != *name {
+        return Err(
+          CoreErrorKind::ExtensionSnapshotMismatch(
+            crate::error::ExtensionSnapshotMismatchError {
+              expected: name,
+              actual: extension.name,
+            },
+          )
+          .into_box(),
+        );
+      }
+      continue;
+    }
+
+    if let Some(esm_entry_point) = extension.esm_entry_point {
+      sources
+        .esm_entry_points
+        .push(FastString::from_static(esm_entry_point));
     }
     for file in &*extension.js_files {
       let (code, maybe_source_map) =

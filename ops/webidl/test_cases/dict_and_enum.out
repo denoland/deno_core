@@ -1,7 +1,7 @@
 impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
     type Options = ();
-    fn convert<'b>(
-        __scope: &mut ::deno_core::v8::HandleScope<'a>,
+    fn convert<'b, 'i>(
+        __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
         __prefix: std::borrow::Cow<'static, str>,
         __context: ::deno_core::webidl::ContextFn<'b>,
@@ -39,23 +39,25 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
             }
         };
         let force_fallback_adapter = {
-            let __key = __v8_forceFallbackAdapter_eternal
-                .with(|__eternal| {
-                    if let Some(__key) = __eternal.get(__scope) {
-                        Ok(__key)
-                    } else {
-                        let __key = __v8_static_forceFallbackAdapter
-                            .v8_string(__scope)
-                            .map_err(|e| ::deno_core::webidl::WebIdlError::other(
-                                __prefix.clone(),
-                                __context.borrowed(),
-                                e,
-                            ))?;
-                        __eternal.set(__scope, __key);
-                        Ok(__key)
-                    }
-                })?
-                .into();
+            let __key = {
+                __v8_forceFallbackAdapter_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_forceFallbackAdapter
+                                .v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(|e| ::deno_core::webidl::WebIdlError::other(
+                    __prefix.clone(),
+                    __context.borrowed(),
+                    e,
+                ))?;
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
@@ -85,23 +87,24 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
             }
         };
         let power_preference = {
-            let __key = __v8_powerPreference_eternal
-                .with(|__eternal| {
-                    if let Some(__key) = __eternal.get(__scope) {
-                        Ok(__key)
-                    } else {
-                        let __key = __v8_static_powerPreference
-                            .v8_string(__scope)
-                            .map_err(|e| ::deno_core::webidl::WebIdlError::other(
-                                __prefix.clone(),
-                                __context.borrowed(),
-                                e,
-                            ))?;
-                        __eternal.set(__scope, __key);
-                        Ok(__key)
-                    }
-                })?
-                .into();
+            let __key = {
+                __v8_powerPreference_eternal
+                    .with(|__eternal| {
+                        if let Some(__key) = __eternal.get(__scope) {
+                            Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+                        } else {
+                            let __key = __v8_static_powerPreference.v8_string(__scope)?;
+                            __eternal.set(__scope, __key);
+                            Ok(__key)
+                        }
+                    })
+                    .map(Into::into)
+            }
+                .map_err(|e| ::deno_core::webidl::WebIdlError::other(
+                    __prefix.clone(),
+                    __context.borrowed(),
+                    e,
+                ))?;
             if let Some(__value) = __obj
                 .as_ref()
                 .and_then(|__obj| __obj.get(__scope, __key))
@@ -139,8 +142,8 @@ impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPURequestAdapterOptions {
 
 impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for GPUPowerPreference {
     type Options = ();
-    fn convert<'b>(
-        __scope: &mut ::deno_core::v8::HandleScope<'a>,
+    fn convert<'b, 'i>(
+        __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
         __prefix: std::borrow::Cow<'static, str>,
         __context: ::deno_core::webidl::ContextFn<'b>,

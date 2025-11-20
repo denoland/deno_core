@@ -21,6 +21,10 @@ export function op_worker_send(...any: any[]): any;
 export function op_worker_spawn(...any: any[]): any;
 export function op_worker_terminate(...any: any[]): any;
 
+export function op_current_user_call_site(...any: any[]): any;
+
+export class DOMPointReadOnly {}
+
 export class DOMPoint {
   constructor(x?: number, y?: number, z?: number, w?: number);
   static fromPoint(
@@ -42,6 +46,9 @@ export class TestObjectWrap {
   with_RENAME(): void;
   withAsyncFn(ms: number): Promise<void>;
   withThis(): void;
+  withScopeFast(): void;
+  undefinedResult(): undefined;
+  withValidateInt(value: number): void;
 }
 
 export class TestEnumWrap {}

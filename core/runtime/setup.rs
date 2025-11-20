@@ -6,10 +6,11 @@ use crate::V8_WRAPPER_TYPE_INDEX;
 use super::bindings;
 use super::snapshot;
 use super::snapshot::V8Snapshot;
-use std::sync::atomic::AtomicBool;
-use std::sync::atomic::Ordering;
+use std::borrow::Cow;
 use std::sync::Mutex;
 use std::sync::Once;
+use std::sync::atomic::AtomicBool;
+use std::sync::atomic::Ordering;
 
 fn v8_init(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
@@ -28,7 +29,8 @@ fn v8_init(
     " --turbo_fast_api_calls",
     " --harmony-temporal",
     " --js-float16array",
-    " --js-source-phase-imports",
+    " --js-explicit-resource-management",
+    " --js-source-phase-imports"
   );
   let snapshot_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";
@@ -81,8 +83,6 @@ fn v8_init(
   });
   v8::V8::initialize_platform(v8_platform.clone());
   v8::V8::initialize();
-
-  v8::cppgc::initialize_process(v8_platform);
 }
 
 pub fn init_v8(
@@ -97,7 +97,10 @@ pub fn init_v8(
 
   if DENO_SNAPSHOT_SET.load(Ordering::SeqCst) {
     let current = DENO_SNAPSHOT.load(Ordering::SeqCst);
-    assert_eq!(current, snapshot, "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both.");
+    assert_eq!(
+      current, snapshot,
+      "V8 may only be initialized once in either snapshotting or non-snapshotting mode. Either snapshotting or non-snapshotting mode may be used in a single process, not both."
+    );
     DENO_SNAPSHOT_SET.store(true, Ordering::SeqCst);
     DENO_SNAPSHOT.store(snapshot, Ordering::SeqCst);
   }
@@ -112,18 +115,11 @@ pub fn init_v8(
   });
 }
 
-pub fn create_cpp_heap() -> v8::UniqueRef<v8::cppgc::Heap> {
-  v8::cppgc::Heap::create(
-    v8::V8::get_current_platform(),
-    v8::cppgc::HeapCreateParams::default(),
-  )
-}
-
 pub fn create_isolate(
   will_snapshot: bool,
   maybe_create_params: Option<v8::CreateParams>,
   maybe_startup_snapshot: Option<V8Snapshot>,
-  external_refs: &'static v8::ExternalReferences,
+  external_refs: Cow<'static, [v8::ExternalReference]>,
 ) -> v8::OwnedIsolate {
   let mut params = maybe_create_params
     .unwrap_or_default()
@@ -138,10 +134,10 @@ pub fn create_isolate(
       params,
     )
   } else {
-    params = params.external_references(&**external_refs);
+    params = params.external_references(external_refs);
     let has_snapshot = maybe_startup_snapshot.is_some();
     if let Some(snapshot) = maybe_startup_snapshot {
-      params = params.snapshot_blob(snapshot.0);
+      params = params.snapshot_blob(v8::StartupData::from(snapshot.0));
     }
     static FIRST_SNAPSHOT_INIT: AtomicBool = AtomicBool::new(false);
     static SNAPSHOW_INIT_MUT: Mutex<()> = Mutex::new(());

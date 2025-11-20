@@ -12,8 +12,8 @@ use super::transl8::FromV8;
 pub trait V8Sliceable: Copy + Clone {
   /// The concrete V8 data view type.
   type V8;
-  fn new_buf<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  fn new_buf<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     buf: v8::Local<v8::ArrayBuffer>,
     byte_offset: usize,
     length: usize,
@@ -22,8 +22,8 @@ pub trait V8Sliceable: Copy + Clone {
 
 impl V8Sliceable for u8 {
   type V8 = v8::Uint8Array;
-  fn new_buf<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  fn new_buf<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     buf: v8::Local<v8::ArrayBuffer>,
     byte_offset: usize,
     length: usize,
@@ -34,8 +34,8 @@ impl V8Sliceable for u8 {
 
 impl V8Sliceable for u32 {
   type V8 = v8::Uint32Array;
-  fn new_buf<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  fn new_buf<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     buf: v8::Local<v8::ArrayBuffer>,
     byte_offset: usize,
     length: usize,
@@ -46,8 +46,8 @@ impl V8Sliceable for u32 {
 
 impl V8Sliceable for f64 {
   type V8 = v8::Float64Array;
-  fn new_buf<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  fn new_buf<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     buf: v8::Local<v8::ArrayBuffer>,
     byte_offset: usize,
     length: usize,
@@ -217,9 +217,9 @@ where
   }
 
   /// Takes this slice and converts it into a strongly-typed v8 array.
-  pub fn into_v8_local<'a>(
+  pub fn into_v8_local<'a, 'b>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'b>,
   ) -> Option<v8::Local<'a, T::V8>> {
     let (store, range) = self.into_parts();
     let buffer = v8::ArrayBuffer::with_backing_store(scope, &store);
@@ -232,9 +232,9 @@ where
   }
 
   /// Takes this slice and converts it into a strongly-typed v8 array, ignoring the underlying range.
-  pub fn into_v8_unsliced_arraybuffer_local<'a>(
+  pub fn into_v8_unsliced_arraybuffer_local<'a, 'b>(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'b>,
   ) -> v8::Local<'a, v8::ArrayBuffer> {
     let (store, _range) = self.into_parts();
     v8::ArrayBuffer::with_backing_store(scope, &store)
@@ -292,10 +292,10 @@ where
   }
 }
 
-pub(crate) fn to_ranged_buffer<'s>(
-  scope: &mut v8::HandleScope<'s>,
-  value: v8::Local<v8::Value>,
-) -> Result<(v8::Local<'s, v8::ArrayBuffer>, Range<usize>), v8::DataError> {
+pub(crate) fn to_ranged_buffer<'scope, 'i>(
+  scope: &mut v8::PinScope<'scope, 'i>,
+  value: v8::Local<'scope, v8::Value>,
+) -> Result<(v8::Local<'scope, v8::ArrayBuffer>, Range<usize>), v8::DataError> {
   if let Ok(view) = v8::Local::<v8::ArrayBufferView>::try_from(value) {
     let (offset, len) = (view.byte_offset(), view.byte_length());
     let buffer = view.buffer(scope).ok_or(v8::DataError::NoData {
@@ -313,9 +313,9 @@ impl<T> FromV8 for V8Slice<T>
 where
   T: V8Sliceable,
 {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope<'scope, 'i>,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     match to_ranged_buffer(scope, value) {
       Ok((b, range)) => {

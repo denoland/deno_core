@@ -386,7 +386,10 @@ const fn op_state_and_v8() -> ::deno_core::_ops::OpDecl {
                 >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            let mut scope = unsafe { &mut *opctx.isolate };
+            let mut scope = unsafe {
+                deno_core::v8::Isolate::from_raw_isolate_ptr(opctx.isolate)
+            };
+            let mut scope = &mut scope;
             let opstate = &opctx.state;
             let result = {
                 let arg1 = args.get(0usize as i32);
@@ -562,11 +565,11 @@ const fn op_state_and_v8_local() -> ::deno_core::_ops::OpDecl {
                     deno_core::v8::Function,
                 >(arg1) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected Function",

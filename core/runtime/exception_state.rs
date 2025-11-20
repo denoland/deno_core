@@ -1,11 +1,10 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::error::JsError;
 use crate::error::exception_to_err_result;
-use crate::error::CoreError;
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 
 #[derive(Default)]
 pub(crate) struct ExceptionState {
@@ -18,11 +17,10 @@ pub(crate) struct ExceptionState {
   pub(crate) pending_handled_promise_rejections:
     RefCell<VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>>,
   pub(crate) js_build_custom_error_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+    RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_handled_promise_rejection_cb:
     RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) js_format_exception_cb:
-    RefCell<Option<Rc<v8::Global<v8::Function>>>>,
+  pub(crate) js_format_exception_cb: RefCell<Option<v8::Global<v8::Function>>>,
 }
 
 impl ExceptionState {
@@ -70,8 +68,8 @@ impl ExceptionState {
   /// the runtime is shut down), returns it from here. If not, returns `Ok`.
   pub(crate) fn check_exception_condition(
     &self,
-    scope: &mut v8::HandleScope,
-  ) -> Result<(), CoreError> {
+    scope: &mut v8::PinScope,
+  ) -> Result<(), Box<JsError>> {
     if self.has_dispatched_exception() {
       let undefined = v8::undefined(scope);
       exception_to_err_result(
@@ -89,9 +87,9 @@ impl ExceptionState {
     self.dispatched_exception_is_promise.get()
   }
 
-  pub(crate) fn get_dispatched_exception_as_local<'s>(
+  pub(crate) fn get_dispatched_exception_as_local<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> Option<v8::Local<'s, v8::Value>> {
     // SAFETY: we limit access to this cell to this method only
     unsafe {
@@ -118,9 +116,9 @@ impl ExceptionState {
   ///   interfere with garbage collection.
   /// - An implementation may hold a reference to promise if operation is "reject", since it is expected that rejections
   ///   will be rare and not on hot code paths.
-  pub fn track_promise_rejection(
+  pub fn track_promise_rejection<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'s, 'i>,
     promise: v8::Local<v8::Promise>,
     event: v8::PromiseRejectEvent,
     rejection_value: Option<v8::Local<v8::Value>>,

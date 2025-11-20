@@ -2,18 +2,19 @@
 
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
 use std::time::Instant;
 
-use crate::cppgc::FunctionTemplateSnapshotData;
-use crate::error::CoreError;
-use crate::modules::ModuleMapSnapshotData;
 use crate::Extension;
 use crate::JsRuntimeForSnapshot;
 use crate::RuntimeOptions;
+use crate::cppgc::FunctionTemplateSnapshotData;
+use crate::error::CoreError;
+use crate::modules::ModuleMapSnapshotData;
 
 use super::ExtensionTranspiler;
 
@@ -61,9 +62,9 @@ pub struct SnapshotLoadDataStore {
 }
 
 impl SnapshotLoadDataStore {
-  pub fn get<'s, T>(
+  pub fn get<'s, 'i, T>(
     &mut self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     id: SnapshotDataId,
   ) -> v8::Global<T>
   where
@@ -299,10 +300,10 @@ pub fn get_js_files(
 #[derive(Serialize, Deserialize)]
 pub(crate) struct SnapshottedData<'snapshot> {
   pub js_handled_promise_rejection_cb: Option<u32>,
+  pub ext_import_meta_proto: Option<u32>,
   pub module_map_data: ModuleMapSnapshotData,
   pub function_templates_data: FunctionTemplateSnapshotData,
-  pub externals_count: u32,
-  pub extension_count: usize,
+  pub extensions: Vec<&'snapshot str>,
   pub op_count: usize,
   pub source_count: usize,
   pub addl_refs_count: usize,
@@ -335,7 +336,7 @@ impl<'snapshot> SerializableSnapshotSidecarData<'snapshot> {
 /// Given the sidecar data and a scope to extract data from, reconstructs the
 /// `SnapshottedData` and `SnapshotLoadDataStore`.
 pub(crate) fn load_snapshotted_data_from_snapshot<'snapshot>(
-  scope: &mut v8::HandleScope<()>,
+  scope: &mut v8::PinScope<()>,
   context: v8::Local<v8::Context>,
   raw_data: SerializableSnapshotSidecarData<'snapshot>,
 ) -> (SnapshottedData<'snapshot>, SnapshotLoadDataStore) {
@@ -355,7 +356,7 @@ pub(crate) fn load_snapshotted_data_from_snapshot<'snapshot>(
 /// Given a `SnapshottedData` and `SnapshotStoreDataStore`, attaches the data to the
 /// context and returns the serialized sidecar data.
 pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
   context: v8::Global<v8::Context>,
   snapshotted_data: SnapshottedData<'snapshot>,
   data_store: SnapshotStoreDataStore,
@@ -376,13 +377,13 @@ pub(crate) fn store_snapshotted_data_for_snapshot<'snapshot>(
 
 /// Returns an isolate set up for snapshotting.
 pub(crate) fn create_snapshot_creator(
-  external_refs: &'static v8::ExternalReferences,
+  external_refs: Cow<'static, [v8::ExternalReference]>,
   maybe_startup_snapshot: Option<V8Snapshot>,
   params: v8::CreateParams,
 ) -> v8::OwnedIsolate {
   if let Some(snapshot) = maybe_startup_snapshot {
     v8::Isolate::snapshot_creator_from_existing_snapshot(
-      snapshot.0,
+      v8::StartupData::from(snapshot.0),
       Some(external_refs),
       Some(params),
     )

@@ -3,7 +3,6 @@
 use deno_error::JsError;
 use indexmap::IndexMap;
 use std::borrow::Cow;
-use v8::HandleScope;
 use v8::Local;
 use v8::Value;
 
@@ -102,10 +101,24 @@ impl std::fmt::Display for WebIdlError {
         )
       }
       WebIdlErrorKind::NotFinite => write!(f, "is not a finite number"),
-      WebIdlErrorKind::IntRange { lower_bound, upper_bound } => write!(f, "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"),
-      WebIdlErrorKind::InvalidByteString => write!(f, "is not a valid ByteString"),
-      WebIdlErrorKind::Precision => write!(f, "is outside the range of a single-precision floating-point value"),
-      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(f, "can not be converted to '{converter}' because '{variant}' is not a valid enum value"),
+      WebIdlErrorKind::IntRange {
+        lower_bound,
+        upper_bound,
+      } => write!(
+        f,
+        "is outside the accepted range of ${lower_bound} to ${upper_bound}, inclusive"
+      ),
+      WebIdlErrorKind::InvalidByteString => {
+        write!(f, "is not a valid ByteString")
+      }
+      WebIdlErrorKind::Precision => write!(
+        f,
+        "is outside the range of a single-precision floating-point value"
+      ),
+      WebIdlErrorKind::InvalidEnumVariant { converter, variant } => write!(
+        f,
+        "can not be converted to '{converter}' because '{variant}' is not a valid enum value"
+      ),
       WebIdlErrorKind::Other(other) => std::fmt::Display::fmt(other, f),
     }
   }
@@ -146,8 +159,8 @@ pub enum Type {
   Object,
 }
 
-pub fn type_of<'a>(
-  scope: &mut HandleScope<'a>,
+pub fn type_of<'a, 'i>(
+  scope: &mut v8::PinScope<'a, 'i>,
   value: Local<'a, Value>,
 ) -> Type {
   if value.is_null() {
@@ -169,8 +182,8 @@ pub fn type_of<'a>(
 pub trait WebIdlConverter<'a>: Sized {
   type Options: Default;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -185,8 +198,8 @@ pub trait WebIdlConverter<'a>: Sized {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
   type Options = T::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -206,8 +219,8 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Option<T> {
 impl<'a> WebIdlConverter<'a> for Local<'a, Value> {
   type Options = ();
 
-  fn convert<'b>(
-    _scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    _scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
     _context: ContextFn<'b>,
@@ -234,8 +247,8 @@ impl<T> Nullable<T> {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Nullable<T> {
   type Options = T::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -267,8 +280,8 @@ thread_local! {
 impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
   type Options = T::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -383,16 +396,13 @@ impl<'a, T: WebIdlConverter<'a>> WebIdlConverter<'a> for Vec<T> {
 
 // record converter
 // the Options only apply to the value, not the key
-impl<
-    'a,
-    K: WebIdlConverter<'a> + Eq + std::hash::Hash,
-    V: WebIdlConverter<'a>,
-  > WebIdlConverter<'a> for IndexMap<K, V>
+impl<'a, K: WebIdlConverter<'a> + Eq + std::hash::Hash, V: WebIdlConverter<'a>>
+  WebIdlConverter<'a> for IndexMap<K, V>
 {
   type Options = V::Options;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -464,14 +474,14 @@ pub struct IntOptions {
 
 // https://webidl.spec.whatwg.org/#abstract-opdef-converttoint
 macro_rules! impl_ints {
-  ($($t:ty: $unsigned:tt = $name:literal: $min:expr => $max:expr),*) => {
+  ($($t:ty: $unsigned:tt = $name:literal: $min:expr_2021 => $max:expr_2021),*) => {
     $(
       impl<'a> WebIdlConverter<'a> for $t {
         type Options = IntOptions;
 
         #[allow(clippy::manual_range_contains)]
-        fn convert<'b>(
-          scope: &mut HandleScope<'a>,
+        fn convert<'b, 'i>(
+          scope: &mut v8::PinScope<'a, 'i>,
           value: Local<'a, Value>,
           prefix: Cow<'static, str>,
           context: ContextFn<'b>,
@@ -576,8 +586,8 @@ impl_ints!(
 impl<'a> WebIdlConverter<'a> for f32 {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -625,8 +635,8 @@ impl std::ops::Deref for UnrestrictedFloat {
 impl<'a> WebIdlConverter<'a> for UnrestrictedFloat {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -648,8 +658,8 @@ impl<'a> WebIdlConverter<'a> for UnrestrictedFloat {
 impl<'a> WebIdlConverter<'a> for f64 {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -687,8 +697,8 @@ impl std::ops::Deref for UnrestrictedDouble {
 impl<'a> WebIdlConverter<'a> for UnrestrictedDouble {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -715,8 +725,8 @@ pub struct BigInt {
 impl<'a> WebIdlConverter<'a> for BigInt {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -739,8 +749,8 @@ impl<'a> WebIdlConverter<'a> for BigInt {
 impl<'a> WebIdlConverter<'a> for bool {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     _prefix: Cow<'static, str>,
     _context: ContextFn<'b>,
@@ -759,8 +769,8 @@ pub struct StringOptions {
 impl<'a> WebIdlConverter<'a> for String {
   type Options = StringOptions;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -801,8 +811,8 @@ impl std::ops::Deref for ByteString {
 impl<'a> WebIdlConverter<'a> for ByteString {
   type Options = StringOptions;
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
@@ -847,26 +857,24 @@ pub trait WebIdlInterfaceConverter:
 }
 
 impl<'a, T: WebIdlInterfaceConverter> WebIdlConverter<'a>
-  for crate::cppgc::Ptr<T>
+  for crate::cppgc::Ref<T>
 {
   type Options = ();
 
-  fn convert<'b>(
-    scope: &mut HandleScope<'a>,
+  fn convert<'b, 'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
     value: Local<'a, Value>,
     prefix: Cow<'static, str>,
     context: ContextFn<'b>,
     _options: &Self::Options,
   ) -> Result<Self, WebIdlError> {
-    if let Some(ptr) = crate::cppgc::try_unwrap_cppgc_object::<T>(scope, value)
-    {
-      Ok(ptr)
-    } else {
-      Err(WebIdlError::new(
+    match crate::cppgc::try_unwrap_cppgc_persistent_object::<T>(scope, value) {
+      Some(persistent) => Ok(persistent),
+      _ => Err(WebIdlError::new(
         prefix,
         context,
         WebIdlErrorKind::ConvertToConverterType(T::NAME),
-      ))
+      )),
     }
   }
 }
@@ -886,10 +894,10 @@ mod tests {
   #[test]
   fn integers() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     macro_rules! test_integer {
-      ($t:ty: $($val:expr => $expected:literal$(, $opts:expr)?);+;) => {
+      ($t:ty: $($val:expr_2021 => $expected:literal$(, $opts:expr_2021)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
           let converted = <$t>::convert(
@@ -903,7 +911,7 @@ mod tests {
         )+
       };
 
-      ($t:ty: $($val:expr => ERR$(, $opts:expr)?);+;) => {
+      ($t:ty: $($val:expr_2021 => ERR$(, $opts:expr_2021)?);+;) => {
         $(
           let val = v8::Number::new(scope, $val as f64);
           let converted = <$t>::convert(
@@ -917,7 +925,7 @@ mod tests {
         )+
       };
 
-      (@opts $opts:expr) => { $opts };
+      (@opts $opts:expr_2021) => { $opts };
       (@opts) => { Default::default() };
     }
 
@@ -1005,7 +1013,7 @@ mod tests {
   #[test]
   fn float() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = f32::convert(
@@ -1041,7 +1049,7 @@ mod tests {
   #[test]
   fn unrestricted_float() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = UnrestrictedFloat::convert(
@@ -1088,7 +1096,7 @@ mod tests {
   #[test]
   fn double() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = f64::convert(
@@ -1124,7 +1132,7 @@ mod tests {
   #[test]
   fn unrestricted_double() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::Number::new(scope, 3.0);
     let converted = UnrestrictedDouble::convert(
@@ -1171,7 +1179,7 @@ mod tests {
   #[test]
   fn string() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::String::new(scope, "foo").unwrap();
     let converted = String::convert(
@@ -1251,7 +1259,7 @@ mod tests {
   #[test]
   fn byte_string() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::String::new(scope, "foo").unwrap();
     let converted = ByteString::convert(
@@ -1331,7 +1339,7 @@ mod tests {
   #[test]
   fn any() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::Object::new(scope);
     let converted = v8::Local::<Value>::convert(
@@ -1347,7 +1355,7 @@ mod tests {
   #[test]
   fn sequence() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let a = v8::Number::new(scope, 1.0);
     let b = v8::String::new(scope, "2").unwrap();
@@ -1365,7 +1373,7 @@ mod tests {
   #[test]
   fn nullable() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::undefined(scope);
     let converted = Nullable::<u8>::convert(
@@ -1391,7 +1399,7 @@ mod tests {
   #[test]
   fn record() {
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let obj = v8::Object::new(scope);
     let key = v8::String::new(scope, "foo").unwrap();
@@ -1437,7 +1445,7 @@ mod tests {
       )
       .unwrap();
 
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
     let val = Local::new(scope, val);
 
     let converted = Dict::convert(
@@ -1473,7 +1481,7 @@ mod tests {
     }
 
     let mut runtime = JsRuntime::new(Default::default());
-    let scope = &mut runtime.handle_scope();
+    deno_core::scope!(scope, runtime);
 
     let val = v8::String::new(scope, "foo-bar").unwrap();
     let converted = Enumeration::convert(

@@ -3,10 +3,17 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 use deno_core::GarbageCollected;
+use deno_core::v8;
 
 struct Wrap;
 
-impl GarbageCollected for Wrap {}
+unsafe impl GarbageCollected for Wrap {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"Wrap"
+  }
+}
 
 #[op2(fast)]
 fn op_cppgc_object(#[cppgc] _resource: &Wrap) {}

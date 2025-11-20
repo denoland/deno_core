@@ -1,12 +1,14 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use super::V8MappingError;
+use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::byte_slice_to_buffer;
 use super::dispatch_shared::v8_intermediate_to_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
-use super::generator_state::gs_quote;
 use super::generator_state::GeneratorState;
+use super::generator_state::gs_quote;
 use super::signature::Arg;
 use super::signature::BufferMode;
 use super::signature::BufferSource;
@@ -17,8 +19,6 @@ use super::signature::ParsedSignature;
 use super::signature::RefType;
 use super::signature::Special;
 use super::signature::Strings;
-use super::V8MappingError;
-use super::V8SignatureMappingError;
 use crate::op2::dispatch_async::map_async_return_type;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
@@ -102,24 +102,38 @@ impl FastSignature {
     for arg in &self.args {
       match arg {
         FastArg::Actual { arg, name_out, .. }
-        | FastArg::Virtual { name_out, arg } => call_args.push(
-          map_v8_fastcall_arg_to_arg(generator_state, name_out, arg).map_err(
-            |s| V8SignatureMappingError::NoArgMapping(s, arg.clone()),
-          )?,
-        ),
+        | FastArg::Virtual { name_out, arg } => {
+          if !matches!(arg, Arg::Ref(_, Special::HandleScope)) {
+            call_args.push(
+              map_v8_fastcall_arg_to_arg(generator_state, name_out, arg)
+                .map_err(|s| {
+                  V8SignatureMappingError::NoArgMapping(
+                    s,
+                    Box::new(arg.clone()),
+                  )
+                })?,
+            )
+          } else {
+            generator_state.needs_scope = true;
+          }
+        }
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
     }
     Ok(call_args)
   }
 
-  pub(crate) fn call_names(&self) -> Vec<Ident> {
+  pub(crate) fn call_names(&self) -> Vec<TokenStream> {
     let mut call_names = vec![];
     for arg in &self.args {
       match arg {
-        FastArg::Actual { name_out, .. }
-        | FastArg::Virtual { name_out, .. } => {
-          call_names.push(name_out.clone())
+        FastArg::Actual { name_out, arg, .. }
+        | FastArg::Virtual { name_out, arg } => {
+          if matches!(arg, Arg::Ref(_, Special::HandleScope)) {
+            call_names.push(quote!(&mut scope));
+          } else {
+            call_names.push(quote!(#name_out));
+          }
         }
         FastArg::CallbackOptions | FastArg::PromiseId => {}
       }
@@ -264,9 +278,10 @@ pub(crate) fn get_fast_signature(
 ) -> Result<Option<FastSignature>, V8SignatureMappingError> {
   let mut args = vec![];
   let mut index_in = 0;
-  for (index_out, arg) in signature.args.iter().cloned().enumerate() {
-    let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg)
-      .map_err(|s| V8SignatureMappingError::NoArgMapping(s, arg.clone()))?
+  for (index_out, (arg, _)) in signature.args.iter().cloned().enumerate() {
+    let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg).map_err(|s| {
+      V8SignatureMappingError::NoArgMapping(s, Box::new(arg.clone()))
+    })?
     else {
       return Ok(None);
     };
@@ -293,7 +308,10 @@ pub(crate) fn get_fast_signature(
     signature.ret_val.arg()
   };
   let output = match map_retval_to_v8_fastcall_type(ret_val).map_err(|s| {
-    V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+    V8SignatureMappingError::NoRetValMapping(
+      s,
+      Box::new(signature.ret_val.clone()),
+    )
   })? {
     None => return Ok(None),
     Some(rv) => rv,
@@ -323,7 +341,8 @@ fn throw_type_error(
   let create_scope = create_scope(generator_state);
   let message = format!("{message}");
   quote!({
-    let mut scope = #create_scope;
+    let scope = ::std::pin::pin!(#create_scope);
+    let mut scope = scope.init();
     deno_core::_ops::throw_error_one_byte(&mut scope, #message);
     // SAFETY: All fast return types have zero as a valid value
     return unsafe { std::mem::zeroed() };
@@ -341,7 +360,8 @@ pub(crate) fn generate_fast_result_early_exit(
     let #result = match #result {
       Ok(#result) => #result,
       Err(err) => {
-        let mut scope = #create_scope;
+        let scope = ::std::pin::pin!(#create_scope);
+        let mut scope = scope.init();
         let exception = deno_core::error::to_v8_error(
           &mut scope,
           &err,
@@ -404,7 +424,10 @@ pub(crate) fn generate_dispatch_fast(
     let (return_value, mapper, _) =
       map_async_return_type(generator_state, &signature.ret_val).map_err(
         |s| {
-          V8SignatureMappingError::NoRetValMapping(s, signature.ret_val.clone())
+          V8SignatureMappingError::NoRetValMapping(
+            s,
+            Box::new(signature.ret_val.clone()),
+          )
         },
       )?;
 
@@ -426,7 +449,6 @@ pub(crate) fn generate_dispatch_fast(
   let with_stack_trace = if generator_state.needs_stack_trace {
     generator_state.needs_opctx = true;
     generator_state.needs_scope = true;
-    generator_state.needs_fast_scope = false;
 
     gs_quote!(generator_state(opctx, scope, opstate) =>
     (if #opctx.enable_stack_trace {
@@ -478,23 +500,23 @@ pub(crate) fn generate_dispatch_fast(
       generator_state,
       format!("expected {}", &generator_state.self_ty),
     );
-    gs_quote!(generator_state(self_ty, scope) => {
-      let Some(self_) = deno_core::_ops::try_unwrap_cppgc_object::<#self_ty>(&mut #scope, this.into()) else {
+    gs_quote!(generator_state(self_ty, scope, try_unwrap_cppgc) => {
+      let Some(self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, this.into()) else {
         #throw_exception
       };
-      let self_ = &*self_;
+      let self_ = unsafe { self_.as_ref() };
     })
   } else {
     quote!()
   };
 
   let with_isolate = if generator_state.needs_fast_isolate
-    && !generator_state.needs_fast_scope
+    && !generator_state.needs_scope
     && !generator_state.needs_stack_trace
   {
     generator_state.needs_fast_api_callback_options = true;
     gs_quote!(generator_state(scope, fast_api_callback_options) =>
-      (let mut #scope = unsafe { &mut *#fast_api_callback_options.isolate };)
+      (let mut #scope = unsafe { #fast_api_callback_options.isolate_unchecked_mut() };)
     )
   } else {
     quote!()
@@ -502,7 +524,8 @@ pub(crate) fn generate_dispatch_fast(
   let with_scope = if generator_state.needs_scope {
     let create_scope = create_scope(generator_state);
     gs_quote!(generator_state(scope) => {
-      let mut #scope = #create_scope;
+      let #scope = ::std::pin::pin!(#create_scope);
+      let mut #scope = scope.init();
     })
   } else {
     quote!()
@@ -613,7 +636,8 @@ fn fast_api_typed_array_to_buffer(
     // fastcall.
     let #input = unsafe {
       let (input_ptr, input_len) = #input.get_contents_raw_parts(&mut buffer);
-      let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+      let input_ptr = if input_ptr.is_null() { ::std::ptr::dangling_mut() } else { input_ptr };
+      let slice = ::std::slice::from_raw_parts_mut::<'s>(input_ptr, input_len);
       let (before, slice, after) = slice.align_to_mut();
       debug_assert!(before.is_empty());
       debug_assert!(after.is_empty());
@@ -633,7 +657,6 @@ fn map_v8_fastcall_arg_to_arg(
     opctx,
     js_runtime_state,
     scope,
-    needs_scope,
     needs_opctx,
     needs_fast_api_callback_options,
     needs_fast_isolate,
@@ -706,10 +729,18 @@ fn map_v8_fastcall_arg_to_arg(
         *buffer,
       )?
     }
-    Arg::Special(Special::Isolate) => {
+    Arg::Ref(RefType::Ref, Special::Isolate) => {
       *needs_fast_api_callback_options = true;
       gs_quote!(generator_state(fast_api_callback_options) => {
-       let #arg_ident = #fast_api_callback_options.isolate;
+        let #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#fast_api_callback_options.isolate) };
+        let #arg_ident = &#arg_ident;
+      })
+    }
+    Arg::Ref(RefType::Mut, Special::Isolate) => {
+      *needs_fast_api_callback_options = true;
+      gs_quote!(generator_state(fast_api_callback_options) => {
+        let mut #arg_ident = unsafe { deno_core::v8::Isolate::from_raw_isolate_ptr(#fast_api_callback_options.isolate) };
+        let #arg_ident = &mut #arg_ident;
       })
     }
     Arg::Ref(RefType::Ref, Special::OpState) => {
@@ -721,8 +752,7 @@ fn map_v8_fastcall_arg_to_arg(
       quote!(let #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);)
     }
     Arg::Ref(_, Special::HandleScope) => {
-      *needs_scope = true;
-      quote!(let #arg_ident = &mut #scope;)
+      unreachable!()
     }
     Arg::RcRefCell(Special::OpState) => {
       *needs_opctx = true;
@@ -731,42 +761,6 @@ fn map_v8_fastcall_arg_to_arg(
     Arg::Ref(RefType::Ref, Special::JsRuntimeState) => {
       *needs_js_runtime_state = true;
       quote!(let #arg_ident = &#js_runtime_state;)
-    }
-    Arg::State(RefType::Ref, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = ::std::cell::RefCell::borrow(&#opctx.state);
-        let #arg_ident = deno_core::_ops::opstate_borrow::<#state>(&#arg_ident);
-      }
-    }
-    Arg::State(RefType::Mut, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = ::std::cell::RefCell::borrow_mut(&#opctx.state);
-        let #arg_ident = deno_core::_ops::opstate_borrow_mut::<#state>(&mut #arg_ident);
-      }
-    }
-    Arg::OptionState(RefType::Ref, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let #arg_ident = &::std::cell::RefCell::borrow(&#opctx.state);
-        let #arg_ident = #arg_ident.try_borrow::<#state>();
-      }
-    }
-    Arg::OptionState(RefType::Mut, state) => {
-      *needs_opctx = true;
-      let state =
-        syn::parse_str::<Type>(state).expect("Failed to reparse state type");
-      quote! {
-        let mut #arg_ident = &mut ::std::cell::RefCell::borrow_mut(&#opctx.state);
-        let #arg_ident = #arg_ident.try_borrow_mut::<#state>();
-      }
     }
     Arg::VarArgs => quote!(let #arg_ident = None;),
     Arg::This => {
@@ -805,36 +799,35 @@ fn map_v8_fastcall_arg_to_arg(
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
-    Arg::CppGcResource(ty) => {
+    Arg::CppGcResource(_, ty) => {
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
 
       *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(scope) => {
-        let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) else {
+      gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
+        let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) else {
           #throw_exception
         };
-        let #arg_ident = &*#arg_ident;
+        let #arg_ident = unsafe { #arg_ident.as_ref() };
       })
     }
     Arg::OptionCppGcResource(ty) => {
-      let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-
       *needs_fast_isolate = true;
       let throw_exception =
-        throw_type_error(generator_state, format!("expected {ty:?}"));
-      gs_quote!(generator_state(scope) => {
+        throw_type_error(generator_state, format!("expected {ty}"));
+      let ty =
+        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+      gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
-        } else if let Some(#arg_ident) = deno_core::_ops::try_unwrap_cppgc_object::<#ty>(&mut #scope, #arg_ident) {
+        } else if let Some(#arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #arg_ident) {
           Some(#arg_ident)
         } else {
           #throw_exception
         };
-        let #arg_ident = #arg_ident.as_deref();
+        let #arg_ident = unsafe { #arg_ident.as_ref().map(|a| a.as_ref()) };
       })
     }
     _ => quote!(let #arg_ident = #arg_ident as _;),
@@ -895,11 +888,9 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::Ref(RefType::Mut, Special::HandleScope)
     | Arg::Rc(Special::JsRuntimeState)
     | Arg::Ref(RefType::Ref, Special::JsRuntimeState)
-    | Arg::State(..)
     | Arg::VarArgs
     | Arg::This
-    | Arg::Special(Special::Isolate)
-    | Arg::OptionState(..) => V8FastCallType::Virtual,
+    | Arg::Ref(_, Special::Isolate) => V8FastCallType::Virtual,
     // Other types + ref types are not handled
     Arg::OptionNumeric(..)
     | Arg::Option(_)
@@ -962,7 +953,7 @@ fn map_retval_to_v8_fastcall_type(
     | Arg::SerdeV8(_)
     | Arg::ToV8(_)
     | Arg::WebIDL(_, _, _) => return Ok(None),
-    Arg::Void => V8FastCallType::Void,
+    Arg::VoidUndefined | Arg::Void => V8FastCallType::Void,
     Arg::Numeric(NumericArg::bool, _) => V8FastCallType::Bool,
     Arg::Numeric(NumericArg::u32, _)
     | Arg::Numeric(NumericArg::u16, _)

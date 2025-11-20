@@ -1,36 +1,36 @@
-error: unused import: `std::future::Future`
- --> ../op2/test_cases_fail/lifetimes.rs:5:5
+error[E0716]: temporary value dropped while borrowed
+ --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
   |
-5 | use std::future::Future;
-  |     ^^^^^^^^^^^^^^^^^^^
+  | #[op2(fast)]
+  | ^^^^^^^^^^^-
+  | |          |
+  | |          temporary value is freed at the end of this statement
+  | creates a temporary value which is freed while still in use
+  | argument requires that borrow lasts for `'static`
   |
-note: the lint level is defined here
- --> ../op2/test_cases_fail/lifetimes.rs:2:9
-  |
-2 | #![deny(warnings)]
-  |         ^^^^^^^^
-  = note: `#[deny(unused_imports)]` implied by `#[deny(warnings)]`
+  = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0597]: `arg0` does not live long enough
-  --> ../op2/test_cases_fail/lifetimes.rs:11:1
-   |
-11 | #[op2(fast)]
-   | ^^^^^^^^^^^-
-   | |          |
-   | |          `arg0` dropped here while still borrowed
-   | borrowed value does not live long enough
-   | argument requires that `arg0` is borrowed for `'static`
-   |
-   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
+error[E0521]: borrowed data escapes outside of associated function
+ --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
+  |
+  | #[op2(fast)]
+  | ^^^^^^^^^^^^
+  | |
+  | `fast_api_callback_options` is a reference that is only valid in the associated function body
+  | `fast_api_callback_options` escapes the associated function body here
+  | lifetime `'s` defined here
+  | argument requires that `'s` must outlive `'static`
+  |
+  = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0597]: `arg0_temp` does not live long enough
-  --> ../op2/test_cases_fail/lifetimes.rs:14:1
-   |
-14 | #[op2(fast)]
-   | ^^^^^^^^^^^-
-   | |          |
-   | |          `arg0_temp` dropped here while still borrowed
-   | borrowed value does not live long enough
-   | argument requires that `arg0_temp` is borrowed for `'static`
-   |
-   = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)
+error[E0716]: temporary value dropped while borrowed
+ --> $WORKSPACE/ops/op2/test_cases_fail/lifetimes.rs
+  |
+  | #[op2(fast)]
+  | ^^^^^^^^^^^-
+  | |          |
+  | |          temporary value is freed at the end of this statement
+  | creates a temporary value which is freed while still in use
+  | argument requires that borrow lasts for `'static`
+  |
+  = note: this error originates in the attribute macro `op2` (in Nightly builds, run with -Z macro-backtrace for more info)

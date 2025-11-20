@@ -94,3 +94,18 @@ test(function testCircularObject() {
   );
   assertEquals(deserializedCircularObject.test, deserializedCircularObject);
 });
+
+test(function structuredClone() {
+  const primitiveValueArray = ["test", "a", null, undefined];
+  assertArrayEquals(
+    Deno.core.structuredClone(primitiveValueArray),
+    primitiveValueArray,
+  );
+
+  const circularObject = { test: null as unknown, test2: "dd", test3: "aa" };
+  circularObject.test = circularObject;
+  const cloned = Deno.core.structuredClone(circularObject);
+  assertEquals(cloned.test, cloned);
+  assertEquals(cloned.test2, circularObject.test2);
+  assertEquals(cloned.test3, circularObject.test3);
+});

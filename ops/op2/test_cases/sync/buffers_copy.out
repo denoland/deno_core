@@ -117,11 +117,11 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let Ok(arg0) = arg0.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -133,7 +133,14 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 let arg0 = unsafe {
                     let (input_ptr, input_len) = arg0
                         .get_contents_raw_parts(&mut buffer);
-                    let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+                    let input_ptr = if input_ptr.is_null() {
+                        ::std::ptr::dangling_mut()
+                    } else {
+                        input_ptr
+                    };
+                    let slice = ::std::slice::from_raw_parts_mut::<
+                        's,
+                    >(input_ptr, input_len);
                     let (before, slice, after) = slice.align_to_mut();
                     debug_assert!(before.is_empty());
                     debug_assert!(after.is_empty());
@@ -142,11 +149,11 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 let arg0 = arg0.to_vec();
                 let Ok(arg1) = arg1.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -158,7 +165,14 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 let arg1 = unsafe {
                     let (input_ptr, input_len) = arg1
                         .get_contents_raw_parts(&mut buffer);
-                    let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+                    let input_ptr = if input_ptr.is_null() {
+                        ::std::ptr::dangling_mut()
+                    } else {
+                        input_ptr
+                    };
+                    let slice = ::std::slice::from_raw_parts_mut::<
+                        's,
+                    >(input_ptr, input_len);
                     let (before, slice, after) = slice.align_to_mut();
                     debug_assert!(before.is_empty());
                     debug_assert!(after.is_empty());
@@ -167,11 +181,11 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 let arg1 = arg1.to_vec().into_boxed_slice();
                 let Ok(arg2) = arg2.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -183,7 +197,14 @@ const fn op_buffers() -> ::deno_core::_ops::OpDecl {
                 let arg2 = unsafe {
                     let (input_ptr, input_len) = arg2
                         .get_contents_raw_parts(&mut buffer);
-                    let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+                    let input_ptr = if input_ptr.is_null() {
+                        ::std::ptr::dangling_mut()
+                    } else {
+                        input_ptr
+                    };
+                    let slice = ::std::slice::from_raw_parts_mut::<
+                        's,
+                    >(input_ptr, input_len);
                     let (before, slice, after) = slice.align_to_mut();
                     debug_assert!(before.is_empty());
                     debug_assert!(after.is_empty());
@@ -392,11 +413,11 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
             let result = {
                 let Ok(arg0) = arg0.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -408,7 +429,14 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 let arg0 = unsafe {
                     let (input_ptr, input_len) = arg0
                         .get_contents_raw_parts(&mut buffer);
-                    let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+                    let input_ptr = if input_ptr.is_null() {
+                        ::std::ptr::dangling_mut()
+                    } else {
+                        input_ptr
+                    };
+                    let slice = ::std::slice::from_raw_parts_mut::<
+                        's,
+                    >(input_ptr, input_len);
                     let (before, slice, after) = slice.align_to_mut();
                     debug_assert!(before.is_empty());
                     debug_assert!(after.is_empty());
@@ -417,11 +445,11 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 let arg0 = arg0.to_vec();
                 let Ok(arg1) = arg1.try_cast::<deno_core::v8::ArrayBufferView>() else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected ArrayBufferView",
@@ -433,7 +461,14 @@ const fn op_buffers_32() -> ::deno_core::_ops::OpDecl {
                 let arg1 = unsafe {
                     let (input_ptr, input_len) = arg1
                         .get_contents_raw_parts(&mut buffer);
-                    let slice = ::std::slice::from_raw_parts_mut(input_ptr, input_len);
+                    let input_ptr = if input_ptr.is_null() {
+                        ::std::ptr::dangling_mut()
+                    } else {
+                        input_ptr
+                    };
+                    let slice = ::std::slice::from_raw_parts_mut::<
+                        's,
+                    >(input_ptr, input_len);
                     let (before, slice, after) = slice.align_to_mut();
                     debug_assert!(before.is_empty());
                     debug_assert!(after.is_empty());

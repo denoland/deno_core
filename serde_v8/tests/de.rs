@@ -34,13 +34,13 @@ enum EnumPayloads {
   Tuple(bool, i64, ()),
 }
 
-fn dedo(
-  code: &str,
-  f: impl FnOnce(&mut v8::HandleScope, v8::Local<v8::Value>),
-) {
+fn dedo<F>(code: &str, f: F)
+where
+  F: for<'a, 'b> FnOnce(&mut v8::PinScope<'a, 'b>, v8::Local<'a, v8::Value>),
+{
   v8_do(|| {
     let isolate = &mut v8::Isolate::new(v8::CreateParams::default());
-    let handle_scope = &mut v8::HandleScope::new(isolate);
+    v8::scope!(handle_scope, isolate);
     let context = v8::Context::new(handle_scope, Default::default());
     let scope = &mut v8::ContextScope::new(handle_scope, context);
     let v = js_exec(scope, code);
@@ -50,7 +50,7 @@ fn dedo(
 }
 
 macro_rules! decheck {
-  ($fn_name:ident, $t:ty, $src:expr, $x:ident, $check:expr) => {
+  ($fn_name:ident, $t:ty, $src:expr_2021, $x:ident, $check:expr_2021) => {
     #[test]
     fn $fn_name() {
       #[allow(clippy::bool_assert_comparison)]
@@ -65,13 +65,13 @@ macro_rules! decheck {
 }
 
 macro_rules! detest {
-  ($fn_name:ident, $t:ty, $src:expr, $rust:expr) => {
+  ($fn_name:ident, $t:ty, $src:expr_2021, $rust:expr_2021) => {
     decheck!($fn_name, $t, $src, t, assert_eq!(t, $rust));
   };
 }
 
 macro_rules! defail {
-  ($fn_name:ident, $t:ty, $src:expr, $failcase:expr) => {
+  ($fn_name:ident, $t:ty, $src:expr_2021, $failcase:expr_2021) => {
     #[test]
     fn $fn_name() {
       #[allow(clippy::bool_assert_comparison, clippy::redundant_closure_call)]

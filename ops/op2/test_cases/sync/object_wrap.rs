@@ -4,13 +4,27 @@
 deno_ops_compile_test_runner::prelude!();
 use deno_core::cppgc::GarbageCollected;
 use deno_core::v8;
+use deno_error::JsErrorBox;
 use std::cell::Cell;
 
 pub struct Foo {
   x: Cell<u32>,
 }
 
-impl GarbageCollected for Foo {}
+unsafe impl GarbageCollected for Foo {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"Foo"
+  }
+}
+
+fn f(
+  _: &mut v8::PinScope,
+  _: &v8::FunctionCallbackArguments,
+) -> Result<(), JsErrorBox> {
+  Ok(())
+}
 
 #[op2]
 impl Foo {
@@ -58,4 +72,8 @@ impl Foo {
 
   #[nofast]
   fn do_thing(&self) {}
+
+  #[fast]
+  #[validate(f)]
+  fn validate(&self) {}
 }

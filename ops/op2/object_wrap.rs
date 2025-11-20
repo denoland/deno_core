@@ -1,17 +1,19 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
-use quote::ToTokens;
-use syn::spanned::Spanned;
 use syn::ImplItem;
 use syn::ItemFn;
 use syn::ItemImpl;
+use syn::Token;
+use syn::parse::ParseStream;
+use syn::spanned::Spanned;
 
-use crate::op2::generate_op2;
 use crate::op2::MacroConfig;
 use crate::op2::Op2Error;
+use crate::op2::generate_op2;
 
 use super::signature::is_attribute_special;
 
@@ -71,8 +73,11 @@ use super::signature::is_attribute_special;
 // - setters
 //
 pub(crate) fn generate_impl_ops(
+  attr: TokenStream,
   item: ItemImpl,
 ) -> Result<TokenStream, Op2Error> {
+  let args = syn::parse2::<Args>(attr)?;
+
   let mut tokens = TokenStream::new();
 
   let self_ty = &item.self_ty;
@@ -104,8 +109,16 @@ pub(crate) fn generate_impl_ops(
 
       let mut config = MacroConfig::from_attributes(span, attrs)?;
 
+      if args.class_ty.is_some() {
+        config.use_proto_cppgc = true;
+      }
+
       if let Some(ref rename) = config.rename {
-        func.sig.ident = format_ident!("{}", rename);
+        if syn::parse_str::<syn::Ident>(rename).is_err() {
+          // Keep the original function name if rename is a keyword
+        } else {
+          func.sig.ident = format_ident!("{}", rename);
+        }
       }
 
       let ident = func.sig.ident.clone();
@@ -140,7 +153,42 @@ pub(crate) fn generate_impl_ops(
     quote! { None }
   };
 
+  let (prototype_index, inherits_type_name) = match &args.class_ty {
+    Some(ClassTy::Base { .. }) => (
+      quote! {
+        impl deno_core::cppgc::PrototypeChain for #self_ty {
+          fn prototype_index() -> Option<usize> {
+            Some(0)
+          }
+        }
+      },
+      quote! {
+        inherits_type_name: || None,
+      },
+    ),
+    Some(ClassTy::Inherit { ty, .. }) => (
+      quote! {
+        impl deno_core::cppgc::PrototypeChain for #self_ty {
+          fn prototype_index() -> Option<usize> {
+            Some(<#ty as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
+          }
+        }
+      },
+      quote! {
+        inherits_type_name: || Some(std::any::type_name::<#ty>()),
+      },
+    ),
+    None => (
+      quote! {},
+      quote! {
+        inherits_type_name: || None,
+      },
+    ),
+  };
+
   let res = quote! {
+      #prototype_index
+
       impl #self_ty {
         pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
           methods: &[
@@ -156,6 +204,7 @@ pub(crate) fn generate_impl_ops(
           constructor: #constructor,
           name: ::deno_core::__op_name_fast!(#self_ty),
           type_name: || std::any::type_name::<#self_ty>(),
+          #inherits_type_name
         };
 
         #tokens
@@ -163,4 +212,51 @@ pub(crate) fn generate_impl_ops(
   };
 
   Ok(res)
+}
+
+struct Args {
+  class_ty: Option<ClassTy>,
+}
+
+impl syn::parse::Parse for Args {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    if input.is_empty() {
+      Ok(Args { class_ty: None })
+    } else {
+      Ok(Args {
+        class_ty: Some(input.parse()?),
+      })
+    }
+  }
+}
+
+#[allow(clippy::large_enum_variant)]
+enum ClassTy {
+  Base {
+    _name_token: super::kw::base,
+  },
+  Inherit {
+    _name_token: super::kw::inherit,
+    _eq_token: Token![=],
+    ty: syn::Type,
+  },
+}
+
+impl syn::parse::Parse for ClassTy {
+  fn parse(input: ParseStream) -> syn::Result<Self> {
+    let lookahead = input.lookahead1();
+    if lookahead.peek(super::kw::base) {
+      Ok(ClassTy::Base {
+        _name_token: input.parse()?,
+      })
+    } else if lookahead.peek(super::kw::inherit) {
+      Ok(ClassTy::Inherit {
+        _name_token: input.parse()?,
+        _eq_token: input.parse()?,
+        ty: input.parse()?,
+      })
+    } else {
+      Err(lookahead.error())
+    }
+  }
 }

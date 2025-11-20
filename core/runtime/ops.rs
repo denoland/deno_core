@@ -5,12 +5,12 @@ use super::op_driver::OpScheduling;
 use super::op_driver::V8RetValMapper;
 use crate::ops::*;
 use deno_error::JsErrorClass;
-use futures::future::Future;
 use serde::Deserialize;
-use serde_v8::from_v8;
 use serde_v8::V8Sliceable;
+use serde_v8::from_v8;
 use std::borrow::Cow;
 use std::ffi::c_void;
+use std::future::Future;
 use std::mem::MaybeUninit;
 use std::ptr::NonNull;
 
@@ -105,14 +105,6 @@ macro_rules! try_bignum {
   };
 }
 
-pub fn opstate_borrow<T: 'static>(state: &OpState) -> &T {
-  state.borrow()
-}
-
-pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
-  state.borrow_mut()
-}
-
 pub fn to_u32_option(number: &v8::Value) -> Option<u32> {
   try_integer_some!(number Integer is_uint32);
   try_integer_some!(number Int32 is_int32);
@@ -176,23 +168,25 @@ unsafe fn latin1_to_utf8(
   inbuf: *const u8,
   outbuf: *mut u8,
 ) -> usize {
-  let mut output = 0;
-  let mut input = 0;
-  while input < input_length {
-    let char = *(inbuf.add(input));
-    if char < 0x80 {
-      *(outbuf.add(output)) = char;
-      output += 1;
-    } else {
-      // Top two bits
-      *(outbuf.add(output)) = (char >> 6) | 0b1100_0000;
-      // Bottom six bits
-      *(outbuf.add(output + 1)) = (char & 0b0011_1111) | 0b1000_0000;
-      output += 2;
+  unsafe {
+    let mut output = 0;
+    let mut input = 0;
+    while input < input_length {
+      let char = *(inbuf.add(input));
+      if char < 0x80 {
+        *(outbuf.add(output)) = char;
+        output += 1;
+      } else {
+        // Top two bits
+        *(outbuf.add(output)) = (char >> 6) | 0b1100_0000;
+        // Bottom six bits
+        *(outbuf.add(output + 1)) = (char & 0b0011_1111) | 0b1000_0000;
+        output += 2;
+      }
+      input += 1;
     }
-    input += 1;
+    output
   }
-  output
 }
 
 /// Converts a [`v8::fast_api::FastApiOneByteString`] to either an owned string, or a borrowed string, depending on whether it fits into the
@@ -256,7 +250,7 @@ pub fn to_string_ptr(string: &v8::fast_api::FastApiOneByteString) -> String {
 
 pub fn to_cow_byte_ptr(
   string: &v8::fast_api::FastApiOneByteString,
-) -> Cow<[u8]> {
+) -> Cow<'_, [u8]> {
   string.as_bytes().into()
 }
 
@@ -355,9 +349,9 @@ where
   }
 }
 
-pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
-  scope: &mut v8::HandleScope,
-  input: v8::Local<v8::Value>,
+pub fn serde_v8_to_rust<'a, 's, 'i, T: Deserialize<'a>>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
 ) -> serde_v8::Result<T> {
   from_v8(scope, input)
 }
@@ -371,33 +365,35 @@ where
   v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
   v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
 {
-  let (store, offset, length) =
-    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+  let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
+    Ok(buf) => {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.get_backing_store() else {
         return Err("buffer missing");
       };
       (buffer, buf.byte_offset(), buf.byte_length())
-    } else {
+    }
+    _ => {
       return Err("expected typed ArrayBufferView");
-    };
+    }
+  };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
-pub fn to_v8_slice_detachable<'a, T>(
-  scope: &mut v8::HandleScope,
-  input: v8::Local<'a, v8::Value>,
+pub fn to_v8_slice_detachable<'s, 'i, T>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
 ) -> Result<serde_v8::V8Slice<T>, &'static str>
 where
   T: V8Sliceable,
-  v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
-  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
+  v8::Local<'s, T::V8>: TryFrom<v8::Local<'s, v8::Value>>,
+  v8::Local<'s, v8::ArrayBufferView>: From<v8::Local<'s, T::V8>>,
 {
-  let (store, offset, length) =
-    if let Ok(buf) = v8::Local::<T::V8>::try_from(input) {
+  let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
+    Ok(buf) => {
       let buf: v8::Local<v8::ArrayBufferView> = buf.into();
       let Some(buffer) = buf.buffer(scope) else {
         return Err("buffer missing");
@@ -412,9 +408,11 @@ where
       }
       buffer.detach(None);
       res
-    } else {
+    }
+    _ => {
       return Err("expected typed ArrayBufferView");
-    };
+    }
+  };
   let slice =
     unsafe { serde_v8::V8Slice::from_parts(store, offset..(offset + length)) };
   Ok(slice)
@@ -427,22 +425,24 @@ where
 /// Callers must ensure that the returned slice does not outlive the [`v8::BackingStore`] of the
 /// [`v8::ArrayBuffer`].
 pub unsafe fn to_slice_buffer(
-  input: v8::Local<v8::Value>,
+  input: v8::Local<'_, v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
-  let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
-    return Err("expected ArrayBuffer");
-  };
-  let len = buf.byte_length();
-  let slice = if len > 0 {
-    if let Some(ptr) = buf.data() {
-      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+  unsafe {
+    let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) else {
+      return Err("expected ArrayBuffer");
+    };
+    let len = buf.byte_length();
+    let slice = if len > 0 {
+      if let Some(ptr) = buf.data() {
+        std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+      } else {
+        &mut []
+      }
     } else {
       &mut []
-    }
-  } else {
-    &mut []
-  };
-  Ok(slice)
+    };
+    Ok(slice)
+  }
 }
 
 /// Retrieve a byte slice from a [`v8::ArrayBuffer`], avoiding the intermediate [`v8::BackingStore`].
@@ -452,27 +452,29 @@ pub unsafe fn to_slice_buffer(
 /// Callers must ensure that the returned slice does not outlive the [`v8::BackingStore`] of the
 /// [`v8::ArrayBuffer`].
 pub unsafe fn to_slice_buffer_any(
-  input: v8::Local<v8::Value>,
+  input: v8::Local<'_, v8::Value>,
 ) -> Result<&mut [u8], &'static str> {
-  let (data, len) = {
-    if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
-      (NonNull::new(buf.data()), buf.byte_length())
-    } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
-      (buf.data(), buf.byte_length())
-    } else {
-      return Err("expected ArrayBuffer or ArrayBufferView");
-    }
-  };
-  let slice = if len > 0 {
-    if let Some(ptr) = data {
-      std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+  unsafe {
+    let (data, len) = {
+      if let Ok(buf) = v8::Local::<v8::ArrayBufferView>::try_from(input) {
+        (NonNull::new(buf.data()), buf.byte_length())
+      } else if let Ok(buf) = v8::Local::<v8::ArrayBuffer>::try_from(input) {
+        (buf.data(), buf.byte_length())
+      } else {
+        return Err("expected ArrayBuffer or ArrayBufferView");
+      }
+    };
+    let slice = if len > 0 {
+      if let Some(ptr) = data {
+        std::slice::from_raw_parts_mut(ptr.as_ptr() as _, len)
+      } else {
+        &mut []
+      }
     } else {
       &mut []
-    }
-  } else {
-    &mut []
-  };
-  Ok(slice)
+    };
+    Ok(slice)
+  }
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a [`v8::ArrayBuffer`].
@@ -530,28 +532,29 @@ pub fn to_v8_slice_any(
 #[allow(clippy::print_stdout, clippy::print_stderr, clippy::unused_async)]
 #[cfg(all(test, not(miri)))]
 mod tests {
-  use crate::convert::Number;
-  use crate::convert::Smi;
-  use crate::error::CoreError;
-  use crate::external;
-  use crate::external::ExternalPointer;
-  use crate::op2;
-  use crate::runtime::JsRuntimeState;
   use crate::FromV8;
   use crate::GarbageCollected;
   use crate::JsRuntime;
   use crate::OpState;
   use crate::RuntimeOptions;
   use crate::ToV8;
+  use crate::convert::Number;
+  use crate::convert::Smi;
+  use crate::error::CoreError;
+  use crate::error::CoreErrorKind;
+  use crate::external;
+  use crate::external::ExternalPointer;
+  use crate::op2;
+  use crate::runtime::JsRuntimeState;
   use bytes::BytesMut;
   use deno_error::JsErrorBox;
-  use futures::Future;
   use serde::Deserialize;
   use serde::Serialize;
   use serde_v8::JsBuffer;
   use std::borrow::Cow;
   use std::cell::Cell;
   use std::cell::RefCell;
+  use std::future::Future;
   use std::rc::Rc;
   use std::time::Duration;
 
@@ -604,8 +607,6 @@ mod tests {
       op_state_rc,
       op_state_ref,
       op_state_mut,
-      op_state_mut_attr,
-      op_state_multi_attr,
       op_buffer_slice,
       op_buffer_jsbuffer,
       op_buffer_ptr,
@@ -688,7 +689,7 @@ mod tests {
   /// Run a test for a single op.
   fn run_test2(repeat: usize, op: &str, test: &str) -> Result<(), CoreError> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      extensions: vec![testing::init_ops_and_esm()],
+      extensions: vec![testing::init()],
       ..Default::default()
     });
     let err_mapper =
@@ -739,7 +740,7 @@ mod tests {
     test: &str,
   ) -> Result<(), anyhow::Error> {
     let mut runtime = JsRuntime::new(RuntimeOptions {
-      extensions: vec![testing::init_ops_and_esm()],
+      extensions: vec![testing::init()],
       ..Default::default()
     });
     let err_mapper =
@@ -924,8 +925,8 @@ mod tests {
   }
 
   #[tokio::test(flavor = "current_thread")]
-  pub async fn test_op_result_void_switch(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_void_switch()
+  -> Result<(), Box<dyn std::error::Error>> {
     RETURN_COUNT.with(|count| count.set(0));
     let err = run_test2(
       JIT_ITERATIONS,
@@ -933,7 +934,7 @@ mod tests {
       "op_test_result_void_switch();",
     )
     .expect_err("Expected this to fail");
-    let CoreError::Js(js_err) = err else {
+    let CoreErrorKind::Js(js_err) = err.into_kind() else {
       unreachable!();
     };
     assert_eq!(js_err.message, Some("failed!!!".into()));
@@ -953,8 +954,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_result_primitive(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_result_primitive()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_test_result_primitive_err",
@@ -1258,7 +1259,7 @@ mod tests {
   #[op2(fast)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
-    s2: v8::Local<v8::String>,
+    s2: v8::Local<'s, v8::String>,
     s3: v8::Local<'s, v8::String>,
   ) -> u32 {
     if s.same_value(s2.into()) {
@@ -1298,8 +1299,8 @@ mod tests {
   }
 
   #[op2]
-  pub fn op_test_v8_type_handle_scope<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     s: &v8::String,
   ) -> v8::Local<'s, v8::String> {
     let s = s.to_rust_string_lossy(scope);
@@ -1308,8 +1309,8 @@ mod tests {
 
   /// Extract whatever lives in "key" from the object.
   #[op2]
-  pub fn op_test_v8_type_handle_scope_obj<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope_obj<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     o: &v8::Object,
   ) -> Option<v8::Local<'s, v8::Value>> {
     let key = v8::String::new(scope, "key").unwrap().into();
@@ -1318,8 +1319,8 @@ mod tests {
 
   /// Extract whatever lives in "key" from the object.
   #[op2]
-  pub fn op_test_v8_type_handle_scope_result<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope_result<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     o: &v8::Object,
   ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
     let key = v8::String::new(scope, "key").unwrap().into();
@@ -1371,13 +1372,17 @@ mod tests {
     }
 
     // Test the error case for op_test_v8_type_handle_scope_result
-    run_test2(1, "op_test_v8_type_handle_scope_result", "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}")?;
+    run_test2(
+      1,
+      "op_test_v8_type_handle_scope_result",
+      "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}",
+    )?;
     Ok(())
   }
 
   #[op2]
   pub fn op_test_v8_global(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     #[global] s: v8::Global<v8::String>,
   ) -> u32 {
     let s = s.open(scope);
@@ -1448,23 +1453,6 @@ mod tests {
     *state.borrow_mut() = value;
   }
 
-  #[op2(fast)]
-  pub fn op_state_mut_attr(#[state] value: &mut u32, new_value: u32) -> u32 {
-    let old_value = *value;
-    *value = new_value;
-    old_value
-  }
-
-  #[op2(fast)]
-  pub fn op_state_multi_attr(
-    #[state] value32: &u32,
-    #[state] value16: &u16,
-    #[state] value8: Option<&u8>,
-  ) -> u32 {
-    assert_eq!(value8, None);
-    *value32 + *value16 as u32
-  }
-
   #[tokio::test]
   pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
@@ -1472,21 +1460,11 @@ mod tests {
       "op_state_rc",
       "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
     )?;
-    run_test2(
-      JIT_ITERATIONS,
-      "op_state_mut_attr",
-      "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
-    )?;
     run_test2(JIT_ITERATIONS, "op_state_mut", "op_state_mut(__index__)")?;
     run_test2(
       JIT_ITERATIONS,
       "op_state_ref",
       "assert(op_state_ref() == 1234)",
-    )?;
-    run_test2(
-      JIT_ITERATIONS,
-      "op_state_multi_attr",
-      "assert(op_state_multi_attr() == 11234)",
     )?;
     Ok(())
   }
@@ -1680,8 +1658,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_jsbuffer(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_jsbuffer()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_jsbuffer",
@@ -1756,8 +1734,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_any_length(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_any_length()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_buffer_any_length",
@@ -1816,8 +1794,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_arraybuffer_slice(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_arraybuffer_slice()
+  -> Result<(), Box<dyn std::error::Error>> {
     // Zero-length buffers
     run_test2(
       JIT_ITERATIONS,
@@ -1838,10 +1816,10 @@ mod tests {
 
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
   #[op2(fast)]
-  pub fn op_buffer_slice_unsafe_callback(
-    scope: &mut v8::HandleScope,
-    buffer: v8::Local<v8::ArrayBuffer>,
-    callback: v8::Local<v8::Function>,
+  pub fn op_buffer_slice_unsafe_callback<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    buffer: v8::Local<'s, v8::ArrayBuffer>,
+    callback: v8::Local<'s, v8::Function>,
   ) {
     println!("{:?}", buffer.data());
     let recv = callback.into();
@@ -1907,8 +1885,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_buffer_bytesmut(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_buffer_bytesmut()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       10,
       "op_buffer_bytesmut",
@@ -1923,7 +1901,13 @@ mod tests {
     pub value: u32,
   }
 
-  impl GarbageCollected for TestResource {}
+  unsafe impl GarbageCollected for TestResource {
+    fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
+    fn get_name(&self) -> &'static std::ffi::CStr {
+      c"TestResource"
+    }
+  }
 
   #[op2]
   #[cppgc]
@@ -2070,18 +2054,16 @@ mod tests {
   }
 
   #[op2(nofast)]
-  fn op_isolate_run_microtasks(isolate: *mut v8::Isolate) {
-    // SAFETY: testing
-    unsafe { isolate.as_mut().unwrap().perform_microtask_checkpoint() };
+  fn op_isolate_run_microtasks(isolate: &mut v8::Isolate) {
+    isolate.perform_microtask_checkpoint();
   }
 
   #[op2(nofast)]
   fn op_isolate_queue_microtask(
-    isolate: *mut v8::Isolate,
-    cb: v8::Local<v8::Function>,
+    isolate: &mut v8::Isolate,
+    cb: v8::Local<'_, v8::Function>,
   ) {
-    // SAFETY: testing
-    unsafe { isolate.as_mut().unwrap().enqueue_microtask(cb) };
+    isolate.enqueue_microtask(cb);
   }
 
   #[tokio::test]
@@ -2178,8 +2160,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_sleep_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_sleep_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       5,
       "op_async_sleep_error",
@@ -2266,8 +2248,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_result_impl(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_result_impl()
+  -> Result<(), Box<dyn std::error::Error>> {
     for (n, msg) in [
       (0, "early exit"),
       (1, "early async exit"),
@@ -2320,7 +2302,9 @@ mod tests {
   }
 
   #[op2(async)]
-  fn op_async_buffer_impl(#[buffer] input: &[u8]) -> impl Future<Output = u32> {
+  fn op_async_buffer_impl(
+    #[buffer] input: &[u8],
+  ) -> impl Future<Output = u32> + use<> {
     let l = input.len();
     async move { l as _ }
   }
@@ -2379,8 +2363,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_async_serde_option_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_async_serde_option_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_async_test(
       2,
       "op_async_serde_option_v8",
@@ -2417,8 +2401,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_number_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_number_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_number_to_from_v8",
@@ -2450,19 +2434,19 @@ mod tests {
   impl<'a> ToV8<'a> for Bool {
     type Error = std::convert::Infallible;
 
-    fn to_v8(
+    fn to_v8<'i>(
       self,
-      scope: &mut v8::HandleScope<'a>,
+      scope: &mut v8::PinScope<'a, 'i>,
     ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
       self.0.to_v8(scope)
     }
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = JsErrorBox;
+    type Error = crate::error::DataError;
 
-    fn from_v8(
-      scope: &mut v8::HandleScope<'a>,
+    fn from_v8<'i>(
+      scope: &mut v8::PinScope<'a, 'i>,
       value: v8::Local<'a, v8::Value>,
     ) -> Result<Self, Self::Error> {
       bool::from_v8(scope, value).map(Bool)
@@ -2476,8 +2460,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8()
+  -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",
@@ -2490,8 +2474,8 @@ mod tests {
   }
 
   #[tokio::test]
-  pub async fn test_op_bool_to_from_v8_error(
-  ) -> Result<(), Box<dyn std::error::Error>> {
+  pub async fn test_op_bool_to_from_v8_error()
+  -> Result<(), Box<dyn std::error::Error>> {
     let err = run_test2(
       JIT_ITERATIONS,
       "op_bool_to_from_v8",
@@ -2502,7 +2486,7 @@ mod tests {
     .unwrap_err();
     assert_eq!(
       err.to_string(),
-      "TypeError: Expected boolean\n    at <anonymous>:4:7"
+      "TypeError: expected type `v8::data::Boolean`, got `v8::data::Value`\n    at <anonymous>:4:7"
     );
     Ok(())
   }

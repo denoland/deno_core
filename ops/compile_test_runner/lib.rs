@@ -4,9 +4,11 @@
 macro_rules! prelude {
   () => {
     #[allow(unused_imports)]
-    use deno_ops::op2;
+    use deno_ops::FromV8;
     #[allow(unused_imports)]
     use deno_ops::WebIDL;
+    #[allow(unused_imports)]
+    use deno_ops::op2;
 
     pub fn main() {}
   };
@@ -27,5 +29,12 @@ mod compile_tests {
     let t = trybuild::TestCases::new();
     t.pass("../webidl/test_cases/*.rs");
     t.compile_fail("../webidl/test_cases_fail/*.rs");
+  }
+
+  #[test]
+  fn from_v8() {
+    let t = trybuild::TestCases::new();
+    t.pass("../conversion/from_v8/test_cases/*.rs");
+    t.compile_fail("../conversion/from_v8/test_cases_fail/*.rs");
   }
 }

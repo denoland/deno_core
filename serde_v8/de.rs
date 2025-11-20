@@ -1,19 +1,10 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use serde::Deserialize;
 use serde::de::SeqAccess as _;
 use serde::de::Visitor;
 use serde::de::{self};
-use serde::Deserialize;
 
-use crate::error::Error;
-use crate::error::Result;
-use crate::keys::v8_struct_key;
-use crate::keys::KeyCache;
-use crate::magic;
-use crate::magic::transl8::visit_magic;
-use crate::magic::transl8::FromV8;
-use crate::magic::transl8::MagicType;
-use crate::payload::ValueType;
 use crate::AnyValue;
 use crate::BigInt;
 use crate::ByteString;
@@ -21,17 +12,26 @@ use crate::DetachedBuffer;
 use crate::JsBuffer;
 use crate::StringOrBuffer;
 use crate::U16String;
+use crate::error::Error;
+use crate::error::Result;
+use crate::keys::KeyCache;
+use crate::keys::v8_struct_key;
+use crate::magic;
+use crate::magic::transl8::FromV8;
+use crate::magic::transl8::MagicType;
+use crate::magic::transl8::visit_magic;
+use crate::payload::ValueType;
 
-pub struct Deserializer<'a, 'b, 's> {
-  input: v8::Local<'a, v8::Value>,
-  scope: &'b mut v8::HandleScope<'s>,
+pub struct Deserializer<'b, 's, 'i> {
+  input: v8::Local<'s, v8::Value>,
+  scope: &'b mut v8::PinScope<'s, 'i>,
   _key_cache: Option<&'b mut KeyCache>,
 }
 
-impl<'a, 'b, 's> Deserializer<'a, 'b, 's> {
+impl<'b, 's, 'i> Deserializer<'b, 's, 'i> {
   pub fn new(
-    scope: &'b mut v8::HandleScope<'s>,
-    input: v8::Local<'a, v8::Value>,
+    scope: &'b mut v8::PinScope<'s, 'i>,
+    input: v8::Local<'s, v8::Value>,
     key_cache: Option<&'b mut KeyCache>,
   ) -> Self {
     Deserializer {
@@ -43,9 +43,9 @@ impl<'a, 'b, 's> Deserializer<'a, 'b, 's> {
 }
 
 // from_v8 deserializes a v8::Value into a Deserializable / rust struct
-pub fn from_v8<'de, 'a, 'b, 's, T>(
-  scope: &'b mut v8::HandleScope<'s>,
-  input: v8::Local<'a, v8::Value>,
+pub fn from_v8<'de, 'b, 's, 'i, T>(
+  scope: &'b mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
 ) -> Result<T>
 where
   T: Deserialize<'de>,
@@ -56,9 +56,9 @@ where
 }
 
 // like from_v8 except accepts a KeyCache to optimize struct key decoding
-pub fn from_v8_cached<'de, 'a, 'b, 's, T>(
-  scope: &'b mut v8::HandleScope<'s>,
-  input: v8::Local<'a, v8::Value>,
+pub fn from_v8_cached<'de, 'b, 's, 'i, T>(
+  scope: &'b mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
   key_cache: &mut KeyCache,
 ) -> Result<T>
 where
@@ -107,9 +107,7 @@ macro_rules! deserialize_unsigned {
   };
 }
 
-impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
-  for &'x mut Deserializer<'a, 'b, 's>
-{
+impl<'de> de::Deserializer<'de> for &'_ mut Deserializer<'_, '_, '_> {
   type Error = Error;
 
   fn deserialize_any<V>(self, visitor: V) -> Result<V::Value>
@@ -456,16 +454,16 @@ impl<'de, 'a, 'b, 's, 'x> de::Deserializer<'de>
   }
 }
 
-struct MapObjectAccess<'a, 's> {
+struct MapObjectAccess<'a, 's, 'i> {
   obj: v8::Local<'a, v8::Object>,
-  keys: SeqAccess<'a, 's>,
+  keys: SeqAccess<'a, 's, 'i>,
   next_value: Option<v8::Local<'s, v8::Value>>,
 }
 
-impl<'a, 's> MapObjectAccess<'a, 's> {
+impl<'a, 's, 'i> MapObjectAccess<'a, 's, 'i> {
   pub fn new(
     obj: v8::Local<'a, v8::Object>,
-    scope: &'a mut v8::HandleScope<'s>,
+    scope: &'a mut v8::PinScope<'s, 'i>,
   ) -> Self {
     let keys = match obj.get_own_property_names(
       scope,
@@ -485,7 +483,7 @@ impl<'a, 's> MapObjectAccess<'a, 's> {
   }
 }
 
-impl<'de> de::MapAccess<'de> for MapObjectAccess<'_, '_> {
+impl<'de> de::MapAccess<'de> for MapObjectAccess<'_, '_, '_> {
   type Error = Error;
 
   fn next_key_seed<K: de::DeserializeSeed<'de>>(
@@ -523,14 +521,14 @@ impl<'de> de::MapAccess<'de> for MapObjectAccess<'_, '_> {
   }
 }
 
-struct MapPairsAccess<'a, 's> {
+struct MapPairsAccess<'a, 's, 'i> {
   obj: v8::Local<'a, v8::Array>,
   pos: u32,
   len: u32,
-  scope: &'a mut v8::HandleScope<'s>,
+  scope: &'a mut v8::PinScope<'s, 'i>,
 }
 
-impl<'de> de::MapAccess<'de> for MapPairsAccess<'_, '_> {
+impl<'de> de::MapAccess<'de> for MapPairsAccess<'_, '_, '_> {
   type Error = Error;
 
   fn next_key_seed<K: de::DeserializeSeed<'de>>(
@@ -564,14 +562,14 @@ impl<'de> de::MapAccess<'de> for MapPairsAccess<'_, '_> {
   }
 }
 
-struct StructAccess<'a, 's> {
+struct StructAccess<'a, 's, 'i> {
   obj: v8::Local<'a, v8::Object>,
-  scope: &'a mut v8::HandleScope<'s>,
+  scope: &'a mut v8::PinScope<'s, 'i>,
   keys: std::slice::Iter<'static, &'static str>,
   next_value: Option<v8::Local<'s, v8::Value>>,
 }
 
-impl<'de> de::MapAccess<'de> for StructAccess<'_, '_> {
+impl<'de> de::MapAccess<'de> for StructAccess<'_, '_, '_> {
   type Error = Error;
 
   fn next_key_seed<K>(&mut self, seed: K) -> Result<Option<K::Value>>
@@ -605,23 +603,23 @@ impl<'de> de::MapAccess<'de> for StructAccess<'_, '_> {
   }
 }
 
-struct SeqAccess<'a, 's> {
+struct SeqAccess<'a, 's, 'i> {
   obj: v8::Local<'a, v8::Object>,
-  scope: &'a mut v8::HandleScope<'s>,
+  scope: &'a mut v8::PinScope<'s, 'i>,
   range: std::ops::Range<u32>,
 }
 
-impl<'a, 's> SeqAccess<'a, 's> {
+impl<'a, 's, 'i> SeqAccess<'a, 's, 'i> {
   pub fn new(
     obj: v8::Local<'a, v8::Object>,
-    scope: &'a mut v8::HandleScope<'s>,
+    scope: &'a mut v8::PinScope<'s, 'i>,
     range: std::ops::Range<u32>,
   ) -> Self {
     Self { obj, scope, range }
   }
 }
 
-impl<'de> de::SeqAccess<'de> for SeqAccess<'_, '_> {
+impl<'de> de::SeqAccess<'de> for SeqAccess<'_, '_, '_> {
   type Error = Error;
 
   fn next_element_seed<T: de::DeserializeSeed<'de>>(
@@ -643,16 +641,16 @@ impl<'de> de::SeqAccess<'de> for SeqAccess<'_, '_> {
   }
 }
 
-struct EnumAccess<'a, 'b, 's> {
-  tag: v8::Local<'a, v8::Value>,
-  payload: v8::Local<'a, v8::Value>,
-  scope: &'b mut v8::HandleScope<'s>,
+struct EnumAccess<'b, 's, 'i> {
+  tag: v8::Local<'s, v8::Value>,
+  payload: v8::Local<'s, v8::Value>,
+  scope: &'b mut v8::PinScope<'s, 'i>,
   // p1: std::marker::PhantomData<&'x ()>,
 }
 
-impl<'de, 'a, 'b, 's> de::EnumAccess<'de> for EnumAccess<'a, 'b, 's> {
+impl<'de, 'b, 's, 'i> de::EnumAccess<'de> for EnumAccess<'b, 's, 'i> {
   type Error = Error;
-  type Variant = VariantDeserializer<'a, 'b, 's>;
+  type Variant = VariantDeserializer<'b, 's, 'i>;
 
   fn variant_seed<V: de::DeserializeSeed<'de>>(
     self,
@@ -662,7 +660,7 @@ impl<'de, 'a, 'b, 's> de::EnumAccess<'de> for EnumAccess<'a, 'b, 's> {
       let mut dtag = Deserializer::new(self.scope, self.tag, None);
       seed.deserialize(&mut dtag)
     };
-    let dpayload = VariantDeserializer::<'a, 'b, 's> {
+    let dpayload = VariantDeserializer::<'b, 's, 'i> {
       scope: self.scope,
       value: self.payload,
     };
@@ -671,14 +669,12 @@ impl<'de, 'a, 'b, 's> de::EnumAccess<'de> for EnumAccess<'a, 'b, 's> {
   }
 }
 
-struct VariantDeserializer<'a, 'b, 's> {
-  value: v8::Local<'a, v8::Value>,
-  scope: &'b mut v8::HandleScope<'s>,
+struct VariantDeserializer<'b, 's, 'i> {
+  value: v8::Local<'s, v8::Value>,
+  scope: &'b mut v8::PinScope<'s, 'i>,
 }
 
-impl<'de, 'a, 'b, 's> de::VariantAccess<'de>
-  for VariantDeserializer<'a, 'b, 's>
-{
+impl<'de> de::VariantAccess<'de> for VariantDeserializer<'_, '_, '_> {
   type Error = Error;
 
   fn unit_variant(self) -> Result<()> {
@@ -732,17 +728,13 @@ fn bigint_to_f64(b: v8::Local<v8::BigInt>) -> f64 {
   sign * x
 }
 
-pub fn to_utf8(
-  s: v8::Local<v8::String>,
-  scope: &mut v8::HandleScope,
-) -> String {
+pub fn to_utf8(s: v8::Local<v8::String>, scope: &mut v8::PinScope) -> String {
   to_utf8_fast(s, scope).unwrap_or_else(|| to_utf8_slow(s, scope))
 }
 
-#[allow(deprecated)]
 fn to_utf8_fast(
   s: v8::Local<v8::String>,
-  scope: &mut v8::HandleScope,
+  scope: &mut v8::PinScope,
 ) -> Option<String> {
   // Over-allocate by 20% to avoid checking string twice
   let str_chars = s.length();
@@ -750,12 +742,11 @@ fn to_utf8_fast(
   let mut buf = Vec::with_capacity(capacity);
 
   let mut nchars = 0;
-  let bytes_len = s.write_utf8_uninit(
+  let bytes_len = s.write_utf8_uninit_v2(
     scope,
     buf.spare_capacity_mut(),
+    v8::WriteFlags::kReplaceInvalidUtf8,
     Some(&mut nchars),
-    v8::WriteOptions::NO_NULL_TERMINATION
-      | v8::WriteOptions::REPLACE_INVALID_UTF8,
   );
 
   if nchars < str_chars {
@@ -769,10 +760,7 @@ fn to_utf8_fast(
   }
 }
 
-fn to_utf8_slow(
-  s: v8::Local<v8::String>,
-  scope: &mut v8::HandleScope,
-) -> String {
+fn to_utf8_slow(s: v8::Local<v8::String>, scope: &mut v8::PinScope) -> String {
   let capacity = s.utf8_length(scope);
   let mut buf = Vec::with_capacity(capacity);
 
@@ -780,6 +768,7 @@ fn to_utf8_slow(
     scope,
     buf.spare_capacity_mut(),
     v8::WriteFlags::kReplaceInvalidUtf8,
+    None,
   );
 
   // SAFETY: write_utf8_uninit guarantees `bytes_len` bytes are initialized & valid utf8

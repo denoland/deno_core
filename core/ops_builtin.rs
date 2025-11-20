@@ -1,9 +1,16 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::error::exception_to_err_result;
-use crate::error::format_file_name;
+use crate::CancelHandle;
+use crate::JsBuffer;
+use crate::ModuleId;
+use crate::OpDecl;
+use crate::OpState;
+use crate::Resource;
 use crate::error::CoreError;
+use crate::error::CoreErrorKind;
 use crate::error::ResourceError;
+use crate::error::exception_to_err;
+use crate::error::exception_to_err_result;
 use crate::io::AdaptiveBufferStrategy;
 use crate::io::BufMutView;
 use crate::io::BufView;
@@ -12,22 +19,16 @@ use crate::modules::ModuleMap;
 use crate::op2;
 use crate::ops_builtin_types;
 use crate::ops_builtin_v8;
-use crate::runtime::v8_static_strings;
 use crate::runtime::JsRealm;
-use crate::CancelHandle;
-use crate::JsBuffer;
-use crate::ModuleId;
-use crate::OpDecl;
-use crate::OpState;
-use crate::Resource;
+use crate::runtime::v8_static_strings;
 use bytes::BytesMut;
 use deno_error::JsErrorBox;
 use futures::StreamExt;
 use serde_v8::ByteString;
 use std::cell::RefCell;
+use std::io::Write;
 use std::io::stderr;
 use std::io::stdout;
-use std::io::Write;
 use std::rc::Rc;
 
 macro_rules! builtin_ops {
@@ -45,6 +46,7 @@ builtin_ops! {
   op_resources,
   op_wasm_streaming_feed,
   op_wasm_streaming_set_url,
+  op_wasm_streaming_stream_feed,
   op_void_sync,
   op_error_async,
   op_error_async_deferred,
@@ -60,7 +62,6 @@ builtin_ops! {
   op_write_all,
   op_write_type_error,
   op_shutdown,
-  op_format_file_name,
   op_str_byte_length,
   op_panic,
   op_cancel_handle,
@@ -115,6 +116,7 @@ builtin_ops! {
   ops_builtin_v8::op_decode,
   ops_builtin_v8::op_serialize,
   ops_builtin_v8::op_deserialize,
+  ops_builtin_v8::op_structured_clone,
   ops_builtin_v8::op_set_promise_hooks,
   ops_builtin_v8::op_get_promise_details,
   ops_builtin_v8::op_get_proxy_details,
@@ -133,7 +135,8 @@ builtin_ops! {
   ops_builtin_v8::op_leak_tracing_enable,
   ops_builtin_v8::op_leak_tracing_submit,
   ops_builtin_v8::op_leak_tracing_get_all,
-  ops_builtin_v8::op_leak_tracing_get
+  ops_builtin_v8::op_leak_tracing_get,
+  ops_builtin_v8::op_get_ext_import_meta_proto
 }
 
 #[op2(fast)]
@@ -234,10 +237,13 @@ impl Resource for WasmStreamingResource {
     // At this point there are no clones of Rc<WasmStreamingResource> on the
     // resource table, and no one should own a reference outside of the stack.
     // Therefore, we can be sure `self` is the only reference.
-    if let Ok(wsr) = Rc::try_unwrap(self) {
-      wsr.0.into_inner().finish();
-    } else {
-      panic!("Couldn't consume WasmStreamingResource.");
+    match Rc::try_unwrap(self) {
+      Ok(wsr) => {
+        wsr.0.into_inner().finish();
+      }
+      _ => {
+        panic!("Couldn't consume WasmStreamingResource.");
+      }
     }
   }
 }
@@ -274,31 +280,86 @@ pub fn op_wasm_streaming_set_url(
 }
 
 #[op2(async)]
-async fn op_read(
+async fn op_wasm_streaming_stream_feed(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
-  #[buffer] buf: JsBuffer,
-) -> Result<u32, JsErrorBox> {
-  let resource = state
-    .borrow()
+  #[smi] stream_rid: ResourceId,
+  auto_close: bool,
+) -> Result<(), JsErrorBox> {
+  let wasm_streaming = state
+    .borrow_mut()
+    .resource_table
+    .get::<WasmStreamingResource>(rid)
+    .map_err(|_| JsErrorBox::type_error("stream not found"))?;
+
+  loop {
+    let resource = state
+      .borrow()
+      .resource_table
+      .get_any(stream_rid)
+      .map_err(|_| JsErrorBox::type_error("stream not found"))?;
+    let view = deno_core::BufMutView::new(65536);
+    let (bytes, view) = resource.read_byob(view).await?;
+
+    /* EOF */
+    if bytes == 0 {
+      break;
+    }
+
+    wasm_streaming
+      .0
+      .borrow_mut()
+      .on_bytes_received(&view[..bytes]);
+  }
+
+  if auto_close {
+    let _ = state.borrow_mut().resource_table.take_any(stream_rid);
+  }
+
+  Ok(())
+}
+
+// Get a resource from the resource table and
+// handle unrefing the current task.
+fn get_resource(
+  state: Rc<RefCell<OpState>>,
+  rid: ResourceId,
+  promise_id: i32,
+) -> Result<Rc<dyn Resource>, JsErrorBox> {
+  let op_state = state.borrow();
+  let resource = op_state
     .resource_table
     .get_any(rid)
     .map_err(JsErrorBox::from_err)?;
+
+  if op_state.unrefed_resources.contains(&rid) {
+    op_state.unrefed_ops.borrow_mut().insert(promise_id);
+  }
+
+  Ok(resource)
+}
+
+#[op2(async, promise_id)]
+async fn op_read(
+  state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
+  #[smi] rid: ResourceId,
+  #[buffer] buf: JsBuffer,
+) -> Result<u32, JsErrorBox> {
+  let resource = get_resource(state, rid, promise_id)?;
+
   let view = BufMutView::from(buf);
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
-#[op2(async)]
+#[op2(async, promise_id)]
 #[buffer]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
   #[smi] rid: ResourceId,
 ) -> Result<BytesMut, JsErrorBox> {
-  let resource = state
-    .borrow()
-    .resource_table
-    .get_any(rid)
-    .map_err(JsErrorBox::from_err)?;
+  let resource = get_resource(state, rid, promise_id)?;
 
   let (min, maybe_max) = resource.size_hint();
   let mut buffer_strategy =
@@ -327,17 +388,15 @@ async fn op_read_all(
   Ok(buf.maybe_unwrap_bytes().unwrap())
 }
 
-#[op2(async)]
+#[op2(async, promise_id)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
+  #[smi] promise_id: i32,
   #[smi] rid: ResourceId,
   #[buffer] buf: JsBuffer,
 ) -> Result<u32, JsErrorBox> {
-  let resource = state
-    .borrow()
-    .resource_table
-    .get_any(rid)
-    .map_err(JsErrorBox::from_err)?;
+  let resource = get_resource(state, rid, promise_id)?;
+
   let view = BufView::from(buf);
   let resp = resource.write(view).await?;
   Ok(resp.nwritten() as u32)
@@ -416,16 +475,10 @@ async fn op_shutdown(
   resource.shutdown().await
 }
 
-#[op2]
-#[string]
-fn op_format_file_name(#[string] file_name: &str) -> String {
-  format_file_name(file_name)
-}
-
 #[op2(fast)]
-fn op_str_byte_length(
-  scope: &mut v8::HandleScope,
-  value: v8::Local<v8::Value>,
+fn op_str_byte_length<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  value: v8::Local<'s, v8::Value>,
 ) -> u32 {
   if let Ok(string) = v8::Local::<v8::String>::try_from(value) {
     string.utf8_length(scope) as u32
@@ -448,16 +501,15 @@ fn op_encode_binary_string(#[buffer] s: &[u8]) -> ByteString {
 }
 
 #[op2(fast)]
-fn op_is_terminal(
-  state: &mut OpState,
-  #[smi] rid: ResourceId,
-) -> Result<bool, ResourceError> {
-  let handle = state.resource_table.get_handle(rid)?;
-  Ok(handle.is_terminal())
+fn op_is_terminal(state: &mut OpState, #[smi] rid: ResourceId) -> bool {
+  match state.resource_table.get_handle(rid) {
+    Ok(handle) => handle.is_terminal(),
+    _ => false,
+  }
 }
 
-async fn do_load_job<'s>(
-  scope: &mut v8::HandleScope<'s>,
+async fn do_load_job<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   module_map_rc: Rc<ModuleMap>,
   specifier: &str,
   code: Option<String>,
@@ -468,12 +520,17 @@ async fn do_load_job<'s>(
       .map_err(|e| e.into_error(scope, false, false))?;
   }
 
-  let mut load = ModuleMap::load_side(module_map_rc.clone(), specifier).await?;
+  let mut load = ModuleMap::load_side(
+    module_map_rc.clone(),
+    specifier,
+    crate::modules::SideModuleKind::Sync,
+  )
+  .await?;
 
   while let Some(load_result) = load.next().await {
-    let (request, info) = load_result?;
+    let (reference, info) = load_result?;
     load
-      .register_and_recurse(scope, &request, info)
+      .register_and_recurse(scope, &reference, info)
       .map_err(|e| e.into_error(scope, false, false))?;
   }
 
@@ -489,8 +546,7 @@ async fn do_load_job<'s>(
         .instantiate_module(scope, root_id)
         .map_err(|e| {
           let exception = v8::Local::new(scope, e);
-          exception_to_err_result::<()>(scope, exception, false, false)
-            .unwrap_err()
+          exception_to_err(scope, exception, false, false)
         })?;
     }
     v8::ModuleStatus::Instantiated
@@ -508,13 +564,13 @@ async fn do_load_job<'s>(
     }
     v8::ModuleStatus::Errored => {
       return Err(
-        exception_to_err_result::<()>(
+        CoreErrorKind::Js(exception_to_err(
           scope,
           module.get_exception(),
           false,
           false,
-        )
-        .unwrap_err(),
+        ))
+        .into_box(),
       );
     }
   }
@@ -524,8 +580,8 @@ async fn do_load_job<'s>(
 
 /// Wrap module with another module that also exports `__esModule=true` in order
 /// to maintain compat with node, which does this to maintain compat with babel.
-fn wrap_module<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn wrap_module<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   module: v8::Local<'s, v8::Module>,
 ) -> Option<v8::Local<'s, v8::Module>> {
   const SOURCE: &str = "
@@ -562,10 +618,10 @@ fn wrap_module<'s>(
     _: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Module>> {
     // SAFETY: It is safe to open a CallbackScope from a context in this callback.
-    let mut scope = unsafe { v8::CallbackScope::new(context) };
-    debug_assert_eq!(specifier.to_rust_string_lossy(&mut scope), "original");
+    v8::callback_scope!(unsafe scope, context);
+    debug_assert_eq!(specifier.to_rust_string_lossy(scope), "original");
     let module = scope.remove_slot::<v8::Global<v8::Module>>().unwrap();
-    Some(v8::Local::new(&mut scope, module))
+    Some(v8::Local::new(scope, module))
   }
 
   wrapper_module.instantiate_module(scope, resolve_callback)?;
@@ -576,8 +632,8 @@ fn wrap_module<'s>(
 }
 
 #[op2(reentrant)]
-fn op_import_sync<'s>(
-  scope: &mut v8::HandleScope<'s>,
+fn op_import_sync<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
   #[string] specifier: &str,
   #[string] code: Option<String>,
 ) -> Result<v8::Local<'s, v8::Value>, CoreError> {
@@ -614,20 +670,20 @@ fn op_import_sync<'s>(
     }
     v8::ModuleStatus::Errored => {
       return Err(
-        exception_to_err_result::<()>(
+        CoreErrorKind::Js(exception_to_err(
           scope,
           module.get_exception(),
           false,
           false,
-        )
-        .unwrap_err(),
+        ))
+        .into_box(),
       );
     }
   }
 
   let namespace = module.get_module_namespace().cast::<v8::Object>();
 
-  let scope = &mut v8::TryCatch::new(scope);
+  v8::tc_scope!(let scope, scope);
 
   let default = v8_static_strings::DEFAULT.v8_string(scope).unwrap();
   let es_module = v8_static_strings::ESMODULE.v8_string(scope).unwrap();
@@ -638,7 +694,7 @@ fn op_import_sync<'s>(
     let Some(module) = wrap_module(scope, module) else {
       let exception = scope.exception().unwrap();
       return exception_to_err_result(scope, exception, false, false)
-        .map_err(Into::into);
+        .map_err(|e| CoreErrorKind::Js(e).into_box());
     };
     Ok(v8::Local::new(scope, module.get_module_namespace()))
   } else {

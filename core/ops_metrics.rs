@@ -1,9 +1,9 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::ops::OpCtx;
-use crate::serde::Serialize;
 use crate::OpDecl;
 use crate::OpId;
+use crate::ops::OpCtx;
+use crate::serde::Serialize;
 use std::cell::Ref;
 use std::cell::RefCell;
 use std::cell::RefMut;
@@ -141,7 +141,7 @@ impl OpMetricsSummaryTracker {
   }
 
   #[inline]
-  fn metrics_mut(&self, id: OpId) -> RefMut<OpMetricsSummary> {
+  fn metrics_mut(&self, id: OpId) -> RefMut<'_, OpMetricsSummary> {
     RefMut::map(self.ops.borrow_mut(), |ops| &mut ops[id as usize])
   }
 

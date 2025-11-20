@@ -13,16 +13,16 @@ pub(crate) trait MagicType {
 }
 
 pub(crate) trait ToV8 {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error>;
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error>;
 }
 
 pub(crate) trait FromV8: Sized {
-  fn from_v8(
-    scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    scope: &mut v8::PinScope<'scope, 'i>,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error>;
 }
 
@@ -53,7 +53,7 @@ where
     p1: std::marker::PhantomData<T>,
   }
 
-  impl<'de, T: MagicType> serde::de::Visitor<'de> for ValueVisitor<T> {
+  impl<T: MagicType> serde::de::Visitor<'_> for ValueVisitor<T> {
     type Value = T;
 
     fn expecting(
@@ -101,8 +101,7 @@ where
   // serde_v8 was originally taking a pointer to a stack value here. This code is crazy
   // but there's no way to fix it easily. As a bandaid, let's box it.
   let x = Box::new(x);
-  let y = visitor.visit_u64::<E>(Box::into_raw(x) as _);
-  y
+  visitor.visit_u64::<E>(Box::into_raw(x) as _)
 }
 
 macro_rules! impl_magic {

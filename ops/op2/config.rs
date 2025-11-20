@@ -4,14 +4,15 @@ use proc_macro2::Delimiter;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
-use syn::parse::Parse;
-use syn::parse::ParseStream;
-use syn::parse2;
 use syn::Ident;
 use syn::MacroDelimiter;
 use syn::MetaList;
+use syn::Path;
 use syn::Token;
 use syn::Type;
+use syn::parse::Parse;
+use syn::parse::ParseStream;
+use syn::parse2;
 
 use crate::op2::Op2Error;
 
@@ -49,11 +50,16 @@ pub struct MacroConfig {
   /// Marks an op to have it collect stack trace of the call site in the OpState.
   pub stack_trace: bool,
   /// Total required number of arguments for the op.
-  pub required: u8,
+  pub required: Option<u8>,
   /// Rename the op to the given name.
   pub rename: Option<String>,
   /// Symbol.for("op_name") for the op.
   pub symbol: bool,
+  /// Use proto for cppgc object.
+  pub use_proto_cppgc: bool,
+  /// Calls the fn with the promise_id of the async op.
+  pub promise_id: bool,
+  pub validate: Option<Path>,
 }
 
 impl MacroConfig {
@@ -111,11 +117,15 @@ impl MacroConfig {
         Flags::NoSideEffects => config.no_side_effects = true,
         Flags::StackTrace => config.stack_trace = true,
         Flags::StaticMethod => config.static_member = true,
-        Flags::Required(req) => config.required = *req,
+        Flags::Required(req) => config.required = Some(*req),
         Flags::Rename(rename) => config.rename = Some(rename.clone()),
         Flags::Symbol(symbol) => {
           config.rename = Some(symbol.clone());
           config.symbol = true;
+        }
+        Flags::PromiseId => config.promise_id = true,
+        Flags::Validate(path) => {
+          config.validate = Some(path.0.clone());
         }
       }
 
@@ -164,6 +174,12 @@ impl MacroConfig {
         "reentrant",
       ));
     }
+    if config.promise_id && !config.r#async {
+      return Err(Op2Error::InvalidAttributeCombination(
+        "promise_id_fn",
+        "async",
+      ));
+    }
 
     Ok(config)
   }
@@ -193,6 +209,34 @@ enum Flags {
   StaticMethod,
   StackTrace,
   Symbol(String),
+  PromiseId,
+  Validate(PathOrd),
+}
+
+#[derive(Debug, Clone, Eq, PartialEq)]
+struct PathOrd(Path);
+
+impl Ord for PathOrd {
+  fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    self
+      .0
+      .segments
+      .len()
+      .cmp(&other.0.segments.len())
+      .then_with(|| {
+        self
+          .0
+          .to_token_stream()
+          .to_string()
+          .cmp(&other.0.to_token_stream().to_string())
+      })
+  }
+}
+
+impl PartialOrd for PathOrd {
+  fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    Some(self.cmp(other))
+  }
 }
 
 impl Parse for Flags {
@@ -200,11 +244,14 @@ impl Parse for Flags {
     let lookahead = input.lookahead1();
 
     let flag = if lookahead.peek(kw::method) {
-      if let Some(list) = input.parse::<CustomMeta>()?.as_meta_list() {
-        let ty = list.parse_args::<Type>()?;
-        Flags::Method(Some(ty.into_token_stream().to_string().replace(' ', "")))
-      } else {
-        Flags::Method(None)
+      match input.parse::<CustomMeta>()?.as_meta_list() {
+        Some(list) => {
+          let ty = list.parse_args::<Type>()?;
+          Flags::Method(Some(
+            ty.into_token_stream().to_string().replace(' ', ""),
+          ))
+        }
+        _ => Flags::Method(None),
       }
     } else if lookahead.peek(kw::static_method) {
       input.parse::<kw::static_method>()?;
@@ -219,38 +266,40 @@ impl Parse for Flags {
       input.parse::<kw::setter>()?;
       Flags::Setter
     } else if lookahead.peek(kw::fast) {
-      if let Some(list) = input.parse::<CustomMeta>()?.as_meta_list() {
-        let ty = list.parse_args::<Type>()?;
-        Flags::Fast(Some(ty.into_token_stream().to_string().replace(' ', "")))
-      } else {
-        Flags::Fast(None)
+      match input.parse::<CustomMeta>()?.as_meta_list() {
+        Some(list) => {
+          let ty = list.parse_args::<Type>()?;
+          Flags::Fast(Some(ty.into_token_stream().to_string().replace(' ', "")))
+        }
+        _ => Flags::Fast(None),
       }
     } else if lookahead.peek(kw::nofast) {
       input.parse::<kw::nofast>()?;
       Flags::NoFast
     } else if lookahead.peek(Token![async]) || lookahead.peek(kw::async_method)
     {
-      if let Some(list) = input.parse::<CustomMeta>()?.as_meta_list() {
-        let async_mode = list.parse_args_with(|input: ParseStream| {
-          let lookahead = input.lookahead1();
+      match input.parse::<CustomMeta>()?.as_meta_list() {
+        Some(list) => {
+          let async_mode = list.parse_args_with(|input: ParseStream| {
+            let lookahead = input.lookahead1();
 
-          if lookahead.peek(kw::fake) {
-            input.parse::<kw::fake>()?;
-            Ok(AsyncMode::Fake)
-          } else if lookahead.peek(kw::lazy) {
-            input.parse::<kw::lazy>()?;
-            Ok(AsyncMode::Lazy)
-          } else if lookahead.peek(kw::deferred) {
-            input.parse::<kw::deferred>()?;
-            Ok(AsyncMode::Deferred)
-          } else {
-            Err(lookahead.error())
-          }
-        })?;
+            if lookahead.peek(kw::fake) {
+              input.parse::<kw::fake>()?;
+              Ok(AsyncMode::Fake)
+            } else if lookahead.peek(kw::lazy) {
+              input.parse::<kw::lazy>()?;
+              Ok(AsyncMode::Lazy)
+            } else if lookahead.peek(kw::deferred) {
+              input.parse::<kw::deferred>()?;
+              Ok(AsyncMode::Deferred)
+            } else {
+              Err(lookahead.error())
+            }
+          })?;
 
-        Flags::Async(Some(async_mode))
-      } else {
-        Flags::Async(None)
+          Flags::Async(Some(async_mode))
+        }
+        _ => Flags::Async(None),
       }
     } else if lookahead.peek(kw::reentrant) {
       input.parse::<kw::reentrant>()?;
@@ -276,6 +325,14 @@ impl Parse for Flags {
       let list = meta.require_list()?;
       let lit = list.parse_args::<syn::LitStr>()?;
       Flags::Symbol(lit.value())
+    } else if lookahead.peek(kw::promise_id) {
+      input.parse::<kw::promise_id>()?;
+      Flags::PromiseId
+    } else if lookahead.peek(kw::validate) {
+      let meta = input.parse::<CustomMeta>()?;
+      let list = meta.require_list()?;
+      let path = list.parse_args::<Path>()?;
+      Flags::Validate(PathOrd(path))
     } else {
       return Err(lookahead.error());
     };
@@ -301,26 +358,24 @@ impl Parse for CustomMeta {
     };
 
     let args = if input.peek(syn::token::Paren) {
-      let (delimiter, tokenstream) = input.step(|cursor| {
-        if let Some((proc_macro2::TokenTree::Group(g), rest)) =
-          cursor.token_tree()
-        {
-          let span = g.delim_span();
+      let (delimiter, tokenstream) =
+        input.step(|cursor| match cursor.token_tree() {
+          Some((proc_macro2::TokenTree::Group(g), rest)) => {
+            let span = g.delim_span();
 
-          let delimiter = match g.delimiter() {
-            Delimiter::Parenthesis => {
-              MacroDelimiter::Paren(syn::token::Paren(span))
-            }
-            _ => {
-              return Err(cursor.error("expected `(`"));
-            }
-          };
+            let delimiter = match g.delimiter() {
+              Delimiter::Parenthesis => {
+                MacroDelimiter::Paren(syn::token::Paren(span))
+              }
+              _ => {
+                return Err(cursor.error("expected `(`"));
+              }
+            };
 
-          Ok(((delimiter, g.stream()), rest))
-        } else {
-          Err(cursor.error("expected delimiter"))
-        }
-      })?;
+            Ok(((delimiter, g.stream()), rest))
+          }
+          _ => Err(cursor.error("expected delimiter")),
+        })?;
 
       Some((delimiter, tokenstream))
     } else if input.peek(Token![=]) {
@@ -357,10 +412,13 @@ impl CustomMeta {
 
 impl ToTokens for CustomMeta {
   fn to_tokens(&self, tokens: &mut TokenStream) {
-    if let Some(list) = self.as_meta_list() {
-      list.to_tokens(tokens);
-    } else {
-      self.ident.to_tokens(tokens);
+    match self.as_meta_list() {
+      Some(list) => {
+        list.to_tokens(tokens);
+      }
+      _ => {
+        self.ident.to_tokens(tokens);
+      }
     }
   }
 }
@@ -385,35 +443,45 @@ mod kw {
   custom_keyword!(fake);
   custom_keyword!(lazy);
   custom_keyword!(deferred);
+  custom_keyword!(promise_id);
+  custom_keyword!(validate);
 }
 
 #[cfg(test)]
 mod tests {
   use super::*;
+  use syn::ItemFn;
+  use syn::Meta;
   use syn::parse::Parser;
   use syn::punctuated::Punctuated;
   use syn::spanned::Spanned;
-  use syn::ItemFn;
-  use syn::Meta;
 
   fn test_parse(s: &str, expected: MacroConfig) {
     let item_fn = syn::parse_str::<ItemFn>(&format!("#[op2{s}] fn x() {{ }}"))
       .expect("Failed to parse function");
     let attr = item_fn.attrs.first().unwrap();
-    if let Meta::List(list) = &attr.meta {
-      let metas = Punctuated::<CustomMeta, Token![,]>::parse_terminated
-        .parse2(list.tokens.clone())
-        .expect("Failed to parse attribute")
-        .into_iter()
-        .collect::<Vec<_>>();
+    match &attr.meta {
+      Meta::List(list) => {
+        let metas = Punctuated::<CustomMeta, Token![,]>::parse_terminated
+          .parse2(list.tokens.clone())
+          .expect("Failed to parse attribute")
+          .into_iter()
+          .collect::<Vec<_>>();
 
-      let config = MacroConfig::from_metas(list.span(), metas)
-        .expect("Failed to parse attribute");
-      assert_eq!(expected, config);
-    } else if let Meta::Path(..) = &attr.meta {
-      // Ignored
-    } else {
-      panic!("Not a list or path");
+        let config = MacroConfig::from_metas(list.span(), metas)
+          .expect("Failed to parse attribute");
+        assert_eq!(expected, config);
+      }
+      _ => {
+        match &attr.meta {
+          Meta::Path(..) => {
+            // Ignored
+          }
+          _ => {
+            panic!("Not a list or path");
+          }
+        }
+      }
     }
   }
 
@@ -424,6 +492,14 @@ mod tests {
       "(async)",
       MacroConfig {
         r#async: true,
+        ..Default::default()
+      },
+    );
+    test_parse(
+      "(async, promise_id)",
+      MacroConfig {
+        r#async: true,
+        promise_id: true,
         ..Default::default()
       },
     );

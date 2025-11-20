@@ -6,6 +6,7 @@
 use proc_macro::TokenStream;
 use std::error::Error;
 
+mod conversion;
 mod op2;
 mod webidl;
 
@@ -17,7 +18,7 @@ pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
-  match crate::op2::op2(attr.into(), item.into()) {
+  match op2::op2(attr.into(), item.into()) {
     Ok(output) => output.into(),
     Err(err) => {
       let mut err: &dyn Error = &err;
@@ -40,6 +41,80 @@ pub fn webidl(item: TokenStream) -> TokenStream {
   match webidl::webidl(item.into()) {
     Ok(output) => output.into(),
     Err(err) => err.into_compile_error().into(),
+  }
+}
+
+#[proc_macro_derive(FromV8, attributes(from_v8, v8))]
+pub fn from_v8(item: TokenStream) -> TokenStream {
+  match conversion::from_v8::from_v8(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+#[proc_macro_derive(ToV8, attributes(to_v8, v8))]
+pub fn to_v8(item: TokenStream) -> TokenStream {
+  match conversion::to_v8::to_v8(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+struct V8Eternal {
+  name: syn::Ident,
+  static_name: syn::Ident,
+  eternal_name: syn::Ident,
+}
+
+impl V8Eternal {
+  fn new(name: syn::Ident) -> Self {
+    Self {
+      static_name: quote::format_ident!("__v8_static_{name}"),
+      eternal_name: quote::format_ident!("__v8_{name}_eternal"),
+      name,
+    }
+  }
+
+  fn define_static(&self) -> proc_macro2::TokenStream {
+    let Self {
+      static_name, name, ..
+    } = self;
+    let name_str = name.to_string();
+
+    quote::quote! {
+      #static_name = #name_str
+    }
+  }
+
+  fn define_eternal(&self) -> proc_macro2::TokenStream {
+    let Self { eternal_name, .. } = self;
+
+    quote::quote! {
+      static #eternal_name: ::deno_core::v8::Eternal<::deno_core::v8::String> = ::deno_core::v8::Eternal::empty();
+    }
+  }
+
+  fn get_key(&self) -> proc_macro2::TokenStream {
+    let Self {
+      static_name,
+      eternal_name,
+      ..
+    } = self;
+
+    quote::quote! {
+      {
+        #eternal_name
+          .with(|__eternal| {
+            if let Some(__key) = __eternal.get(__scope) {
+              Ok::<_, ::deno_core::FastStringV8AllocationError>(__key)
+            } else {
+              let __key = #static_name.v8_string(__scope)?;
+              __eternal.set(__scope, __key);
+              Ok(__key)
+            }
+          }).map(Into::into)
+      }
+    }
   }
 }
 

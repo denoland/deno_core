@@ -10,6 +10,7 @@ const {
   op_stats_delete,
   op_async_never_resolves,
   op_async_fake,
+  op_async_promise_id,
 } = Deno
   .core
   .ops;
@@ -41,6 +42,10 @@ let nextStats = 0;
 
 export function fakeAsync() {
   return op_async_fake();
+}
+
+export function asyncPromiseId(): number {
+  return op_async_promise_id();
 }
 
 export class Stats {

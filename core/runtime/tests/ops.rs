@@ -4,13 +4,13 @@
 
 use crate::extensions::OpDecl;
 use crate::modules::StaticModuleLoader;
-use crate::runtime::tests::setup;
 use crate::runtime::tests::Mode;
+use crate::runtime::tests::setup;
 use crate::*;
 use deno_error::JsErrorBox;
-use futures::Future;
 use pretty_assertions::assert_eq;
 use std::cell::RefCell;
+use std::future::Future;
 use std::rc::Rc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
@@ -43,7 +43,7 @@ async fn test_async_opstate_borrow() {
     state = |state| state.put(InnerState(42))
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -75,7 +75,7 @@ async fn test_sync_op_serialize_object_with_numbers_as_keys() {
     ops = [op_sync_serialize_object_with_numbers_as_keys]
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -117,7 +117,7 @@ async fn test_async_op_serialize_object_with_numbers_as_keys() {
     ops = [op_async_serialize_object_with_numbers_as_keys]
   );
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -153,15 +153,17 @@ fn test_op_return_serde_v8_error() {
 
   deno_core::extension!(test_ext, ops = [op_err]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
-  assert!(runtime
-    .execute_script(
-      "test_op_return_serde_v8_error.js",
-      "Deno.core.ops.op_err()"
-    )
-    .is_err());
+  assert!(
+    runtime
+      .execute_script(
+        "test_op_return_serde_v8_error.js",
+        "Deno.core.ops.op_err()"
+      )
+      .is_err()
+  );
 }
 
 #[test]
@@ -180,13 +182,13 @@ fn test_op_high_arity() {
 
   deno_core::extension!(test_ext, ops = [op_add_4]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
   let r = runtime
     .execute_script("test.js", "Deno.core.ops.op_add_4(1, 2, 3, 4)")
     .unwrap();
-  let scope = &mut runtime.handle_scope();
+  deno_core::scope!(scope, runtime);
   assert_eq!(r.open(scope).integer_value(scope), Some(10));
 }
 
@@ -205,7 +207,7 @@ fn test_op_disabled() {
 
   deno_core::extension!(test_ext, ops_fn = ops);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
   // Disabled op should be replaced with a function that throws.
@@ -234,7 +236,7 @@ fn test_op_detached_buffer() {
 
   deno_core::extension!(test_ext, ops = [op_sum_take, op_boomerang]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -310,13 +312,14 @@ fn duplicate_op_names() {
 
   #[op2]
   #[string]
+  #[allow(clippy::unnecessary_wraps)]
   pub fn op_test() -> Result<String, JsErrorBox> {
     Ok(String::from("Test"))
   }
 
   deno_core::extension!(test_ext, ops = [a::op_test, op_test]);
   JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 }
@@ -338,7 +341,7 @@ fn ops_in_js_have_proper_names() {
 
   deno_core::extension!(test_ext, ops = [op_test_sync, op_test_async]);
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     ..Default::default()
   });
 
@@ -506,7 +509,7 @@ await op_void_async_deferred();
 
   let mut runtime = JsRuntime::new(RuntimeOptions {
     module_loader: Some(Rc::new(loader)),
-    extensions: vec![testing::init_ops()],
+    extensions: vec![testing::init()],
     ..Default::default()
   });
 
@@ -541,8 +544,8 @@ pub async fn op_async() {
 
 #[op2(async)]
 #[allow(unreachable_code)]
-pub fn op_async_impl_future_error(
-) -> Result<impl Future<Output = ()>, JsErrorBox> {
+pub fn op_async_impl_future_error()
+-> Result<impl Future<Output = ()>, JsErrorBox> {
   return Err(JsErrorBox::generic("dead"));
   Ok(async {})
 }
@@ -619,7 +622,7 @@ pub async fn test_op_metrics() {
 
   let out_clone = out.clone();
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     op_metrics_factory_fn: Some(Box::new(move |_, _, op| {
       let name = op.name;
       if !name.starts_with("op_async") && !name.starts_with("op_sync") {
@@ -700,7 +703,7 @@ pub async fn test_op_metrics_summary_tracker() {
     op.name.starts_with("op_async") || op.name.starts_with("op_sync")
   };
   let mut runtime = JsRuntime::new(RuntimeOptions {
-    extensions: vec![test_ext::init_ops()],
+    extensions: vec![test_ext::init()],
     op_metrics_factory_fn: Some(
       tracker.clone().op_metrics_factory_fn(op_enabled),
     ),

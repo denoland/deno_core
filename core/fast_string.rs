@@ -46,9 +46,9 @@ impl FastStaticString {
     v8::String::create_external_onebyte_const(s)
   }
 
-  pub fn v8_string<'s>(
+  pub fn v8_string<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> Result<v8::Local<'s, v8::String>, FastStringV8AllocationError> {
     FastString::from(*self).v8_string(scope)
   }
@@ -121,11 +121,11 @@ impl Display for FastStaticString {
   }
 }
 
-#[derive(Debug)]
+#[derive(Debug, deno_error::JsError)]
+#[class(type)]
 pub struct FastStringV8AllocationError;
 
 impl std::error::Error for FastStringV8AllocationError {}
-
 impl std::fmt::Display for FastStringV8AllocationError {
   fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
     write!(
@@ -297,9 +297,9 @@ impl FastString {
 
   /// Create a v8 string from this [`FastString`]. If the string is static and contains only ASCII characters,
   /// an external one-byte static is created.
-  pub fn v8_string<'a>(
+  pub fn v8_string<'a, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, 'i>,
   ) -> Result<v8::Local<'a, v8::String>, FastStringV8AllocationError> {
     match self.inner {
       FastStringInner::StaticAscii(s) => {
@@ -461,9 +461,9 @@ impl<'s> ToV8<'s> for FastString {
   type Error = FastStringV8AllocationError;
 
   #[inline]
-  fn to_v8(
+  fn to_v8<'i>(
     self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     Ok(self.v8_string(scope)?.into())
   }
@@ -496,7 +496,7 @@ impl<'de> serde::Deserialize<'de> for FastString {
 /// This macro creates a [`FastStaticString`] that may be converted to a [`FastString`] via [`Into::into`].
 #[macro_export]
 macro_rules! ascii_str_include {
-  ($file:expr) => {{
+  ($file:expr_2021) => {{
     const STR: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const(
         ::std::include_str!($file).as_bytes(),
@@ -512,7 +512,7 @@ macro_rules! ascii_str_include {
 /// This macro creates a [`FastStaticString`] that may be converted to a [`FastString`] via [`Into::into`].
 #[macro_export]
 macro_rules! ascii_str {
-  ($str:expr) => {{
+  ($str:expr_2021) => {{
     const C: $crate::v8::OneByteConst =
       $crate::FastStaticString::create_external_onebyte_const($str.as_bytes());
     $crate::FastStaticString::new(&C)
@@ -560,16 +560,16 @@ mod tests {
 
     let mut code: FastString = ascii_str!("123456").into();
     code.truncate(3);
-    assert_eq!(s, code.as_ref());
+    assert_eq!(s, code.as_str());
 
     let mut code: FastString = "123456".to_owned().into();
     code.truncate(3);
-    assert_eq!(s, code.as_ref());
+    assert_eq!(s, code.as_str());
 
     let arc_str: Arc<str> = "123456".into();
     let mut code: FastString = arc_str.into();
     code.truncate(3);
-    assert_eq!(s, code.as_ref());
+    assert_eq!(s, code.as_str());
   }
 
   #[test]

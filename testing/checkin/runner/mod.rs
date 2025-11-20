@@ -1,30 +1,23 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use self::ops_worker::worker_create;
 use self::ops_worker::WorkerCloseWatcher;
 use self::ops_worker::WorkerHostSide;
+use self::ops_worker::worker_create;
 use self::ts_module_loader::maybe_transpile_source;
-use deno_core::v8;
 use deno_core::CrossIsolateStore;
-use deno_core::CustomModuleEvaluationKind;
 use deno_core::Extension;
-use deno_core::FastString;
 use deno_core::ImportAssertionsSupport;
 use deno_core::JsRuntime;
-use deno_core::ModuleSourceCode;
 use deno_core::RuntimeOptions;
-use deno_error::JsErrorBox;
-use futures::Future;
 use std::any::Any;
 use std::any::TypeId;
-use std::borrow::Cow;
 use std::collections::HashMap;
+use std::future::Future;
 use std::rc::Rc;
-use std::sync::mpsc::channel;
-use std::sync::mpsc::RecvTimeoutError;
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::sync::OnceLock;
+use std::sync::mpsc::RecvTimeoutError;
+use std::sync::mpsc::channel;
 use std::time::Duration;
 
 mod extensions;
@@ -93,45 +86,37 @@ impl TestData {
   }
 }
 
-pub fn create_runtime(
-  parent: Option<WorkerCloseWatcher>,
-  additional_extensions: Vec<Extension>,
-) -> (JsRuntime, WorkerHostSide) {
-  let (worker, worker_host_side) = worker_create(parent);
-
-  static SNAPSHOT: OnceLock<Box<[u8]>> = OnceLock::new();
-
-  let snapshot = SNAPSHOT.get_or_init(snapshot::create_snapshot);
-
-  let mut runtime =
-    create_runtime_from_snapshot(snapshot, false, additional_extensions);
-  runtime.op_state().borrow_mut().put(worker);
-  (runtime, worker_host_side)
-}
-
 pub fn create_runtime_from_snapshot(
   snapshot: &'static [u8],
   inspector: bool,
+  parent: Option<WorkerCloseWatcher>,
   additional_extensions: Vec<Extension>,
-) -> JsRuntime {
+) -> (JsRuntime, WorkerHostSide) {
   create_runtime_from_snapshot_with_options(
     snapshot,
     inspector,
+    parent,
     additional_extensions,
     RuntimeOptions::default(),
   )
 }
+
+pub struct Snapshot(&'static [u8]);
+
 pub fn create_runtime_from_snapshot_with_options(
   snapshot: &'static [u8],
   inspector: bool,
+  parent: Option<WorkerCloseWatcher>,
   additional_extensions: Vec<Extension>,
   options: RuntimeOptions,
-) -> JsRuntime {
-  let mut extensions = vec![extensions::checkin_runtime::init_ops::<()>()];
+) -> (JsRuntime, WorkerHostSide) {
+  let (worker, worker_host_side) = worker_create(parent);
+
+  let mut extensions = vec![extensions::checkin_runtime::init::<()>()];
   extensions.extend(additional_extensions);
   let module_loader =
     Rc::new(ts_module_loader::TypescriptModuleLoader::default());
-  let mut runtime = JsRuntime::new(RuntimeOptions {
+  let runtime = JsRuntime::new(RuntimeOptions {
     extensions,
     startup_snapshot: Some(snapshot),
     module_loader: Some(module_loader.clone()),
@@ -139,7 +124,6 @@ pub fn create_runtime_from_snapshot_with_options(
       maybe_transpile_source(specifier, source)
     })),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
-    custom_module_evaluation_cb: Some(Box::new(custom_module_evaluation_cb)),
     inspector,
     import_assertions_support: ImportAssertionsSupport::Warning,
     ..options
@@ -147,8 +131,10 @@ pub fn create_runtime_from_snapshot_with_options(
 
   let stats = runtime.runtime_activity_stats_factory();
   runtime.op_state().borrow_mut().put(stats);
-  runtime.op_state().borrow_mut().put(Output::default());
-  runtime
+  runtime.op_state().borrow_mut().put(worker);
+  runtime.op_state().borrow_mut().put(Snapshot(snapshot));
+
+  (runtime, worker_host_side)
 }
 
 fn run_async(f: impl Future<Output = Result<(), anyhow::Error>>) {
@@ -176,60 +162,4 @@ fn run_async(f: impl Future<Output = Result<(), anyhow::Error>>) {
   drop(tokio);
   drop(tx);
   _ = timeout.join();
-}
-
-fn custom_module_evaluation_cb(
-  scope: &mut v8::HandleScope,
-  module_type: Cow<'_, str>,
-  module_name: &FastString,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
-  match &*module_type {
-    "bytes" => Ok(bytes_module(scope, code)),
-    "text" => text_module(scope, module_name, code),
-    _ => Err(JsErrorBox::generic(format!(
-      "Can't import {:?} because of unknown module type {}",
-      module_name, module_type
-    ))),
-  }
-}
-
-fn bytes_module(
-  scope: &mut v8::HandleScope,
-  code: ModuleSourceCode,
-) -> CustomModuleEvaluationKind {
-  // FsModuleLoader always returns bytes.
-  let ModuleSourceCode::Bytes(buf) = code else {
-    unreachable!()
-  };
-  let owned_buf = buf.to_vec();
-  let buf_len: usize = owned_buf.len();
-  let backing_store = v8::ArrayBuffer::new_backing_store_from_vec(owned_buf);
-  let backing_store_shared = backing_store.make_shared();
-  let ab = v8::ArrayBuffer::with_backing_store(scope, &backing_store_shared);
-  let uint8_array = v8::Uint8Array::new(scope, ab, 0, buf_len).unwrap();
-  let value: v8::Local<v8::Value> = uint8_array.into();
-  CustomModuleEvaluationKind::Synthetic(v8::Global::new(scope, value))
-}
-
-fn text_module(
-  scope: &mut v8::HandleScope,
-  module_name: &FastString,
-  code: ModuleSourceCode,
-) -> Result<CustomModuleEvaluationKind, JsErrorBox> {
-  // FsModuleLoader always returns bytes.
-  let ModuleSourceCode::Bytes(buf) = code else {
-    unreachable!()
-  };
-
-  let code = std::str::from_utf8(buf.as_bytes()).map_err(|e| {
-    JsErrorBox::generic(format!(
-      "Can't convert {module_name:?} source code to string: {e}"
-    ))
-  })?;
-  let str_ = v8::String::new(scope, code).unwrap();
-  let value: v8::Local<v8::Value> = str_.into();
-  Ok(CustomModuleEvaluationKind::Synthetic(v8::Global::new(
-    scope, value,
-  )))
 }
