@@ -163,11 +163,13 @@ impl MutableSleep {
 
   fn poll_ready(self: &Box<Self>, cx: &mut Context) -> Poll<()> {
     if self.ready.take() {
+      eprintln!("poll_ready timers ready");
       Poll::Ready(())
     } else {
       let external =
         unsafe { self.external_waker.get().as_mut().unwrap_unchecked() };
       if let Some(external) = external {
+        eprintln!("poll_ready timers external was some");
         // Already have this waker
         let waker = cx.waker();
         if !external.will_wake(waker) {
@@ -175,6 +177,7 @@ impl MutableSleep {
         }
         Poll::Pending
       } else {
+        eprintln!("poll_ready timers external was none");
         *external = Some(cx.waker().clone());
         Poll::Pending
       }
@@ -320,9 +323,11 @@ impl<T: Clone> WebTimers<T> {
     self.next_id.set(id);
 
     let mut timers = self.timers.borrow_mut();
+    let instant = Instant::now();
     let deadline = Instant::now()
       .checked_add(Duration::from_millis(timeout_ms))
       .unwrap();
+    eprintln!("queued timer {:?} {:?}", instant, deadline);
     match timers.first() {
       Some(TimerKey(k, ..)) => {
         if &deadline < k {
@@ -389,7 +394,9 @@ impl<T: Clone> WebTimers<T> {
 
   /// Poll for any timers that have completed.
   pub fn poll_timers(&self, cx: &mut Context) -> Poll<Vec<(u64, T)>> {
+    eprintln!("polling timers");
     ready!(self.sleep.poll_ready(cx));
+    eprintln!("timers ready");
     let now = Instant::now();
     let mut timers = self.timers.borrow_mut();
     let mut data = self.data_map.borrow_mut();
@@ -459,6 +466,7 @@ impl<T: Clone> WebTimers<T> {
       }
     }
 
+    eprintln!("timers output {}", output.len());
     Poll::Ready(output)
   }
 

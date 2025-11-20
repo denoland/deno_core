@@ -184,25 +184,6 @@
       op_run_microtasks();
     }
 
-    // Drain immediates queue.
-    console.log("eventLoopTick start", op_immediate_has_ref_count());
-    if (op_immediate_has_ref_count()) {
-      for (let i = 0; i < immediateCallbacks.length; i++) {
-        inner: while (true) {
-          console.log("tick in immediateCallbacks");
-          try {
-            immediateCallbacks[i]();
-            break inner;
-          } catch (e) {
-            console.log("run reportExceptionCallback");
-            reportExceptionCallback(e);
-            console.log("continue immediateCallbacks");
-            continue inner;
-          }
-        }
-      }
-    }
-
     // Finally drain macrotask queue.
     for (let i = 0; i < macrotaskCallbacks.length; i++) {
       const cb = macrotaskCallbacks[i];
@@ -226,6 +207,7 @@
 
     const timers = arguments[arguments.length - 2];
     if (timers) {
+      console.log("timers running", timers.length);
       timersRunning = true;
       for (let i = 0; i < timers.length; i += 3) {
         timerDepth = timers[i];
@@ -244,6 +226,25 @@
       timersRunning = false;
       timerDepth = 0;
       cancelledTimers.clear();
+    }
+
+    // Drain immediates queue.
+    console.log("eventLoopTick start", op_immediate_has_ref_count());
+    if (op_immediate_has_ref_count()) {
+      for (let i = 0; i < immediateCallbacks.length; i++) {
+        inner: while (true) {
+          console.log("tick in immediateCallbacks");
+          try {
+            immediateCallbacks[i]();
+            break inner;
+          } catch (e) {
+            console.log("run reportExceptionCallback");
+            reportExceptionCallback(e);
+            console.log("continue immediateCallbacks");
+            continue inner;
+          }
+        }
+      }
     }
 
     // If we have any rejections for this tick, attempt to process them
