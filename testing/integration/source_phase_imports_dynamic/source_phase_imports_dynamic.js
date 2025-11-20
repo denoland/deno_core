@@ -6,3 +6,4 @@ const bar = await import.source("./other.js");
 // ModuleSource is defined:
 // https://github.com/tc39/proposal-source-phase-imports#js-module-source
 console.log(typeof bar === "object");
+console.log(bar.bindings);

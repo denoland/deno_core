@@ -1,2 +1,2 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
-console.log();
+console.log(12312312);

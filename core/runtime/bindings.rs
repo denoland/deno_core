@@ -692,16 +692,30 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
   _host_defined_options: v8::Local<'s, v8::Data>,
   resource_name: v8::Local<'s, v8::Value>,
   specifier: v8::Local<'s, v8::String>,
-  _phase: v8::ModuleImportPhase,
+  phase: v8::ModuleImportPhase,
   import_attributes: v8::Local<'s, v8::FixedArray>,
 ) -> Option<v8::Local<'s, v8::Promise>> {
-  let cped = scope.get_continuation_preserved_embedder_data();
-
   // NOTE(bartlomieju): will crash for non-UTF-8 specifier
   let specifier_str = specifier
     .to_string(scope)
     .unwrap()
     .to_rust_string_lossy(scope);
+
+  match phase {
+    v8::ModuleImportPhase::kEvaluation => {}
+    v8::ModuleImportPhase::kSource => {
+      let message = format!(
+        "Module source can not be imported for \"{}\"",
+        &specifier_str
+      );
+      let message = v8::String::new(scope, &message).unwrap();
+      let exception = v8::Exception::syntax_error(scope, message).into();
+      scope.throw_exception(exception);
+      return None;
+    }
+  }
+
+  let cped = scope.get_continuation_preserved_embedder_data();
   let referrer_name_str = resource_name
     .to_string(scope)
     .unwrap()
