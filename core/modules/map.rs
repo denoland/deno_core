@@ -966,8 +966,11 @@ impl ModuleMap {
     }
 
     tc_scope.set_slot(self as *const _);
-    let instantiate_result =
-      module.instantiate_module(tc_scope, Self::module_resolve_callback);
+    let instantiate_result = module.instantiate_module2(
+      tc_scope,
+      Self::module_resolve_callback,
+      Self::module_source_callback,
+    );
     tc_scope.remove_slot::<*const Self>();
     if instantiate_result.is_none() {
       let exception = tc_scope.exception().unwrap();
@@ -1023,6 +1026,27 @@ impl ModuleMap {
         r#"Cannot resolve module "{specifier_str}" from "{referrer_name}""#
       )),
     );
+    None
+  }
+
+  fn module_source_callback<'s>(
+    context: v8::Local<'s, v8::Context>,
+    specifier: v8::Local<'s, v8::String>,
+    _import_attributes: v8::Local<'s, v8::FixedArray>,
+    _referrer: v8::Local<'s, v8::Module>,
+  ) -> Option<v8::Local<'s, v8::Object>> {
+    // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
+    v8::callback_scope!(unsafe scope, context);
+
+    let specifier_str = specifier.to_rust_string_lossy(scope);
+
+    let message = v8::String::new(
+      scope,
+      &format!(r#"Module source can not be imported for "{specifier_str}""#),
+    )
+    .unwrap();
+    let exception = v8::Exception::syntax_error(scope, message);
+    scope.throw_exception(exception);
     None
   }
 

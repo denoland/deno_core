@@ -1,0 +1,2 @@
+[ERR] SyntaxError: Module source can not be imported for "../wasm_imports/add.wasm"
+[ERR]     at test:///integration/source_phase_imports_dynamic/source_phase_imports_dynamic.js:2:13

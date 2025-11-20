@@ -80,6 +80,8 @@ integration_test!(
   module_types,
   pending_unref_op_tla,
   smoke_test,
+  source_phase_imports,
+  source_phase_imports_dynamic,
   timer_ref,
   timer_ref_and_cancel,
   timer_many,

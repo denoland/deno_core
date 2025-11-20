@@ -86,31 +86,25 @@ async fn run_integration_test_task(
     .put(deno_core::error::InitialCwd(Arc::new(Url::parse(
       "test:///",
     )?)));
-  let module = runtime.load_main_es_module(&url).await?;
-  let f = runtime.mod_evaluate(module);
-  let mut actual_output = String::new();
-  match runtime
-    .run_event_loop(PollEventLoopOptions::default())
-    .await
-  {
-    Err(e) => {
-      let state = runtime.op_state().clone();
-      let state = state.borrow();
-      let output: &Output = state.borrow();
-      for line in e.to_string().split('\n') {
-        output.line(format!("[ERR] {line}"));
+  let maybe_error = match runtime.load_main_es_module(&url).await {
+    Err(err) => Some(err),
+    Ok(module) => {
+      let f = runtime.mod_evaluate(module);
+      match runtime
+        .run_event_loop(PollEventLoopOptions::default())
+        .await
+      {
+        Err(err) => Some(err),
+        _ => f.await.err(),
       }
     }
-    _ => {
-      // Only await the module if we didn't fail
-      if let Err(e) = f.await {
-        let state = runtime.op_state().clone();
-        let state = state.borrow();
-        let output: &Output = state.borrow();
-        for line in e.to_string().split('\n') {
-          output.line(format!("[ERR] {line}"));
-        }
-      }
+  };
+  if let Some(err) = maybe_error {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
+    for line in err.to_string().split('\n') {
+      output.line(format!("[ERR] {line}"));
     }
   }
   let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
@@ -120,7 +114,7 @@ async fn run_integration_test_task(
     .await?
     .read_to_string(&mut expected_output)
     .await?;
-  actual_output += &lines.join("\n");
+  let actual_output = lines.join("\n");
   assert_eq!(actual_output, expected_output);
   Ok(())
 }
