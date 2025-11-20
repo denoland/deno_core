@@ -709,7 +709,7 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
         &specifier_str
       );
       let message = v8::String::new(scope, &message).unwrap();
-      let exception = v8::Exception::syntax_error(scope, message).into();
+      let exception = v8::Exception::syntax_error(scope, message);
       scope.throw_exception(exception);
       return None;
     }
