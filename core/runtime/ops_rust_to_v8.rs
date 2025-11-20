@@ -420,6 +420,8 @@ typedarray!(i8, Int8Array);
 typedarray!(i16, Int16Array);
 typedarray!(i32, Int32Array);
 typedarray!(i64, BigInt64Array);
+typedarray!(f32, Float32Array);
+typedarray!(f64, Float64Array);
 
 //
 // Serde
