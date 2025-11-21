@@ -260,6 +260,7 @@
 
   function runImmediateCallbacks() {
     for (let i = 0; i < immediateCallbacks.length; i++) {
+      // TODO(bartlomieju): why is it run a while loop? Remove?
       inner: while (true) {
         console.log("tick in immediateCallbacks");
         try {

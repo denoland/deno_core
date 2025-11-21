@@ -226,7 +226,6 @@ pub fn op_immediate_count(scope: &mut v8::PinScope, increase: bool) -> u32 {
 
   if increase {
     immediate_info.count += 1;
-    immediate_info.has_scheduled = true;
   } else {
     immediate_info.count -= 1;
   }

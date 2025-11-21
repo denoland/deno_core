@@ -2084,7 +2084,7 @@ impl JsRuntime {
     eprintln!(
       "is pending {} {}",
       pending_state.is_pending(),
-      pending_state.has_immediate_ref
+      pending_state.has_refed_immediates
     );
     if !pending_state.is_pending() {
       if has_inspector {
@@ -2108,10 +2108,11 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
+    // TODO(bartlomieju)
     if !did_work
       && !pending_state.has_pending_ops
       && !has_pending_timers
-      && pending_state.has_immediate_ref
+      && pending_state.has_refed_immediates
     {
       eprintln!("run immediate callbacks");
       Self::do_js_run_immediate_callbacks(scope, context_state);
@@ -2126,18 +2127,13 @@ impl JsRuntime {
     // background task is done.
     #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
-      eprintln!(
-        "pending_state.has_scheduled_immediate && pending_state.has_immediate_ref {} {}",
-        pending_state.has_scheduled_immediate, pending_state.has_immediate_ref
-      );
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
-        || pending_state.has_outstanding_immediate
-        || (pending_state.has_scheduled_immediate
-          && pending_state.has_immediate_ref)
+        // TODO(bartlomieju): should be both immediates fields?
+        || pending_state.has_outstanding_immediates
+        || pending_state.has_refed_immediates
         || pending_state.has_pending_promise_events
       {
-        context_state.immediate_info.borrow_mut().has_scheduled = false;
         self.inner.state.waker.wake();
       } else
       // If ops were dispatched we may have progress on pending modules that we should re-check
@@ -2156,7 +2152,8 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
-        || pending_state.has_immediate_ref
+        // TODO(bartlomieju): should be both immediates fields?
+        || pending_state.has_refed_immediates
       {
         // pass, will be polled again
       } else {
@@ -2175,7 +2172,8 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
-        || pending_state.has_immediate_ref
+        // TODO(bartlomieju): should be both immediates fields?
+        || pending_state.has_refed_immediates
       {
         // pass, will be polled again
       } else if realm.modules_idle() {
@@ -2395,11 +2393,10 @@ pub(crate) struct EventLoopPendingState {
   has_pending_module_evaluation: bool,
   has_pending_background_tasks: bool,
   has_tick_scheduled: bool,
-  has_outstanding_immediate: bool,
-  has_scheduled_immediate: bool,
-  has_immediate_ref: bool,
   has_pending_promise_events: bool,
   has_pending_external_ops: bool,
+  has_outstanding_immediates: bool,
+  has_refed_immediates: bool,
 }
 
 impl EventLoopPendingState {
@@ -2431,6 +2428,10 @@ impl EventLoopPendingState {
     let has_pending_refed_ops = has_pending_tasks
       || has_pending_refed_timers
       || num_pending_ops > num_unrefed_ops;
+    let (has_outstanding_immediates, has_refed_immediates) = {
+      let info = state.immediate_info.borrow();
+      (info.has_outstanding, info.ref_count > 0)
+    };
     EventLoopPendingState {
       has_pending_ops: has_pending_refed_ops
         || has_pending_timers
@@ -2441,11 +2442,10 @@ impl EventLoopPendingState {
       has_pending_module_evaluation,
       has_pending_background_tasks: scope.has_pending_background_tasks(),
       has_tick_scheduled: state.has_next_tick_scheduled.get(),
-      has_outstanding_immediate: state.immediate_info.borrow().has_outstanding,
-      has_scheduled_immediate: state.immediate_info.borrow().has_scheduled,
-      has_immediate_ref: state.immediate_info.borrow().has_ref(),
       has_pending_promise_events,
       has_pending_external_ops: state.external_ops_tracker.has_pending_ops(),
+      has_outstanding_immediates,
+      has_refed_immediates,
     }
   }
 
@@ -2463,7 +2463,8 @@ impl EventLoopPendingState {
       || self.has_pending_module_evaluation
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
-      || self.has_immediate_ref
+      // TODO(bartlomieju): should it be both immediates fields?
+      || self.has_refed_immediates
       || self.has_pending_promise_events
       || self.has_pending_external_ops
   }

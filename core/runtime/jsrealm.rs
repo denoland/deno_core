@@ -67,13 +67,6 @@ pub(crate) struct ImmediateInfo {
   pub count: u32,
   pub ref_count: u32,
   pub has_outstanding: bool,
-  pub has_scheduled: bool,
-}
-
-impl ImmediateInfo {
-  pub(crate) fn has_ref(&self) -> bool {
-    self.ref_count > 0
-  }
 }
 
 pub struct ContextState {
