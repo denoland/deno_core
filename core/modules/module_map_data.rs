@@ -145,6 +145,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
+  pub(crate) sources: HashMap<ModuleName, v8::Global<v8::Object>>,
 }
 
 /// Snapshot-compatible representation of this data.
