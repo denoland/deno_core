@@ -22,6 +22,7 @@ use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
+use crate::modules::ModuleImportPhase;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleName;
@@ -150,7 +151,7 @@ pub(crate) struct ModuleMap {
     RefCell<FuturesUnordered<Pin<Box<CodeCacheReadyFuture>>>>,
   pending_code_cache_ready: Cell<bool>,
   module_waker: AtomicWaker,
-  data: RefCell<ModuleMapData>,
+  pub(crate) data: RefCell<ModuleMapData>,
   will_snapshot: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
@@ -396,9 +397,6 @@ impl ModuleMap {
         )?
       }
       ModuleType::Wasm => {
-        let ModuleSourceCode::Bytes(code) = code else {
-          return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
-        };
         self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
       ModuleType::Json => self.new_json_module(
@@ -802,6 +800,10 @@ impl ModuleMap {
           requested_module_type,
         },
         referrer_source_offset,
+        phase: match module_request.get_phase() {
+          v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
+          v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+        },
       };
       requests.push(request);
     }
@@ -818,13 +820,52 @@ impl ModuleMap {
     Ok(id)
   }
 
+  pub(crate) fn new_wasm_module_source(
+    &self,
+    scope: &mut v8::PinScope,
+    name: ModuleName,
+    code: ModuleSourceCode,
+    is_dynamic_import: bool,
+  ) -> Result<(), ModuleError> {
+    let ModuleSourceCode::Bytes(code) = code else {
+      return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
+    };
+
+    let Some(wasm_module) =
+      v8::WasmModuleObject::compile(scope, code.as_bytes())
+    else {
+      return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
+    };
+
+    let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
+    let wasm_module_object_global = v8::Global::new(scope, wasm_module_object);
+
+    self
+      .data
+      .borrow_mut()
+      .sources
+      .insert(name, wasm_module_object_global);
+
+    Ok(())
+  }
+
   pub(crate) fn new_wasm_module(
     &self,
     scope: &mut v8::PinScope,
     name: ModuleName,
-    source: ModuleCodeBytes,
+    source: ModuleSourceCode,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
+    let (name, name2) = name.into_cheap_copy();
+    if !self.data.borrow_mut().sources.contains_key(&name) {
+      self.new_wasm_module_source(
+        scope,
+        name2,
+        source.clone,
+        is_dynamic_import,
+      )?;
+    }
+
     let bytes = source.as_bytes();
     let wasm_module_analysis = WasmDeps::parse(
       bytes,
@@ -832,28 +873,14 @@ impl ModuleMap {
     )
     .map_err(ModuleConcreteError::WasmParse)?;
 
-    let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
-      return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
-    };
-    let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
-
     let js_wasm_module_source =
       render_js_wasm_module(name.as_str(), wasm_module_analysis);
-
-    let synthetic_module_type =
-      ModuleType::Other("$$deno-core-internal-wasm-module".into());
-
-    let (name1, name2) = name.into_cheap_copy();
-    let value = v8::Local::new(scope, wasm_module_value);
-    let exports = vec![(ascii_str!("default"), value)];
-    let _synthetic_mod_id =
-      self.new_synthetic_module(scope, name1, synthetic_module_type, exports);
 
     self.new_module_from_js_source(
       scope,
       false,
       ModuleType::Wasm,
-      name2,
+      name,
       js_wasm_module_source.into(),
       is_dynamic_import,
       None,
@@ -1788,12 +1815,12 @@ impl ModuleMap {
         match maybe_result {
           Some(load_stream_result) => {
             match load_stream_result {
-              Ok((reference, info)) => {
+              Ok((request, info)) => {
                 // A module (not necessarily the one dynamically imported) has been
                 // fetched. Create and register it, and if successful, poll for the
                 // next recursive-load event related to this dynamic import.
                 let register_result =
-                  load.register_and_recurse(scope, &reference, info);
+                  load.register_and_recurse(scope, &request, info);
 
                 match register_result {
                   Ok(()) => {
@@ -2216,9 +2243,9 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
     .collect::<Vec<_>>();
 
   StringBuilder::build(|builder| {
-    builder.append("import wasmMod from \"");
+    builder.append("import source wasmMod from \"");
     builder.append(specifier);
-    builder.append("\" with { type: \"$$deno-core-internal-wasm-module\" };\n");
+    builder.append("\"\n");
 
     if !aggregated_imports.is_empty() {
       for (i, (_, import_info)) in aggregated_imports.iter().enumerate() {
@@ -2297,7 +2324,7 @@ fn test_render_js_wasm_module() {
   let rendered = render_js_wasm_module("./foo.wasm", deps);
   pretty_assertions::assert_eq!(
     rendered,
-    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+    r#"import source wasmMod from "./foo.wasm";
 const modInstance = new import.meta.WasmInstance(wasmMod);
 "#,
   );

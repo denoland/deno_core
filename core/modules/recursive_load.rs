@@ -4,13 +4,16 @@ use crate::ModuleLoadResponse;
 use crate::ModuleLoader;
 use crate::ModuleSource;
 use crate::ModuleSourceCode;
+use crate::ModuleType;
 use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
+use crate::modules::ModuleImportPhase;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoaderError;
 use crate::modules::ModuleReference;
+use crate::modules::ModuleRequest;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::loaders::ModuleLoadReferrer;
@@ -33,7 +36,7 @@ use std::task::Poll;
 use super::loaders::ModuleLoadOptions;
 
 type ModuleLoadFuture = dyn Future<
-  Output = Result<Option<(ModuleReference, ModuleSource)>, ModuleLoaderError>,
+  Output = Result<Option<(ModuleRequest, ModuleSource)>, ModuleLoaderError>,
 >;
 
 #[derive(Debug, Copy, Clone)]
@@ -247,18 +250,63 @@ impl RecursiveModuleLoad {
   pub(crate) fn register_and_recurse(
     &mut self,
     scope: &mut v8::PinScope,
-    module_reference: &ModuleReference,
+    module_request: &ModuleRequest,
     module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
     let (module_source, code) = module_source.into_cheap_copy_of_code();
+
+    if module_request.phase == ModuleImportPhase::Source {
+      if module_source.module_type != ModuleType::Wasm {
+        let message = v8::String::new(
+          scope,
+          &format!(
+            "Source phase imports are not supported for {} modules",
+            &module_source.module_type
+          ),
+        )
+        .unwrap();
+        let exception = v8::Exception::reference_error(scope, message);
+        return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
+      }
+
+      let ModuleSource {
+        code,
+        module_type,
+        module_url_found,
+        module_url_specified,
+        code_cache,
+      } = module_source;
+
+      // Register the module in the module map unless it's already there. If the
+      // specified URL and the "true" URL are different, register the alias.
+      let module_url_found = if let Some(module_url_found) = module_url_found {
+        let (module_url_found1, module_url_found2) =
+          module_url_found.into_cheap_copy();
+        self.module_map_rc.data.borrow_mut().alias(
+          module_url_specified,
+          &module_type.clone().into(),
+          module_url_found1,
+        );
+        module_url_found2
+      } else {
+        module_url_specified
+      };
+
+      self.module_map_rc.new_wasm_module_source(
+        scope,
+        module_url_found,
+        code,
+        self.is_dynamic_import(),
+      )?;
+      return Ok(());
+    }
+
     let module_id = self.module_map_rc.new_module(
       scope,
       self.is_currently_loading_main_module(),
       self.is_dynamic_import(),
       module_source,
     )?;
-
-    self.register_and_recurse_inner(module_id, module_reference, Some(&code));
 
     // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
@@ -363,7 +411,7 @@ impl RecursiveModuleLoad {
                     .borrow_mut()
                     .insert(found_specifier.as_str().to_string());
                 }
-                load_result.map(|s| Some((request.reference, s)))
+                load_result.map(|s| Some((request, s)))
               };
               self.pending.push(fut.boxed_local());
             }
@@ -376,7 +424,7 @@ impl RecursiveModuleLoad {
 }
 
 impl Stream for RecursiveModuleLoad {
-  type Item = Result<(ModuleReference, ModuleSource), CoreError>;
+  type Item = Result<(ModuleRequest, ModuleSource), CoreError>;
 
   fn poll_next(
     self: Pin<&mut Self>,
@@ -397,14 +445,22 @@ impl Stream for RecursiveModuleLoad {
           LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
           _ => RequestedModuleType::None,
         };
-        let module_reference = ModuleReference {
-          specifier: module_specifier.clone(),
-          requested_module_type: requested_module_type.clone(),
+        let module_request = ModuleRequest {
+          reference: ModuleReference {
+            specifier: module_specifier.clone(),
+            requested_module_type: requested_module_type.clone(),
+          },
+          referrer_source_offset: None,
+          phase: ModuleImportPhase::Evaluation,
         };
         let load_fut = if let Some(module_id) = inner.root_module_id {
           // If the inner future is already in the map, we might be done (assuming there are no pending
           // loads).
-          inner.register_and_recurse_inner(module_id, &module_reference, None);
+          inner.register_and_recurse_inner(
+            module_id,
+            &module_request.reference,
+            None,
+          );
           if inner.pending.is_empty() {
             inner.state = LoadState::Done;
           } else {
@@ -431,7 +487,7 @@ impl Stream for RecursiveModuleLoad {
               ModuleLoadResponse::Sync(result) => result,
               ModuleLoadResponse::Async(fut) => fut.await,
             };
-            result.map(|s| Some((module_reference, s)))
+            result.map(|s| Some((module_request, s)))
           }
           .boxed_local()
         };
