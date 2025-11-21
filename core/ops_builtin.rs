@@ -528,9 +528,9 @@ async fn do_load_job<'s, 'i>(
   .await?;
 
   while let Some(load_result) = load.next().await {
-    let (reference, info) = load_result?;
+    let (request, info) = load_result?;
     load
-      .register_and_recurse(scope, &reference, info)
+      .register_and_recurse(scope, &request, info)
       .map_err(|e| e.into_error(scope, false, false))?;
   }
 

@@ -22,6 +22,7 @@ use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
+use crate::modules::ModuleImportPhase;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleName;
@@ -324,6 +325,7 @@ impl ModuleMap {
     scope: &mut v8::PinScope,
     main: bool,
     dynamic: bool,
+    phase: ModuleImportPhase,
     module_source: ModuleSource,
   ) -> Result<ModuleId, ModuleError> {
     let ModuleSource {
@@ -361,8 +363,8 @@ impl ModuleMap {
     if let Some(module_id) = maybe_module_id {
       return Ok(module_id);
     }
-    let module_id = match module_type {
-      ModuleType::JavaScript => {
+    let module_id = match (&module_type, phase) {
+      (ModuleType::JavaScript, ModuleImportPhase::Evaluation) => {
         let code = ModuleSource::get_string_source(code);
 
         let (code_cache_info, module_url_found) =
@@ -395,23 +397,25 @@ impl ModuleMap {
           code_cache_info,
         )?
       }
-      ModuleType::Wasm => {
+      (ModuleType::Wasm, phase) => {
         let ModuleSourceCode::Bytes(code) = code else {
           return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
         };
         self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
-      ModuleType::Json => self.new_json_module(
-        scope,
-        module_url_found,
-        ModuleSource::get_string_source(code),
-      )?,
-      ModuleType::Text => self.new_text_module(
-        scope,
-        module_url_found,
-        ModuleSource::get_string_source(code),
-      )?,
-      ModuleType::Bytes => {
+      (ModuleType::Json, ModuleImportPhase::Evaluation) => self
+        .new_json_module(
+          scope,
+          module_url_found,
+          ModuleSource::get_string_source(code),
+        )?,
+      (ModuleType::Text, ModuleImportPhase::Evaluation) => self
+        .new_text_module(
+          scope,
+          module_url_found,
+          ModuleSource::get_string_source(code),
+        )?,
+      (ModuleType::Bytes, ModuleImportPhase::Evaluation) => {
         let ModuleSourceCode::Bytes(code) = code else {
           return Err(ModuleError::Concrete(
             ModuleConcreteError::BytesNotBytes,
@@ -419,7 +423,7 @@ impl ModuleMap {
         };
         self.new_bytes_module(scope, module_url_found, code)?
       }
-      ModuleType::Other(module_type) => {
+      (ModuleType::Other(module_type), ModuleImportPhase::Evaluation) => {
         let state = JsRuntime::state_from(scope);
         let custom_module_evaluation_cb =
           state.custom_module_evaluation_cb.as_ref();
@@ -502,6 +506,18 @@ impl ModuleMap {
             )?
           }
         }
+      }
+      (_, ModuleImportPhase::Source) => {
+        let message = v8::String::new(
+          scope,
+          &format!(
+            "Source phase imports are not supported for {} modules",
+            &module_type
+          ),
+        )
+        .unwrap();
+        let exception = v8::Exception::reference_error(scope, message);
+        return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
       }
     };
     Ok(module_id)
@@ -802,6 +818,10 @@ impl ModuleMap {
           requested_module_type,
         },
         referrer_source_offset,
+        phase: match module_request.get_phase() {
+          v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
+          v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+        },
       };
       requests.push(request);
     }
@@ -1788,12 +1808,12 @@ impl ModuleMap {
         match maybe_result {
           Some(load_stream_result) => {
             match load_stream_result {
-              Ok((reference, info)) => {
+              Ok((request, info)) => {
                 // A module (not necessarily the one dynamically imported) has been
                 // fetched. Create and register it, and if successful, poll for the
                 // next recursive-load event related to this dynamic import.
                 let register_result =
-                  load.register_and_recurse(scope, &reference, info);
+                  load.register_and_recurse(scope, &request, info);
 
                 match register_result {
                   Ok(()) => {

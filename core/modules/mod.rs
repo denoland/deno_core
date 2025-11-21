@@ -681,6 +681,12 @@ pub(crate) struct ModuleReference {
   pub requested_module_type: RequestedModuleType,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub(crate) enum ModuleImportPhase {
+  Evaluation,
+  Source,
+}
+
 /// Describes a request for a module as parsed from the source code.
 /// Usually executable (`JavaScriptOrWasm`) is used, except when an
 /// import assertions explicitly constrains an import to JSON, in
@@ -690,6 +696,7 @@ pub(crate) struct ModuleRequest {
   pub reference: ModuleReference,
   /// None if this is a root request.
   pub referrer_source_offset: Option<i32>,
+  pub phase: ModuleImportPhase,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
