@@ -44,6 +44,18 @@ impl V8Sliceable for u32 {
   }
 }
 
+impl V8Sliceable for f32 {
+  type V8 = v8::Float32Array;
+  fn new_buf<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    buf: v8::Local<v8::ArrayBuffer>,
+    byte_offset: usize,
+    length: usize,
+  ) -> Option<v8::Local<'s, Self::V8>> {
+    v8::Float32Array::new(scope, buf, byte_offset, length)
+  }
+}
+
 impl V8Sliceable for f64 {
   type V8 = v8::Float64Array;
   fn new_buf<'s, 'i>(
