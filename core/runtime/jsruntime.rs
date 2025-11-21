@@ -1530,7 +1530,12 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
+    let (
+      event_loop_tick_cb,
+      build_custom_error_cb,
+      run_immediate_callbacks_cb,
+      wasm_instance_fn,
+    ) = {
       scope!(scope, self);
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1553,6 +1558,12 @@ impl JsRuntime {
         core_obj,
         BUILD_CUSTOM_ERROR,
         "Deno.core.buildCustomError",
+      );
+      let run_immediate_callbacks_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        RUN_IMMEDIATE_CALLBACKS,
+        "Deno.core.runImmediateCallbacks",
       );
 
       let mut wasm_instance_fn = None;
@@ -1577,6 +1588,7 @@ impl JsRuntime {
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
+        v8::Global::new(scope, run_immediate_callbacks_cb),
         wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
@@ -1592,6 +1604,10 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(build_custom_error_cb);
+    state_rc
+      .run_immediate_callbacks_cb
+      .borrow_mut()
+      .replace(run_immediate_callbacks_cb);
     if let Some(wasm_instance_fn) = wasm_instance_fn {
       state_rc
         .wasm_instance_fn
@@ -2045,22 +2061,31 @@ impl JsRuntime {
 
     modules.poll_progress(cx, scope)?;
 
+    // 1. If event loop is idle but has outstanding immediates run the immediates
+    // 2. If event loop is not idle only run immediates if work has been done (ops resolved or timers fired)
+    //
     // Resolve async ops, run all next tick callbacks and macrotasks callbacks
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let dispatched_ops = Self::do_js_event_loop_tick_realm(
-      cx,
-      scope,
-      context_state,
-      exception_state,
-    )?;
+    let (dispatched_ops, did_work, has_pending_timers) =
+      Self::do_js_event_loop_tick_realm(
+        cx,
+        scope,
+        context_state,
+        exception_state,
+      )?;
     exception_state.check_exception_condition(scope)?;
 
     // Get the pending state from the main realm, or all realms
     let pending_state =
       EventLoopPendingState::new(scope, context_state, modules);
 
+    eprintln!(
+      "is pending {} {}",
+      pending_state.is_pending(),
+      pending_state.has_refed_immediates
+    );
     if !pending_state.is_pending() {
       if has_inspector {
         let inspector = self.inspector();
@@ -2083,6 +2108,16 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
+    // TODO(bartlomieju)
+    if !did_work
+      && !pending_state.has_pending_ops
+      && !has_pending_timers
+      && pending_state.has_refed_immediates
+    {
+      eprintln!("run immediate callbacks");
+      Self::do_js_run_immediate_callbacks(scope, context_state);
+    }
+
     // Check if more async ops have been dispatched
     // during this turn of event loop.
     // If there are any pending background tasks, we also wake the runtime to
@@ -2094,6 +2129,9 @@ impl JsRuntime {
     {
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
+        // TODO(bartlomieju): should be both immediates fields?
+        || pending_state.has_outstanding_immediates
+        || pending_state.has_refed_immediates
         || pending_state.has_pending_promise_events
       {
         self.inner.state.waker.wake();
@@ -2114,6 +2152,8 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
+        // TODO(bartlomieju): should be both immediates fields?
+        || pending_state.has_refed_immediates
       {
         // pass, will be polled again
       } else {
@@ -2132,6 +2172,8 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
+        // TODO(bartlomieju): should be both immediates fields?
+        || pending_state.has_refed_immediates
       {
         // pass, will be polled again
       } else if realm.modules_idle() {
@@ -2353,6 +2395,8 @@ pub(crate) struct EventLoopPendingState {
   has_tick_scheduled: bool,
   has_pending_promise_events: bool,
   has_pending_external_ops: bool,
+  has_outstanding_immediates: bool,
+  has_refed_immediates: bool,
 }
 
 impl EventLoopPendingState {
@@ -2384,6 +2428,10 @@ impl EventLoopPendingState {
     let has_pending_refed_ops = has_pending_tasks
       || has_pending_refed_timers
       || num_pending_ops > num_unrefed_ops;
+    let (has_outstanding_immediates, has_refed_immediates) = {
+      let info = state.immediate_info.borrow();
+      (info.has_outstanding, info.ref_count > 0)
+    };
     EventLoopPendingState {
       has_pending_ops: has_pending_refed_ops
         || has_pending_timers
@@ -2396,6 +2444,8 @@ impl EventLoopPendingState {
       has_tick_scheduled: state.has_next_tick_scheduled.get(),
       has_pending_promise_events,
       has_pending_external_ops: state.external_ops_tracker.has_pending_ops(),
+      has_outstanding_immediates,
+      has_refed_immediates,
     }
   }
 
@@ -2413,6 +2463,8 @@ impl EventLoopPendingState {
       || self.has_pending_module_evaluation
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
+      // TODO(bartlomieju): should it be both immediates fields?
+      || self.has_refed_immediates
       || self.has_pending_promise_events
       || self.has_pending_external_ops
   }
@@ -2620,13 +2672,41 @@ impl JsRuntime {
     )
   }
 
+  fn do_js_run_immediate_callbacks<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    context_state: &ContextState,
+  ) {
+    v8::tc_scope!(let tc_scope, scope);
+
+    let undefined = v8::undefined(tc_scope).into();
+    let run_immediate_callbacks_cb =
+      context_state.run_immediate_callbacks_cb.borrow();
+    let run_immediate_callbacks_cb =
+      run_immediate_callbacks_cb.as_ref().unwrap().open(tc_scope);
+
+    run_immediate_callbacks_cb.call(tc_scope, undefined, &[]);
+
+    eprintln!(
+      "tc_scope.has_caught {} {} {}",
+      tc_scope.has_caught(),
+      tc_scope.has_terminated(),
+      tc_scope.is_execution_terminating()
+    );
+    if let Some(exception) = tc_scope.exception() {
+      let e: Result<(), Box<JsError>> =
+        exception_to_err_result(tc_scope, exception, false, true);
+      eprintln!("exception {:?}", e);
+    }
+  }
+
   fn do_js_event_loop_tick_realm<'s, 'i>(
     cx: &mut Context,
     scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
     exception_state: &ExceptionState,
-  ) -> Result<bool, Box<JsError>> {
+  ) -> Result<(bool, bool, bool), Box<JsError>> {
     let mut dispatched_ops = false;
+    let mut did_work = false;
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
     // Rust will extend the lifetime of the borrow longer than we expect.
@@ -2696,6 +2776,7 @@ impl JsRuntime {
         .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
+      did_work = true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(v8::Boolean::new(scope, res.is_ok()).into());
       args.push(res.unwrap_or_else(std::convert::identity));
@@ -2703,7 +2784,9 @@ impl JsRuntime {
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
+    // let has_immediate_ref = context_state.immediate_info.borrow().has_ref();
     dispatched_ops |= has_tick_scheduled;
+    // dispatched_ops |= has_immediate_ref;
 
     while let Some((promise, result)) = exception_state
       .pending_handled_promise_rejections
@@ -2758,6 +2841,7 @@ impl JsRuntime {
     // storing the exception-reporting callback.
     let timers = match context_state.timers.poll_timers(cx) {
       Poll::Ready(timers) => {
+        did_work = true;
         let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
@@ -2798,10 +2882,10 @@ impl JsRuntime {
     }
 
     if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Ok(false);
+      return Ok((false, false, false));
     }
 
-    Ok(dispatched_ops)
+    Ok((dispatched_ops, did_work, context_state.timers.has_pending()))
   }
 }
 

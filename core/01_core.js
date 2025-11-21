@@ -55,6 +55,7 @@
     op_get_proxy_details,
     op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
+    op_immediate_has_ref_count,
     op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
@@ -73,7 +74,6 @@
     op_timer_cancel,
     op_timer_queue,
     op_timer_queue_system,
-    op_timer_queue_immediate,
     op_timer_ref,
     op_timer_unref,
     op_unref_op,
@@ -148,6 +148,7 @@
 
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
+  const immediateCallbacks = [];
 
   function setMacrotaskCallback(cb) {
     ArrayPrototypePush(macrotaskCallbacks, cb);
@@ -157,13 +158,20 @@
     ArrayPrototypePush(nextTickCallbacks, cb);
   }
 
+  function setImmediateCallback(cb) {
+    ArrayPrototypePush(immediateCallbacks, cb);
+  }
+
   // This function has variable number of arguments. The last argument describes
   // if there's a "next tick" scheduled by the Node.js compat layer. Arguments
   // before last are alternating integers and any values that describe the
   // responses of async ops.
   function eventLoopTick() {
+    let didAnyWork = false;
+
     // First respond to all pending ops.
     for (let i = 0; i < arguments.length - 3; i += 3) {
+      didAnyWork = true;
       const promiseId = arguments[i];
       const isOk = arguments[i + 1];
       const res = arguments[i + 2];
@@ -202,6 +210,8 @@
 
     const timers = arguments[arguments.length - 2];
     if (timers) {
+      didAnyWork = true;
+      console.log("timers running", timers.length);
       timersRunning = true;
       for (let i = 0; i < timers.length; i += 3) {
         timerDepth = timers[i];
@@ -222,6 +232,16 @@
       cancelledTimers.clear();
     }
 
+    // Drain immediates queue.
+    console.log(
+      "eventLoopTick start",
+      didAnyWork,
+      op_immediate_has_ref_count(),
+    );
+    if (didAnyWork && op_immediate_has_ref_count()) {
+      runImmediateCallbacks();
+    }
+
     // If we have any rejections for this tick, attempt to process them
     const rejections = arguments[arguments.length - 3];
     if (rejections) {
@@ -233,6 +253,24 @@
         if (!handled) {
           const err = rejections[i + 1];
           op_dispatch_exception(err, true);
+        }
+      }
+    }
+  }
+
+  function runImmediateCallbacks() {
+    for (let i = 0; i < immediateCallbacks.length; i++) {
+      // TODO(bartlomieju): why is it run a while loop? Remove?
+      inner: while (true) {
+        console.log("tick in immediateCallbacks");
+        try {
+          immediateCallbacks[i]();
+          break inner;
+        } catch (e) {
+          console.log("run reportExceptionCallback");
+          reportExceptionCallback(e);
+          console.log("continue immediateCallbacks");
+          continue inner;
         }
       }
     }
@@ -662,6 +700,7 @@
     internalFdSymbol: Symbol("Deno.internal.fd"),
     resources,
     eventLoopTick,
+    runImmediateCallbacks,
     BadResource,
     BadResourcePrototype,
     Interrupted,
@@ -698,6 +737,7 @@
       op_leak_tracing_get(0, promise[promiseIdSymbol]),
     setMacrotaskCallback,
     setNextTickCallback,
+    setImmediateCallback,
     runMicrotasks: () => op_run_microtasks(),
     hasTickScheduled: () => op_has_tick_scheduled(),
     setHasTickScheduled: (bool) => op_set_has_tick_scheduled(bool),
@@ -811,7 +851,6 @@
     // TODO(mmastrac): Hook up associatedOp to tracing
     queueSystemTimer: (_associatedOp, repeat, timeout, task) =>
       op_timer_queue_system(repeat, timeout, task),
-    queueImmediate: (task) => op_timer_queue_immediate(task),
     cancelTimer: (id) => {
       if (timersRunning) {
         cancelledTimers.add(id);
