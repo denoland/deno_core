@@ -169,13 +169,11 @@ impl MutableSleep {
 
   fn poll_ready(self: &Box<Self>, cx: &mut Context) -> Poll<()> {
     if self.ready.take() {
-      eprintln!("poll_ready timers ready");
       Poll::Ready(())
     } else {
       let external =
         unsafe { self.external_waker.get().as_mut().unwrap_unchecked() };
       if let Some(external) = external {
-        eprintln!("poll_ready timers external was some");
         // Already have this waker
         let waker = cx.waker();
         if !external.will_wake(waker) {
@@ -183,7 +181,6 @@ impl MutableSleep {
         }
         Poll::Pending
       } else {
-        eprintln!("poll_ready timers external was none");
         *external = Some(cx.waker().clone());
         Poll::Pending
       }
