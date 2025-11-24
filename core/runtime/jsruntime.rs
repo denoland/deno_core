@@ -2101,10 +2101,18 @@ impl JsRuntime {
     }
 
     // TODO(bartlomieju)
+    // eprintln!(
+    //   "has refed immediates run cbs {} {} {} {} {:?}",
+    //   did_work,
+    //   pending_state.has_pending_ops,
+    //   has_pending_timers,
+    //   pending_state.has_refed_immediates,
+    //   std::thread::current().id()
+    // );
     if !did_work
-      && !pending_state.has_pending_ops
+      // && !pending_state.has_pending_ops
       && !has_pending_timers
-      && pending_state.has_refed_immediates
+      && pending_state.has_refed_immediates > 0
     {
       Self::do_js_run_immediate_callbacks(scope, context_state)?;
     }
@@ -2118,11 +2126,22 @@ impl JsRuntime {
     // background task is done.
     #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
+      // if pending_state.has_outstanding_immediates
+      //   || pending_state.has_refed_immediates > 0
+      // {
+      //   eprintln!(
+      //     "has outstanding or refed {:?} {} {}",
+      //     std::thread::current().id(),
+      //     pending_state.has_outstanding_immediates,
+      //     pending_state.has_refed_immediates
+      //   );
+      // }
+
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
         // TODO(bartlomieju): should be both immediates fields?
         || pending_state.has_outstanding_immediates
-        || pending_state.has_refed_immediates
+        || pending_state.has_refed_immediates > 0
         || pending_state.has_pending_promise_events
       {
         self.inner.state.waker.wake();
@@ -2144,7 +2163,7 @@ impl JsRuntime {
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
         // TODO(bartlomieju): should be both immediates fields?
-        || pending_state.has_refed_immediates
+        || pending_state.has_refed_immediates > 0
       {
         // pass, will be polled again
       } else {
@@ -2164,7 +2183,7 @@ impl JsRuntime {
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
         // TODO(bartlomieju): should be both immediates fields?
-        || pending_state.has_refed_immediates
+        || pending_state.has_refed_immediates > 0
       {
         // pass, will be polled again
       } else if realm.modules_idle() {
@@ -2387,7 +2406,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_promise_events: bool,
   has_pending_external_ops: bool,
   has_outstanding_immediates: bool,
-  has_refed_immediates: bool,
+  has_refed_immediates: u32,
 }
 
 impl EventLoopPendingState {
@@ -2421,7 +2440,7 @@ impl EventLoopPendingState {
       || num_pending_ops > num_unrefed_ops;
     let (has_outstanding_immediates, has_refed_immediates) = {
       let info = state.immediate_info.borrow();
-      (info.has_outstanding, info.ref_count > 0)
+      (info.has_outstanding, info.ref_count)
     };
     EventLoopPendingState {
       has_pending_ops: has_pending_refed_ops
@@ -2455,7 +2474,7 @@ impl EventLoopPendingState {
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
       // TODO(bartlomieju): should it be both immediates fields?
-      || self.has_refed_immediates
+      || self.has_refed_immediates > 0
       || self.has_pending_promise_events
       || self.has_pending_external_ops
   }
