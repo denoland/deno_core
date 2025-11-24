@@ -211,7 +211,6 @@
     const timers = arguments[arguments.length - 2];
     if (timers) {
       didAnyWork = true;
-      console.log("timers running", timers.length);
       timersRunning = true;
       for (let i = 0; i < timers.length; i += 3) {
         timerDepth = timers[i];
@@ -233,11 +232,6 @@
     }
 
     // Drain immediates queue.
-    console.log(
-      "eventLoopTick start",
-      didAnyWork,
-      op_immediate_has_ref_count(),
-    );
     if (didAnyWork && op_immediate_has_ref_count()) {
       runImmediateCallbacks();
     }
@@ -262,14 +256,11 @@
     for (let i = 0; i < immediateCallbacks.length; i++) {
       // TODO(bartlomieju): why is it run a while loop? Remove?
       inner: while (true) {
-        console.log("tick in immediateCallbacks");
         try {
           immediateCallbacks[i]();
           break inner;
         } catch (e) {
-          console.log("run reportExceptionCallback");
           reportExceptionCallback(e);
-          console.log("continue immediateCallbacks");
           continue inner;
         }
       }

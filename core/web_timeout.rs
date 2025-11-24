@@ -329,11 +329,9 @@ impl<T: Clone> WebTimers<T> {
     self.next_id.set(id);
 
     let mut timers = self.timers.borrow_mut();
-    let instant = Instant::now();
     let deadline = Instant::now()
       .checked_add(Duration::from_millis(timeout_ms))
       .unwrap();
-    eprintln!("queued timer {:?} {:?}", instant, deadline);
     match timers.first() {
       Some(TimerKey(k, ..)) => {
         if &deadline < k {
@@ -400,9 +398,7 @@ impl<T: Clone> WebTimers<T> {
 
   /// Poll for any timers that have completed.
   pub fn poll_timers(&self, cx: &mut Context) -> Poll<Vec<(u64, T)>> {
-    eprintln!("polling timers");
     ready!(self.sleep.poll_ready(cx));
-    eprintln!("timers ready");
     let now = Instant::now();
     let mut timers = self.timers.borrow_mut();
     let mut data = self.data_map.borrow_mut();
@@ -472,7 +468,6 @@ impl<T: Clone> WebTimers<T> {
       }
     }
 
-    eprintln!("timers output {}", output.len());
     Poll::Ready(output)
   }
 

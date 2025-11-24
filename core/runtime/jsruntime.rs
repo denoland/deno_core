@@ -2061,9 +2061,6 @@ impl JsRuntime {
 
     modules.poll_progress(cx, scope)?;
 
-    // 1. If event loop is idle but has outstanding immediates run the immediates
-    // 2. If event loop is not idle only run immediates if work has been done (ops resolved or timers fired)
-    //
     // Resolve async ops, run all next tick callbacks and macrotasks callbacks
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
@@ -2081,11 +2078,6 @@ impl JsRuntime {
     let pending_state =
       EventLoopPendingState::new(scope, context_state, modules);
 
-    eprintln!(
-      "is pending {} {}",
-      pending_state.is_pending(),
-      pending_state.has_refed_immediates
-    );
     if !pending_state.is_pending() {
       if has_inspector {
         let inspector = self.inspector();
@@ -2114,8 +2106,7 @@ impl JsRuntime {
       && !has_pending_timers
       && pending_state.has_refed_immediates
     {
-      eprintln!("run immediate callbacks");
-      Self::do_js_run_immediate_callbacks(scope, context_state);
+      Self::do_js_run_immediate_callbacks(scope, context_state)?;
     }
 
     // Check if more async ops have been dispatched
@@ -2675,7 +2666,7 @@ impl JsRuntime {
   fn do_js_run_immediate_callbacks<'s, 'i>(
     scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
-  ) {
+  ) -> Result<(), Box<JsError>> {
     v8::tc_scope!(let tc_scope, scope);
 
     let undefined = v8::undefined(tc_scope).into();
@@ -2686,17 +2677,12 @@ impl JsRuntime {
 
     run_immediate_callbacks_cb.call(tc_scope, undefined, &[]);
 
-    eprintln!(
-      "tc_scope.has_caught {} {} {}",
-      tc_scope.has_caught(),
-      tc_scope.has_terminated(),
-      tc_scope.is_execution_terminating()
-    );
     if let Some(exception) = tc_scope.exception() {
       let e: Result<(), Box<JsError>> =
         exception_to_err_result(tc_scope, exception, false, true);
-      eprintln!("exception {:?}", e);
+      return e;
     }
+    Ok(())
   }
 
   fn do_js_event_loop_tick_realm<'s, 'i>(
