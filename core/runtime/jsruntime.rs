@@ -2114,6 +2114,7 @@ impl JsRuntime {
       && !has_pending_timers
       && pending_state.has_refed_immediates > 0
     {
+      // eprintln!("do js run immediate callbacks");
       Self::do_js_run_immediate_callbacks(scope, context_state)?;
     }
 
