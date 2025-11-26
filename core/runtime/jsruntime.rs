@@ -2859,7 +2859,7 @@ impl JsRuntime {
     }
 
     if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Ok((false, false, false));
+      return Ok((false, false));
     }
 
     Ok((dispatched_ops, did_work))
