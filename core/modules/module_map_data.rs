@@ -279,6 +279,17 @@ impl ModuleMapData {
     Some(name.cheap_copy())
   }
 
+  #[cfg(test)]
+  pub(crate) fn is_alias(
+    &self,
+    name: &str,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> bool {
+    let map = &self.by_name;
+    let entry = map.get(requested_module_type.as_ref(), name);
+    matches!(entry, Some(SymbolicModule::Alias(_)))
+  }
+
   pub(crate) fn get_handle(
     &self,
     id: ModuleId,

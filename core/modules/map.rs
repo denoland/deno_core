@@ -304,6 +304,15 @@ impl ModuleMap {
     data.serialize_for_snapshotting(data_store)
   }
 
+  #[cfg(test)]
+  pub fn is_alias(
+    &self,
+    name: &str,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> bool {
+    self.data.borrow().is_alias(name, requested_module_type)
+  }
+
   pub(crate) fn get_data(&self) -> &RefCell<ModuleMapData> {
     &self.data
   }
