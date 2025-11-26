@@ -293,6 +293,13 @@ impl ModuleMap {
     self.data.borrow().get_handle(id)
   }
 
+  pub(crate) fn get_source(
+    &self,
+    id: ModuleId,
+  ) -> Option<v8::Global<v8::Object>> {
+    self.data.borrow().get_source(id)
+  }
+
   pub(crate) fn serialize_for_snapshotting(
     &self,
     data_store: &mut SnapshotStoreDataStore,
@@ -750,7 +757,7 @@ impl ModuleMap {
         .to_rust_string_lossy(tc_scope);
 
       let import_attributes = module_request.get_import_attributes();
-
+      // TODO(bartlomieju): this should handle import phase - ie. we don't handle source phase imports here
       let attributes = parse_import_attributes(
         tc_scope,
         import_attributes,
@@ -835,6 +842,7 @@ impl ModuleMap {
     let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
       return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
     };
+    let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
     let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
 
     let js_wasm_module_source =
@@ -849,7 +857,7 @@ impl ModuleMap {
     let _synthetic_mod_id =
       self.new_synthetic_module(scope, name1, synthetic_module_type, exports);
 
-    self.new_module_from_js_source(
+    let mod_id = self.new_module_from_js_source(
       scope,
       false,
       ModuleType::Wasm,
@@ -857,7 +865,14 @@ impl ModuleMap {
       js_wasm_module_source.into(),
       is_dynamic_import,
       None,
-    )
+    )?;
+    self
+      .data
+      .borrow_mut()
+      .sources
+      .insert(mod_id, v8::Global::new(scope, wasm_module_object));
+
+    Ok(mod_id)
   }
 
   pub(crate) fn new_json_module(
@@ -1032,21 +1047,48 @@ impl ModuleMap {
   fn module_source_callback<'s>(
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
-    _import_attributes: v8::Local<'s, v8::FixedArray>,
-    _referrer: v8::Local<'s, v8::Module>,
+    import_attributes: v8::Local<'s, v8::FixedArray>,
+    referrer: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Object>> {
     // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
     v8::callback_scope!(unsafe scope, context);
 
+    let module_map =
+      // SAFETY: We retrieve the pointer from the slot, having just set it a few stack frames up
+      unsafe { scope.get_slot::<*const Self>().unwrap().as_ref().unwrap() };
+
+    let referrer_global = v8::Global::new(scope, referrer);
+
+    let referrer_name = module_map
+      .data
+      .borrow()
+      .get_name_by_module(&referrer_global)
+      .expect("ModuleInfo not found");
+
     let specifier_str = specifier.to_rust_string_lossy(scope);
 
-    let message = v8::String::new(
+    let attributes = parse_import_attributes(
       scope,
-      &format!(r#"Module source can not be imported for "{specifier_str}""#),
-    )
-    .unwrap();
-    let exception = v8::Exception::syntax_error(scope, message);
-    scope.throw_exception(exception);
+      import_attributes,
+      ImportAttributesKind::StaticImport,
+    );
+    let maybe_source = module_map.source_callback(
+      scope,
+      &specifier_str,
+      &referrer_name,
+      attributes,
+    );
+    if let Some(source) = maybe_source {
+      return Some(source);
+    }
+
+    crate::error::throw_js_error_class(
+      scope,
+      // TODO(bartlomieju): d8 uses SyntaxError here
+      &JsErrorBox::type_error(format!(
+        r#"Module source can not be imported for "{specifier_str}" from "{referrer_name}""#
+      )),
+    );
     None
   }
 
@@ -1109,6 +1151,35 @@ impl ModuleMap {
       && let Some(handle) = self.get_handle(id)
     {
       return Some(v8::Local::new(scope, handle));
+    }
+
+    None
+  }
+
+  /// Called by `module_source_callback` during module instantiation.
+  fn source_callback<'s>(
+    &self,
+    scope: &mut v8::HandleScope<'s>,
+    specifier: &str,
+    referrer: &str,
+    import_attributes: HashMap<String, String>,
+  ) -> Option<v8::Local<'s, v8::Object>> {
+    let resolved_specifier =
+      match self.resolve(specifier, referrer, ResolutionKind::Import) {
+        Ok(s) => s,
+        Err(e) => {
+          crate::error::throw_js_error_class(scope, &e);
+          return None;
+        }
+      };
+
+    let module_type =
+      get_requested_module_type_from_attributes(&import_attributes);
+
+    if let Some(id) = self.get_id(resolved_specifier.as_str(), module_type) {
+      if let Some(handle) = self.get_source(id) {
+        return Some(v8::Local::new(scope, handle));
+      }
     }
 
     None
