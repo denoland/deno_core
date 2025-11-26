@@ -228,7 +228,7 @@ fn es_snapshot() {
             .unwrap(),
           requested_module_type: RequestedModuleType::None,
         },
-        specifier_key: Some("file:///{prev}.js".to_string()),
+        specifier_key: Some(format!("file:///{prev}.js")),
         referrer_source_offset: Some(25 + prev.to_string().len() as i32),
         phase: crate::modules::ModuleImportPhase::Evaluation,
       }],
