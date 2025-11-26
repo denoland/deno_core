@@ -257,15 +257,10 @@
 
   function runImmediateCallbacks() {
     for (let i = 0; i < immediateCallbacks.length; i++) {
-      // TODO(bartlomieju): why is it run a while loop? Remove?
-      inner: while (true) {
-        try {
-          immediateCallbacks[i]();
-          break inner;
-        } catch (e) {
-          reportExceptionCallback(e);
-          continue inner;
-        }
+      try {
+        immediateCallbacks[i]();
+      } catch (e) {
+        reportExceptionCallback(e);
       }
     }
   }
