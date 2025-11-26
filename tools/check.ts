@@ -128,9 +128,10 @@ async function runCommands(
           console.log(state.stdout.trim());
         }
       } catch (e) {
+        const err = e as Error;
         state.success = false;
         $.log(`❌ ${state.name} failed!`);
-        if (!e.message.includes("Exited with code")) {
+        if (!err.message.includes("Exited with code")) {
           console.log(e);
         }
         $.log(divider);
