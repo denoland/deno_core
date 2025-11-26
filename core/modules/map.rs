@@ -830,17 +830,19 @@ impl ModuleMap {
       } else {
         loaded_source.module_url_specified.cheap_copy()
       };
+    if self.data.borrow().sources.contains_key(&name) {
+      return Ok(());
+    }
+
     let code = loaded_source.code.cheap_copy();
     let ModuleSourceCode::Bytes(code) = code else {
       return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
     };
-
     let Some(wasm_module) =
       v8::WasmModuleObject::compile(scope, code.as_bytes())
     else {
       return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
     };
-
     let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
     let wasm_module_object_global = v8::Global::new(scope, wasm_module_object);
 
@@ -851,7 +853,6 @@ impl ModuleMap {
         kind: ModuleSourceKind::Wasm,
       },
     );
-
     Ok(())
   }
 
