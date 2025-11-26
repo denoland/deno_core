@@ -2,7 +2,7 @@
 
 use super::convert_or_serde;
 use super::kw;
-use crate::V8Eternal;
+use crate::V8StaticString;
 use crate::conversion::kw as shared_kw;
 use proc_macro2::Ident;
 use proc_macro2::Span;
@@ -44,10 +44,6 @@ pub fn get_body(
       let v8_static_strings = fields
         .iter()
         .map(|field| field.eternal.define_static())
-        .collect::<Vec<_>>();
-      let v8_lazy_strings = fields
-        .iter()
-        .map(|field| field.eternal.define_eternal())
         .collect::<Vec<_>>();
 
       let fields = fields.into_iter().map(|field| {
@@ -95,10 +91,6 @@ pub fn get_body(
       let body = quote! {
         ::deno_core::v8_static_strings! {
           #(#v8_static_strings),*
-        }
-
-        thread_local! {
-          #(#v8_lazy_strings)*
         }
 
         let __obj: ::deno_core::v8::Local<::deno_core::v8::Object> =  match __value.try_into() {
@@ -165,7 +157,7 @@ struct StructField {
   default_value: Option<Expr>,
   serde: bool,
   ty: Type,
-  eternal: V8Eternal,
+  eternal: V8StaticString,
 }
 
 impl TryFrom<Field> for StructField {
@@ -221,7 +213,7 @@ impl TryFrom<Field> for StructField {
     let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      eternal: V8Eternal::new(js_name.clone()),
+      eternal: V8StaticString::new(js_name.clone()),
       name,
       js_name,
       default_value,

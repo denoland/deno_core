@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use super::kw;
-use crate::V8Eternal;
+use crate::V8StaticString;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -54,10 +54,6 @@ pub fn get_body(
   let v8_static_strings = fields
     .iter()
     .map(|field| field.eternal.define_static())
-    .collect::<Vec<_>>();
-  let v8_lazy_strings = fields
-    .iter()
-    .map(|field| field.eternal.define_eternal())
     .collect::<Vec<_>>();
 
   let fields = fields.into_iter().map(|field| {
@@ -140,10 +136,6 @@ pub fn get_body(
       #(#v8_static_strings),*
     }
 
-    thread_local! {
-      #(#v8_lazy_strings)*
-    }
-
     let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
       None
     } else {
@@ -172,7 +164,7 @@ struct DictionaryField {
   default_value: Option<Expr>,
   converter_options: std::collections::HashMap<Ident, Expr>,
   ty: Type,
-  eternal: V8Eternal,
+  eternal: V8StaticString,
 }
 
 impl TryFrom<Field> for DictionaryField {
@@ -238,7 +230,7 @@ impl TryFrom<Field> for DictionaryField {
     let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      eternal: V8Eternal::new(js_name.clone()),
+      eternal: V8StaticString::new(js_name.clone()),
       name,
       js_name,
       default_value,

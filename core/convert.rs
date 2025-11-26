@@ -297,7 +297,43 @@ macro_rules! impl_number_types {
   };
 }
 
-impl_number_types!(u8, i8, u16, i16, u32, i32, f32);
+impl_number_types!(
+  u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64
+);
+
+pub struct BigInt {
+  pub sign_bit: bool,
+  pub words: Vec<u64>,
+}
+
+impl<'s> ToV8<'s> for BigInt {
+  type Error = JsErrorBox;
+
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
+    v8::BigInt::new_from_words(scope, self.sign_bit, &self.words)
+      .map(Into::into)
+      .ok_or_else(|| JsErrorBox::type_error("Failed to create BigInt"))
+  }
+}
+
+impl<'s> FromV8<'s> for BigInt {
+  type Error = DataError;
+
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    let bigint = value.try_cast::<v8::BigInt>()?;
+
+    let mut words = Vec::with_capacity(bigint.word_count());
+    let (sign_bit, _) = bigint.to_words_array(&mut words);
+
+    Ok(BigInt { sign_bit, words })
+  }
+}
 
 impl<'s> ToV8<'s> for bool {
   type Error = Infallible;
