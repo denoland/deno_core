@@ -2289,7 +2289,7 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
   StringBuilder::build(|builder| {
     builder.append("import source wasmMod from \"");
     builder.append(specifier);
-    builder.append("\"\n");
+    builder.append("\";\n");
 
     if !aggregated_imports.is_empty() {
       for (i, (_, import_info)) in aggregated_imports.iter().enumerate() {
