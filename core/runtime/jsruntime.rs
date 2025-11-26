@@ -2065,13 +2065,12 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let (dispatched_ops, did_work, has_pending_timers) =
-      Self::do_js_event_loop_tick_realm(
-        cx,
-        scope,
-        context_state,
-        exception_state,
-      )?;
+    let (dispatched_ops, did_work) = Self::do_js_event_loop_tick_realm(
+      cx,
+      scope,
+      context_state,
+      exception_state,
+    )?;
     exception_state.check_exception_condition(scope)?;
 
     // Get the pending state from the main realm, or all realms
@@ -2100,21 +2099,10 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
-    // TODO(bartlomieju)
-    // eprintln!(
-    //   "has refed immediates run cbs {} {} {} {} {:?}",
-    //   did_work,
-    //   pending_state.has_pending_ops,
-    //   has_pending_timers,
-    //   pending_state.has_refed_immediates,
-    //   std::thread::current().id()
-    // );
     if !did_work
-      // && !pending_state.has_pending_ops
-      && !has_pending_timers
+      && !context_state.timers.has_pending()
       && pending_state.has_refed_immediates > 0
     {
-      // eprintln!("do js run immediate callbacks");
       Self::do_js_run_immediate_callbacks(scope, context_state)?;
     }
 
@@ -2127,20 +2115,8 @@ impl JsRuntime {
     // background task is done.
     #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
-      // if pending_state.has_outstanding_immediates
-      //   || pending_state.has_refed_immediates > 0
-      // {
-      //   eprintln!(
-      //     "has outstanding or refed {:?} {} {}",
-      //     std::thread::current().id(),
-      //     pending_state.has_outstanding_immediates,
-      //     pending_state.has_refed_immediates
-      //   );
-      // }
-
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
-        // TODO(bartlomieju): should be both immediates fields?
         || pending_state.has_outstanding_immediates
         || pending_state.has_refed_immediates > 0
         || pending_state.has_pending_promise_events
@@ -2163,7 +2139,6 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
-        // TODO(bartlomieju): should be both immediates fields?
         || pending_state.has_refed_immediates > 0
       {
         // pass, will be polled again
@@ -2183,7 +2158,6 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
-        // TODO(bartlomieju): should be both immediates fields?
         || pending_state.has_refed_immediates > 0
       {
         // pass, will be polled again
@@ -2474,7 +2448,6 @@ impl EventLoopPendingState {
       || self.has_pending_module_evaluation
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
-      // TODO(bartlomieju): should it be both immediates fields?
       || self.has_refed_immediates > 0
       || self.has_pending_promise_events
       || self.has_pending_external_ops
@@ -2710,7 +2683,7 @@ impl JsRuntime {
     scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
     exception_state: &ExceptionState,
-  ) -> Result<(bool, bool, bool), Box<JsError>> {
+  ) -> Result<(bool, bool), Box<JsError>> {
     let mut dispatched_ops = false;
     let mut did_work = false;
 
@@ -2782,7 +2755,7 @@ impl JsRuntime {
         .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
-      did_work = true;
+      did_work |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(v8::Boolean::new(scope, res.is_ok()).into());
       args.push(res.unwrap_or_else(std::convert::identity));
@@ -2790,9 +2763,7 @@ impl JsRuntime {
 
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
     let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
-    // let has_immediate_ref = context_state.immediate_info.borrow().has_ref();
     dispatched_ops |= has_tick_scheduled;
-    // dispatched_ops |= has_immediate_ref;
 
     while let Some((promise, result)) = exception_state
       .pending_handled_promise_rejections
@@ -2847,7 +2818,7 @@ impl JsRuntime {
     // storing the exception-reporting callback.
     let timers = match context_state.timers.poll_timers(cx) {
       Poll::Ready(timers) => {
-        did_work = true;
+        did_work |= true;
         let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
@@ -2891,7 +2862,7 @@ impl JsRuntime {
       return Ok((false, false, false));
     }
 
-    Ok((dispatched_ops, did_work, context_state.timers.has_pending()))
+    Ok((dispatched_ops, did_work))
   }
 }
 

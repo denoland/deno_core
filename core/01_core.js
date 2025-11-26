@@ -181,7 +181,6 @@
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
       for (let i = 0; i < nextTickCallbacks.length; i++) {
-        // console.log("run next tick callback");
         nextTickCallbacks[i]();
       }
     } else {
@@ -226,7 +225,6 @@
           reportExceptionCallback(e);
         }
         for (let i = 0; i < nextTickCallbacks.length; i++) {
-          // console.log("run next tick callback in timers");
           nextTickCallbacks[i]();
         }
         op_run_microtasks();
@@ -238,7 +236,6 @@
 
     // Drain immediates queue.
     if (didAnyWork && op_immediate_has_ref_count()) {
-      // console.log("run immediate callbacks in tick");
       runImmediateCallbacks();
     }
 
