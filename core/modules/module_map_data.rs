@@ -65,6 +65,20 @@ impl<T> ModuleNameTypeMap<T> {
     map.get(name)
   }
 
+  pub fn get_mut<Q>(
+    &mut self,
+    ty: &RequestedModuleType,
+    name: &Q,
+  ) -> Option<&mut T>
+  where
+    ModuleName: std::borrow::Borrow<Q>,
+    Q: std::cmp::Eq + std::hash::Hash + std::fmt::Debug + ?Sized,
+  {
+    let index = self.map_index(ty)?;
+    let map = self.submaps.get_mut(index)?;
+    map.get_mut(name)
+  }
+
   pub fn insert(
     &mut self,
     module_type: &RequestedModuleType,
@@ -125,6 +139,26 @@ pub(crate) type SyntheticModuleExports =
 pub(crate) type SyntheticModuleExportsStore =
   HashMap<v8::Global<v8::Module>, SyntheticModuleExports>;
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub(crate) enum ModuleSourceKind {
+  Wasm,
+}
+
+impl ModuleSourceKind {
+  pub fn from_module_type(module_type: &ModuleType) -> Option<Self> {
+    match module_type {
+      ModuleType::Wasm => Some(Self::Wasm),
+      _ => None,
+    }
+  }
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ModuleSourceData {
+  pub value: v8::Global<v8::Object>,
+  pub kind: ModuleSourceKind,
+}
+
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
@@ -145,7 +179,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
-  pub(crate) sources: HashMap<ModuleName, v8::Global<v8::Object>>,
+  pub(crate) sources: HashMap<ModuleName, ModuleSourceData>,
 }
 
 /// Snapshot-compatible representation of this data.
@@ -233,15 +267,16 @@ impl ModuleMapData {
     );
   }
 
-  #[cfg(test)]
-  pub(crate) fn is_alias(
-    &self,
+  pub(crate) fn follow_if_alias(
+    &mut self,
     name: &str,
     requested_module_type: impl AsRef<RequestedModuleType>,
-  ) -> bool {
-    let map = &self.by_name;
-    let entry = map.get(requested_module_type.as_ref(), name);
-    matches!(entry, Some(SymbolicModule::Alias(_)))
+  ) -> Option<FastString> {
+    let entry = self.by_name.get_mut(requested_module_type.as_ref(), name)?;
+    let SymbolicModule::Alias(name) = entry else {
+      return None;
+    };
+    Some(name.cheap_copy())
   }
 
   pub(crate) fn get_handle(
@@ -270,6 +305,16 @@ impl ModuleMapData {
         let info = self.info.get(*id).unwrap();
         Some(info.module_type.clone())
       }
+      _ => None,
+    }
+  }
+
+  pub(crate) fn get_info_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<&ModuleInfo> {
+    match self.handles_inverted.get(global) {
+      Some(id) => Some(self.info.get(*id).unwrap()),
       _ => None,
     }
   }

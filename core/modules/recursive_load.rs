@@ -4,7 +4,6 @@ use crate::ModuleLoadResponse;
 use crate::ModuleLoader;
 use crate::ModuleSource;
 use crate::ModuleSourceCode;
-use crate::ModuleType;
 use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleError;
@@ -18,6 +17,7 @@ use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::loaders::ModuleLoadReferrer;
 use crate::modules::map::ModuleMap;
+use crate::modules::module_map_data::ModuleSourceKind;
 use crate::source_map::SourceMapApplication;
 use crate::source_map::SourceMapper;
 use futures::future::FutureExt;
@@ -251,55 +251,38 @@ impl RecursiveModuleLoad {
     &mut self,
     scope: &mut v8::PinScope,
     module_request: &ModuleRequest,
-    module_source: ModuleSource,
+    mut module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let (module_source, code) = module_source.into_cheap_copy_of_code();
-
-    if module_request.phase == ModuleImportPhase::Source {
-      if module_source.module_type != ModuleType::Wasm {
-        let message = v8::String::new(
-          scope,
-          &format!(
-            "Source phase imports are not supported for {} modules",
-            &module_source.module_type
-          ),
-        )
-        .unwrap();
-        let exception = v8::Exception::reference_error(scope, message);
-        return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
+    if let Some(source_kind) =
+      ModuleSourceKind::from_module_type(&module_source.module_type)
+    {
+      match source_kind {
+        ModuleSourceKind::Wasm => {
+          self
+            .module_map_rc
+            .new_wasm_module_source(scope, &mut module_source)?;
+        }
       }
-
-      let ModuleSource {
-        code,
-        module_type,
-        module_url_found,
-        module_url_specified,
-        code_cache,
-      } = module_source;
-
-      // Register the module in the module map unless it's already there. If the
-      // specified URL and the "true" URL are different, register the alias.
-      let module_url_found = if let Some(module_url_found) = module_url_found {
-        let (module_url_found1, module_url_found2) =
-          module_url_found.into_cheap_copy();
-        self.module_map_rc.data.borrow_mut().alias(
-          module_url_specified,
-          &module_type.clone().into(),
-          module_url_found1,
-        );
-        module_url_found2
-      } else {
-        module_url_specified
-      };
-
-      self.module_map_rc.new_wasm_module_source(
+      if module_request.phase == ModuleImportPhase::Source {
+        if self.pending.is_empty() {
+          self.state = LoadState::Done;
+        }
+        return Ok(());
+      }
+    } else if module_request.phase == ModuleImportPhase::Source {
+      let message = v8::String::new(
         scope,
-        module_url_found,
-        code,
-        self.is_dynamic_import(),
-      )?;
-      return Ok(());
+        &format!(
+          "Source phase imports are not supported for {} modules",
+          &module_source.module_type
+        ),
+      )
+      .unwrap();
+      let exception = v8::Exception::reference_error(scope, message);
+      return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
     }
+
+    let code = module_source.code.cheap_copy();
 
     let module_id = self.module_map_rc.new_module(
       scope,
@@ -308,7 +291,12 @@ impl RecursiveModuleLoad {
       module_source,
     )?;
 
-    // Update `self.state` however applicable.
+    self.register_and_recurse_inner(
+      module_id,
+      &module_request.reference,
+      Some(&code),
+    );
+
     if self.state == LoadState::LoadingRoot {
       self.root_module_id = Some(module_id);
       self.state = LoadState::LoadingImports;
@@ -450,6 +438,7 @@ impl Stream for RecursiveModuleLoad {
             specifier: module_specifier.clone(),
             requested_module_type: requested_module_type.clone(),
           },
+          specifier_key: None,
           referrer_source_offset: None,
           phase: ModuleImportPhase::Evaluation,
         };

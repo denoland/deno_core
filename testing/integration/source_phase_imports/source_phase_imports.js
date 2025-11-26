@@ -1,5 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 import source foo from "../wasm_imports/add.wasm";
-console.log(foo);
-import source bar from "./other.js";
-console.log(bar);
+const instance = await WebAssembly.instantiate(foo, {
+  "./import_from_wasm.mjs": { add: (a, b) => a + b },
+});
+console.log(`exported_add: ${instance.exports["exported_add"]()}`);

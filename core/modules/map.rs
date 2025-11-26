@@ -31,6 +31,8 @@ use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::module_map_data::ModuleSourceData;
+use crate::modules::module_map_data::ModuleSourceKind;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::runtime::JsRealm;
@@ -300,15 +302,6 @@ impl ModuleMap {
   ) -> ModuleMapSnapshotData {
     let data = std::mem::take(&mut *self.data.borrow_mut());
     data.serialize_for_snapshotting(data_store)
-  }
-
-  #[cfg(test)]
-  pub fn is_alias(
-    &self,
-    name: &str,
-    requested_module_type: impl AsRef<RequestedModuleType>,
-  ) -> bool {
-    self.data.borrow().is_alias(name, requested_module_type)
   }
 
   pub(crate) fn get_data(&self) -> &RefCell<ModuleMapData> {
@@ -799,6 +792,7 @@ impl ModuleMap {
           specifier: module_specifier,
           requested_module_type,
         },
+        specifier_key: Some(import_specifier),
         referrer_source_offset,
         phase: match module_request.get_phase() {
           v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
@@ -823,10 +817,20 @@ impl ModuleMap {
   pub(crate) fn new_wasm_module_source(
     &self,
     scope: &mut v8::PinScope,
-    name: ModuleName,
-    code: ModuleSourceCode,
-    is_dynamic_import: bool,
+    loaded_source: &mut ModuleSource,
   ) -> Result<(), ModuleError> {
+    let name =
+      if let Some(module_url_found) = &mut loaded_source.module_url_found {
+        self.data.borrow_mut().alias(
+          loaded_source.module_url_specified.cheap_copy(),
+          &loaded_source.module_type.clone().into(),
+          module_url_found.cheap_copy(),
+        );
+        module_url_found.cheap_copy()
+      } else {
+        loaded_source.module_url_specified.cheap_copy()
+      };
+    let code = loaded_source.code.cheap_copy();
     let ModuleSourceCode::Bytes(code) = code else {
       return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
     };
@@ -840,11 +844,13 @@ impl ModuleMap {
     let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
     let wasm_module_object_global = v8::Global::new(scope, wasm_module_object);
 
-    self
-      .data
-      .borrow_mut()
-      .sources
-      .insert(name, wasm_module_object_global);
+    self.data.borrow_mut().sources.insert(
+      name,
+      ModuleSourceData {
+        value: wasm_module_object_global,
+        kind: ModuleSourceKind::Wasm,
+      },
+    );
 
     Ok(())
   }
@@ -856,16 +862,6 @@ impl ModuleMap {
     source: ModuleSourceCode,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
-    let (name, name2) = name.into_cheap_copy();
-    if !self.data.borrow_mut().sources.contains_key(&name) {
-      self.new_wasm_module_source(
-        scope,
-        name2,
-        source.clone,
-        is_dynamic_import,
-      )?;
-    }
-
     let bytes = source.as_bytes();
     let wasm_module_analysis = WasmDeps::parse(
       bytes,
@@ -1060,21 +1056,59 @@ impl ModuleMap {
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
     _import_attributes: v8::Local<'s, v8::FixedArray>,
-    _referrer: v8::Local<'s, v8::Module>,
+    referrer: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Object>> {
     // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
     v8::callback_scope!(unsafe scope, context);
 
-    let specifier_str = specifier.to_rust_string_lossy(scope);
+    let module_map =
+      // SAFETY: We retrieve the pointer from the slot, having just set it a few stack frames up
+      unsafe { scope.get_slot::<*const Self>().unwrap().as_ref().unwrap() };
 
-    let message = v8::String::new(
-      scope,
-      &format!(r#"Module source can not be imported for "{specifier_str}""#),
-    )
-    .unwrap();
-    let exception = v8::Exception::syntax_error(scope, message);
-    scope.throw_exception(exception);
-    None
+    let specifier_str = specifier.to_rust_string_lossy(scope);
+    let referrer_global = v8::Global::new(scope, referrer);
+    let module_reference = {
+      let module_map_data = module_map.data.borrow();
+      let referrer_info = module_map_data
+        .get_info_by_module(&referrer_global)
+        .expect("ModuleInfo not found");
+      let module_request = referrer_info
+        .requests
+        .iter()
+        .find(|r| {
+          r.specifier_key
+            .as_ref()
+            .is_some_and(|s| s == &specifier_str)
+        })
+        .expect("ModuleInfo::requests did not contain a matching specifier_key when getting source");
+      module_request.reference.clone()
+    };
+    let module_name = module_map
+      .data
+      .borrow_mut()
+      .follow_if_alias(
+        module_reference.specifier.as_str(),
+        &module_reference.requested_module_type,
+      )
+      .unwrap_or(module_reference.specifier.to_string().into());
+    match module_map.data.borrow().sources.get(&module_name) {
+      Some(ModuleSourceData {
+        value,
+        kind: ModuleSourceKind::Wasm,
+      }) => Some(v8::Local::new(scope, value)),
+      None => {
+        let message = v8::String::new(
+          scope,
+          &format!(
+            r#"Module source can not be imported for "{specifier_str}""#
+          ),
+        )
+        .unwrap();
+        let exception = v8::Exception::reference_error(scope, message);
+        scope.throw_exception(exception);
+        None
+      }
+    }
   }
 
   /// Resolve provided module. This function calls out to `loader.resolve`,
@@ -2413,7 +2447,7 @@ const modInstance = new import.meta.WasmInstance(wasmMod);
   let rendered = render_js_wasm_module("./foo.wasm", deps);
   pretty_assertions::assert_eq!(
     rendered,
-    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+    r#"import source wasmMod from "./foo.wasm";
 import { "foo" as import_0_0, "bar" as import_0_1, "fizz" as import_0_2 } from "./import.js";
 import { "buzz" as import_1_0 } from "./buzz.js";
 const importsObject = {
@@ -2463,7 +2497,7 @@ export default modInstance.exports.default;
   let rendered = render_js_wasm_module("./bar.wasm", deps);
   pretty_assertions::assert_eq!(
     rendered,
-    r#"import wasmMod from "./bar.wasm" with { type: "$$deno-core-internal-wasm-module" };
+    r#"import source wasmMod from "./bar.wasm";
 import { "\n" as import_0_0 } from "\n";
 const importsObject = {
   "\n": {

@@ -59,6 +59,14 @@ impl ModuleSourceCode {
     }
   }
 
+  pub fn cheap_copy(&mut self) -> Self {
+    let self_ =
+      std::mem::replace(self, Self::Bytes(ModuleCodeBytes::Static(&[])));
+    let (self_, self_copy) = self_.into_cheap_copy();
+    *self = self_;
+    self_copy
+  }
+
   pub fn into_cheap_copy(self) -> (Self, Self) {
     match self {
       Self::String(s) => {
@@ -173,6 +181,21 @@ impl ModuleCodeBytes {
       ModuleCodeBytes::Static(s) => s.to_vec(),
       ModuleCodeBytes::Boxed(s) => s.to_vec(),
       ModuleCodeBytes::Arc(s) => s.to_vec(),
+    }
+  }
+
+  /// Creates a cheap copy of this [`ModuleCodeBytes`], potentially transmuting
+  /// it to a faster form. Note that this is not a clone operation as it
+  /// mutates the old [`ModuleCodeBytes`].
+  pub fn cheap_copy(&mut self) -> Self {
+    match self {
+      Self::Boxed(_) => {
+        let self_ = std::mem::replace(self, Self::Static(&[]));
+        let (self_, self_copy) = self_.into_cheap_copy();
+        *self = self_;
+        self_copy
+      }
+      _ => self.try_clone().unwrap(),
     }
   }
 
@@ -505,12 +528,6 @@ impl ModuleSource {
       }
     }
   }
-
-  pub fn into_cheap_copy_of_code(self) -> (Self, ModuleSourceCode) {
-    let (code, code_copy) = self.code.into_cheap_copy();
-    let copy = Self { code, ..self };
-    (copy, code_copy)
-  }
 }
 
 pub type ModuleSourceFuture =
@@ -694,6 +711,8 @@ pub(crate) enum ModuleImportPhase {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 pub(crate) struct ModuleRequest {
   pub reference: ModuleReference,
+  /// None if this is a root request.
+  pub specifier_key: Option<String>,
   /// None if this is a root request.
   pub referrer_source_offset: Option<i32>,
   pub phase: ModuleImportPhase,
