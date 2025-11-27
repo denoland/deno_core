@@ -162,11 +162,8 @@ export namespace core {
   /** Enqueue an immediate callback. Immediate callbacks always execute in
    * the next timer phase.
    */
-  function queueImmediate(
-    depth: number,
-    repeat: boolean,
-    delay: number,
-    callback: () => void,
+  function setImmediateCallback(
+    cb: () => void,
   ): number;
 
   /** Enqueue a user timer at the given depth, optionally repeating. User

@@ -755,11 +755,12 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
 }
 
 #[test]
-fn test_has_tick_scheduled() {
+fn test_next_tick_immediates() {
   use futures::task::ArcWake;
 
   static MACROTASK: AtomicUsize = AtomicUsize::new(0);
   static NEXT_TICK: AtomicUsize = AtomicUsize::new(0);
+  static IMMEDIATE: AtomicUsize = AtomicUsize::new(0);
 
   #[allow(clippy::unnecessary_wraps)]
   #[op2(fast)]
@@ -775,7 +776,17 @@ fn test_has_tick_scheduled() {
     Ok(())
   }
 
-  deno_core::extension!(test_ext, ops = [op_macrotask, op_next_tick]);
+  #[allow(clippy::unnecessary_wraps)]
+  #[op2(fast)]
+  fn op_immediate() -> Result<(), JsErrorBox> {
+    IMMEDIATE.fetch_add(1, Ordering::Relaxed);
+    Ok(())
+  }
+
+  deno_core::extension!(
+    test_ext,
+    ops = [op_macrotask, op_next_tick, op_immediate]
+  );
   let mut runtime = JsRuntime::new(RuntimeOptions {
     extensions: vec![test_ext::init()],
     ..Default::default()
@@ -789,6 +800,7 @@ fn test_has_tick_scheduled() {
           Deno.core.ops.op_macrotask();
           return true; // We're done.
         });
+        Deno.core.setImmediateCallback(() => Deno.core.ops.op_immediate());
         Deno.core.setNextTickCallback(() => Deno.core.ops.op_next_tick());
         Deno.core.setHasTickScheduled(true);
         "#,
@@ -812,16 +824,19 @@ fn test_has_tick_scheduled() {
   ));
   assert_eq!(1, MACROTASK.load(Ordering::Relaxed));
   assert_eq!(1, NEXT_TICK.load(Ordering::Relaxed));
+  assert_eq!(0, IMMEDIATE.load(Ordering::Relaxed));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
   assert!(matches!(
     runtime.poll_event_loop(cx, Default::default()),
     Poll::Pending
   ));
+  assert_eq!(0, IMMEDIATE.load(Ordering::Relaxed));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
   assert!(matches!(
     runtime.poll_event_loop(cx, Default::default()),
     Poll::Pending
   ));
+  assert_eq!(1, IMMEDIATE.load(Ordering::Relaxed));
   assert_eq!(awoken_times.swap(0, Ordering::Relaxed), 1);
   assert!(matches!(
     runtime.poll_event_loop(cx, Default::default()),
