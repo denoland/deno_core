@@ -57,7 +57,9 @@ jobs:
         run: cargo binstall cargo-nextest --secure
 
       - name: Install Deno
-        uses: denoland/setup-deno@v1
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
 
       # https://github.com/marketplace/actions/rust-cache
       - uses: Swatinem/rust-cache@v2
