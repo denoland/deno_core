@@ -9,4 +9,4 @@ runs:
     - name: Lint
       shell: bash
       run: |
-        tools/lint.ts lint --check
+        tools/lint.ts --check
