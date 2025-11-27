@@ -34,7 +34,10 @@ jobs:
           token: ${{ secrets.DENOBOT_PAT }}
           submodules: recursive
 
-      - uses: denoland/setup-deno@v1
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+
       - uses: dsherret/rust-toolchain-file@v1
 
       - name: Create PR for release
