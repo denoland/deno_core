@@ -1,7 +1,8 @@
 #!/usr/bin/env -S deno run --quiet --allow-read --allow-write --allow-run --allow-env
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-import $, * as dax from "https://deno.land/x/dax@0.39.2/mod.ts";
+import { $ } from "@deno/rust-automation";
+import type { dax } from "@deno/rust-automation";
 
 const isCI = !!Deno.env.get("CI");
 const divider =
@@ -68,7 +69,7 @@ class CommandState {
   }
 }
 
-async function runCommands(
+export async function runCommands(
   mode: string,
   commands: { [name: string]: dax.CommandBuilder },
 ) {
@@ -165,55 +166,4 @@ async function runCommands(
       Deno.exit(1);
     }
   }
-}
-
-const CLIPPY_FEATURES =
-  `deno_core/default deno_core/include_js_files_for_snapshotting deno_core/unsafe_runtime_options deno_core/unsafe_use_unprotected_platform`;
-
-export async function main(command: string, flag: string) {
-  if (command == "format") {
-    const check = flag == "--check";
-    if (check) {
-      await runCommands("Formatting (--check)", {
-        "dprint fmt": $`deno run -A npm:dprint@0.47.6 check`,
-      });
-    } else {
-      await runCommands("Formatting", {
-        "dprint fmt": $`deno run -A npm:dprint@0.47.6 fmt`,
-      });
-    }
-  } else if (command == "lint") {
-    const fix = flag == "--fix";
-    if (fix) {
-      await runCommands("Linting (--fix)", {
-        "copyright": $`tools/copyright_checker.js --fix`,
-        "cargo clippy":
-          $`cargo clippy --fix --allow-dirty --allow-staged --locked --release --features ${CLIPPY_FEATURES} --all-targets -- -D clippy::all`,
-      });
-    } else {
-      await runCommands("Linting", {
-        "deno check tools/": $`deno check ${
-          [...Deno.readDirSync("tools")].map((f) => `tools/${f.name}`)
-        }`,
-        "copyright": $`tools/copyright_checker.js`,
-        "deno lint": $`deno lint`,
-        "tsc":
-          $`deno run --allow-read --allow-env npm:typescript@5.5.3/tsc --noEmit -p testing/tsconfig.json`,
-        "cargo clippy":
-          $`cargo clippy --locked --release --features ${CLIPPY_FEATURES} --all-targets -- -D clippy::all`,
-      });
-    }
-  }
-}
-
-if (import.meta.main) {
-  if (Deno.args.length == 0) {
-    console.error("Usage:");
-    console.error("  check.ts lint [--fix]");
-    console.error("  check.ts format [--check]");
-    Deno.exit(1);
-  }
-  const command = Deno.args[0];
-  const flag = Deno.args[1];
-  await main(command, flag);
 }

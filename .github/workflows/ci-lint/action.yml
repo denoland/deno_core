@@ -5,8 +5,8 @@ runs:
     - name: Format
       shell: bash
       run: |
-        tools/check.ts format --check
+        tools/format.ts --check
     - name: Lint
       shell: bash
       run: |
-        tools/check.ts lint --check
+        tools/lint.ts lint --check

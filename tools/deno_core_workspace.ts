@@ -1,6 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-import { $, Crate, Repo } from "./deps.ts";
+import { $, Crate, Repo } from "@deno/rust-automation";
 
 export { Crate };
 
