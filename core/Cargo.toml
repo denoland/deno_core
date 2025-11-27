@@ -23,6 +23,7 @@ include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 unsafe_use_unprotected_platform = []
 snapshot_flags_eager_parse = []
+disable_serde_v8 = ["deno_ops/disable_serde_v8"]
 
 [dependencies]
 anyhow.workspace = true
