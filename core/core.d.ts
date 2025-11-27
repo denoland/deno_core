@@ -164,7 +164,7 @@ export namespace core {
    */
   function setImmediateCallback(
     cb: () => void,
-  ): number;
+  ): void;
 
   /** Enqueue a user timer at the given depth, optionally repeating. User
    * timers may generate call traces for sanitization, and may be clamped
