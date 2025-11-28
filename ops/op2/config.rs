@@ -24,8 +24,6 @@ pub struct MacroConfig {
   pub nofast: bool,
   /// Use other ops for the fast alternatives, rather than generating one for this op.
   pub fast_alternative: Option<String>,
-  /// Marks an async function (either `async fn` or `fn -> impl Future`).
-  pub r#async: bool,
   pub fake_async: bool,
   /// Marks a lazy async function (async must also be true).
   pub async_lazy: bool,
@@ -34,9 +32,9 @@ pub struct MacroConfig {
   /// Marks an op as re-entrant (can safely call other ops).
   pub reentrant: bool,
   /// Marks an op as a method on a wrapped object.
-  pub method: Option<String>,
+  pub method: Option<Ident>,
   /// Same as method name but also used by static and constructor ops.
-  pub self_name: Option<String>,
+  pub self_name: Option<Ident>,
   /// Marks an op as a constructor
   pub constructor: bool,
   /// Marks an op as a static member
@@ -89,7 +87,7 @@ impl MacroConfig {
       let flag = parse2::<Flags>(meta.to_token_stream())?;
 
       match &flag {
-        Flags::Method(name) => config.method = name.clone(),
+        Flags::Method(name) => config.method = name.as_ref().map(|name| Ident::new(name, span)),
         Flags::Constructor => config.constructor = true,
         Flags::Getter => config.getter = true,
         Flags::Setter => config.setter = true,
@@ -102,16 +100,9 @@ impl MacroConfig {
         }
         Flags::NoFast => config.nofast = true,
         Flags::Async(async_mode) => match async_mode {
-          None => config.r#async = true,
-          Some(AsyncMode::Fake) => config.fake_async = true,
-          Some(AsyncMode::Lazy) => {
-            config.r#async = true;
-            config.async_lazy = true;
-          }
-          Some(AsyncMode::Deferred) => {
-            config.r#async = true;
-            config.async_deferred = true;
-          }
+          AsyncMode::Fake => config.fake_async = true,
+          AsyncMode::Lazy => config.async_lazy = true,
+          AsyncMode::Deferred => config.async_deferred = true,
         },
         Flags::Reentrant => config.reentrant = true,
         Flags::NoSideEffects => config.no_side_effects = true,
@@ -150,34 +141,10 @@ impl MacroConfig {
     if config.fast && config.fast_alternative.is_some() {
       return Err(Op2Error::InvalidAttributeCombination("fast", "fast(...)"));
     }
-    if config.fast
-      && (config.r#async && !config.async_lazy && !config.async_deferred)
-    {
-      return Err(Op2Error::InvalidAttributeCombination("fast", "async"));
-    }
-    if config.nofast
-      && (config.r#async && !config.async_lazy && !config.async_deferred)
-    {
-      return Err(Op2Error::InvalidAttributeCombination("nofast", "async"));
-    }
-    if config.no_side_effects
-      && (config.r#async && !config.async_lazy && !config.async_deferred)
-    {
-      return Err(Op2Error::InvalidAttributeCombination(
-        "no_side_effects",
-        "async",
-      ));
-    }
     if config.no_side_effects && config.reentrant {
       return Err(Op2Error::InvalidAttributeCombination(
         "no_side_effects",
         "reentrant",
-      ));
-    }
-    if config.promise_id && !config.r#async {
-      return Err(Op2Error::InvalidAttributeCombination(
-        "promise_id_fn",
-        "async",
       ));
     }
 
@@ -195,7 +162,7 @@ enum AsyncMode {
 // keep in alphabetical order
 #[derive(Debug, Ord, PartialOrd, Eq, PartialEq)]
 enum Flags {
-  Async(Option<AsyncMode>),
+  Async(AsyncMode),
   Constructor,
   Fast(Option<String>),
   Getter,
@@ -278,29 +245,25 @@ impl Parse for Flags {
       Flags::NoFast
     } else if lookahead.peek(Token![async]) || lookahead.peek(kw::async_method)
     {
-      match input.parse::<CustomMeta>()?.as_meta_list() {
-        Some(list) => {
-          let async_mode = list.parse_args_with(|input: ParseStream| {
-            let lookahead = input.lookahead1();
+      let list = input.parse::<CustomMeta>()?.require_list()?;
+      let async_mode = list.parse_args_with(|input: ParseStream| {
+        let lookahead = input.lookahead1();
 
-            if lookahead.peek(kw::fake) {
-              input.parse::<kw::fake>()?;
-              Ok(AsyncMode::Fake)
-            } else if lookahead.peek(kw::lazy) {
-              input.parse::<kw::lazy>()?;
-              Ok(AsyncMode::Lazy)
-            } else if lookahead.peek(kw::deferred) {
-              input.parse::<kw::deferred>()?;
-              Ok(AsyncMode::Deferred)
-            } else {
-              Err(lookahead.error())
-            }
-          })?;
-
-          Flags::Async(Some(async_mode))
+        if lookahead.peek(kw::fake) {
+          input.parse::<kw::fake>()?;
+          Ok(AsyncMode::Fake)
+        } else if lookahead.peek(kw::lazy) {
+          input.parse::<kw::lazy>()?;
+          Ok(AsyncMode::Lazy)
+        } else if lookahead.peek(kw::deferred) {
+          input.parse::<kw::deferred>()?;
+          Ok(AsyncMode::Deferred)
+        } else {
+          Err(lookahead.error())
         }
-        _ => Flags::Async(None),
-      }
+      })?;
+
+      Flags::Async(async_mode)
     } else if lookahead.peek(kw::reentrant) {
       input.parse::<kw::reentrant>()?;
       Flags::Reentrant
@@ -449,6 +412,7 @@ mod kw {
 
 #[cfg(test)]
 mod tests {
+  use quote::format_ident;
   use super::*;
   use syn::ItemFn;
   use syn::Meta;
@@ -489,16 +453,8 @@ mod tests {
   fn test_macro_parse() {
     test_parse("", MacroConfig::default());
     test_parse(
-      "(async)",
+      "(promise_id)",
       MacroConfig {
-        r#async: true,
-        ..Default::default()
-      },
-    );
-    test_parse(
-      "(async, promise_id)",
-      MacroConfig {
-        r#async: true,
         promise_id: true,
         ..Default::default()
       },
@@ -506,7 +462,6 @@ mod tests {
     test_parse(
       "(async(lazy))",
       MacroConfig {
-        r#async: true,
         async_lazy: true,
         ..Default::default()
       },
@@ -529,14 +484,14 @@ mod tests {
     test_parse(
       "(method(A))",
       MacroConfig {
-        method: Some("A".to_owned()),
+        method: Some(format_ident!("A")),
         ..Default::default()
       },
     );
     test_parse(
       "(fast, method(T))",
       MacroConfig {
-        method: Some("T".to_owned()),
+        method: Some(format_ident!("T")),
         fast: true,
         ..Default::default()
       },

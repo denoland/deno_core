@@ -401,6 +401,7 @@ pub(crate) fn generate_dispatch_fast(
   if signature.ret_val.is_async()
     && !config.async_lazy
     && !config.async_deferred
+    || config.fake_async
   {
     return Ok(None);
   }

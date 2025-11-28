@@ -24,7 +24,7 @@ use super::signature::NumericArg;
 use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
-use super::signature::RetVal;
+use super::signature_retval::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::signature::WebIDLPair;
@@ -346,7 +346,7 @@ pub(crate) fn with_self(
     generator_state,
     format!("expected {}", &generator_state.self_ty),
   );
-  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+  if ret_val.is_async() {
     let tokens = gs_quote!(generator_state(self_ty, fn_args, scope, try_unwrap_cppgc) => {
       let Some(mut self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
@@ -793,13 +793,7 @@ pub fn from_arg(
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-      if matches!(
-        ret_val,
-        RetVal::Future(_)
-          | RetVal::FutureResult(_)
-          | RetVal::Infallible(.., true)
-          | RetVal::Result(.., true)
-      ) {
+      if ret_val.is_async() {
         let tokens = quote! {
           let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
@@ -827,13 +821,7 @@ pub fn from_arg(
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       let scope = &generator_state.scope;
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
-      if matches!(
-        ret_val,
-        RetVal::Future(_)
-          | RetVal::FutureResult(_)
-          | RetVal::Infallible(.., true)
-          | RetVal::Result(.., true)
-      ) {
+      if ret_val.is_async() {
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
@@ -1042,21 +1030,16 @@ pub fn call(
 
   let call = quote!(#call_ ( #tokens ));
 
-  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
-    && !generator_state.moves.is_empty()
-  {
+  if ret_val.is_async() && !generator_state.moves.is_empty() {
     let mut moves = TokenStream::new();
     for m in &generator_state.moves {
-      moves.extend(quote!(#m));
+      moves.extend(m.clone());
     }
     quote!(async move {
       #moves
       #call.await
     })
-  } else if matches!(
-    ret_val,
-    RetVal::Infallible(.., true) | RetVal::Result(.., true)
-  ) {
+  } else if generator_state.is_fake_async {
     quote!(std::future::ready(#call))
   } else {
     call
@@ -1068,11 +1051,11 @@ pub fn return_value(
   ret_type: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   match ret_type {
-    RetVal::Infallible(ret_type, ..) => {
+    RetVal::Value(ret_type, ..) => {
       return_value_infallible(generator_state, ret_type)
     }
-    RetVal::Result(ret_type, ..) => {
-      return_value_result(generator_state, ret_type)
+    RetVal::Result(ret_type) => {
+      return_value_result(generator_state, ret_type.arg())
     }
     _ => todo!(),
   }

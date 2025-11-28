@@ -5,7 +5,7 @@ deno_ops_compile_test_runner::prelude!();
 
 use std::future::Future;
 
-#[op2(async)]
+#[op2]
 pub fn op_async_impl_use(
   x: i32,
 ) -> impl Future<Output = std::io::Result<i32>> + use<> {

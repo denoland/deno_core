@@ -6,6 +6,7 @@ use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
 use std::convert::Infallible;
 use std::mem::MaybeUninit;
+use v8::{Local, PinScope, Value};
 
 /// A conversion from a rust value to a v8 value.
 ///
@@ -594,11 +595,65 @@ macro_rules! typedarray_to_v8 {
   };
 }
 
+typedarray_to_v8!(i16, Int16Array, is_int16_array);
 typedarray_to_v8!(u16, Uint16Array, is_uint16_array);
-typedarray_to_v8!(u32, Uint32Array, is_uint32_array);
-typedarray_to_v8!(u64, BigUint64Array, is_big_uint64_array);
 typedarray_to_v8!(i32, Int32Array, is_int32_array);
+typedarray_to_v8!(u32, Uint32Array, is_uint32_array);
 typedarray_to_v8!(i64, BigInt64Array, is_big_int64_array);
+typedarray_to_v8!(u64, BigUint64Array, is_big_uint64_array);
+
+pub enum ArrayBufferView {
+  Uint8Array(Uint8Array),
+  Int16Array(Int16Array),
+  Uint16Array(Uint16Array),
+  Int32Array(Int32Array),
+  Uint32Array(Uint32Array),
+  BigInt64Array(BigInt64Array),
+  BigUint64Array(BigUint64Array),
+}
+
+impl<'a> ToV8<'a> for ArrayBufferView {
+  type Error = JsErrorBox;
+
+  fn to_v8<'i>(self, scope: &mut PinScope<'a, 'i>) -> Result<Local<'a, Value>, Self::Error> {
+    match self {
+      ArrayBufferView::Uint8Array(view) => Ok(view.to_v8(scope).unwrap()),
+      ArrayBufferView::Int16Array(view) => view.to_v8(scope),
+      ArrayBufferView::Uint16Array(view) => view.to_v8(scope),
+      ArrayBufferView::Int32Array(view) => view.to_v8(scope),
+      ArrayBufferView::Uint32Array(view) => view.to_v8(scope),
+      ArrayBufferView::BigInt64Array(view) => view.to_v8(scope),
+      ArrayBufferView::BigUint64Array(view) => view.to_v8(scope),
+    }
+  }
+}
+
+impl<'a> FromV8<'a> for ArrayBufferView {
+  type Error = DataError;
+
+  fn from_v8<'i>(scope: &mut PinScope<'a, 'i>, value: Local<'a, Value>) -> Result<Self, Self::Error> {
+    if value.is_uint8_array() {
+      Ok(Self::Uint8Array(Uint8Array::from_v8(scope, value)?))
+    } else if value.is_int16_array() {
+      Ok(Self::Int16Array(Int16Array::from_v8(scope, value)?))
+    } else if value.is_uint16_array() {
+      Ok(Self::Uint16Array(Uint16Array::from_v8(scope, value)?))
+    } else if value.is_int32_array() {
+      Ok(Self::Int32Array(Int32Array::from_v8(scope, value)?))
+    } else if value.is_uint32_array() {
+      Ok(Self::Uint32Array(Uint32Array::from_v8(scope, value)?))
+    } else if value.is_big_int64_array() {
+      Ok(Self::BigInt64Array(BigInt64Array::from_v8(scope, value)?))
+    } else if value.is_big_uint64_array() {
+      Ok(Self::BigUint64Array(BigUint64Array::from_v8(scope, value)?))
+    } else {
+      Err(DataError(v8::DataError::BadType {
+        actual: value.type_repr(),
+        expected: "ArrayBufferView",
+      }))
+    }
+  }
+}
 
 impl<'a, T> ToV8<'a> for Vec<T>
 where

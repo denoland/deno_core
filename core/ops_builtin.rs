@@ -166,7 +166,7 @@ fn op_add(a: i32, b: i32) -> i32 {
 }
 
 #[allow(clippy::unused_async)]
-#[op2(async)]
+#[op2]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
 }
@@ -175,11 +175,11 @@ pub async fn op_add_async(a: i32, b: i32) -> i32 {
 pub fn op_void_sync() {}
 
 #[allow(clippy::unused_async)]
-#[op2(async)]
+#[op2]
 pub async fn op_void_async() {}
 
 #[allow(clippy::unused_async)]
-#[op2(async)]
+#[op2]
 pub async fn op_error_async() -> Result<(), JsErrorBox> {
   Err(JsErrorBox::generic("error"))
 }
@@ -279,7 +279,7 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
-#[op2(async)]
+#[op2]
 async fn op_wasm_streaming_stream_feed(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -339,7 +339,7 @@ fn get_resource(
   Ok(resource)
 }
 
-#[op2(async, promise_id)]
+#[op2(promise_id)]
 async fn op_read(
   state: Rc<RefCell<OpState>>,
   #[smi] promise_id: i32,
@@ -352,7 +352,7 @@ async fn op_read(
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
-#[op2(async, promise_id)]
+#[op2(promise_id)]
 #[buffer]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
@@ -388,7 +388,7 @@ async fn op_read_all(
   Ok(buf.maybe_unwrap_bytes().unwrap())
 }
 
-#[op2(async, promise_id)]
+#[op2(promise_id)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
   #[smi] promise_id: i32,
@@ -431,7 +431,7 @@ fn op_write_sync(
   Ok(nwritten as u32)
 }
 
-#[op2(async)]
+#[op2]
 async fn op_write_all(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -447,7 +447,7 @@ async fn op_write_all(
   Ok(())
 }
 
-#[op2(async)]
+#[op2]
 async fn op_write_type_error(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -462,7 +462,7 @@ async fn op_write_type_error(
   Ok(())
 }
 
-#[op2(async)]
+#[op2]
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,

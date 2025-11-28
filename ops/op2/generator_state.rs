@@ -10,6 +10,7 @@ pub struct GeneratorState {
   pub args: Vec<Ident>,
   /// The result of the `call` function
   pub result: Ident,
+  pub is_fake_async: bool,
 
   /// The `v8::CallbackScope` used if necessary for the function.
   pub scope: Ident,

@@ -1964,7 +1964,7 @@ mod tests {
     }
   }
 
-  #[op2(async)]
+  #[op2]
   #[smi]
   pub async fn op_test_get_cppgc_resource(
     #[cppgc] resource: &TestResource,
@@ -2113,7 +2113,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_void() {}
 
   #[tokio::test]
@@ -2123,19 +2123,19 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_number(x: u32) -> u32 {
     x
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_add(x: u32, y: u32) -> u32 {
     x.wrapping_add(y)
   }
 
   // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
   // of valid ranges result in automatic wrapping.
-  #[op2(async)]
+  #[op2]
   #[smi]
   async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2172,12 +2172,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() {
     tokio::time::sleep(Duration::from_millis(500)).await
   }
 
-  #[op2(async)]
+  #[op2]
   fn op_async_sleep_impl() -> impl Future<Output = ()> {
     tokio::time::sleep(Duration::from_millis(500))
   }
@@ -2190,7 +2190,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   pub async fn op_async_sleep_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(Duration::from_millis(500)).await;
     Err(JsErrorBox::generic("whoops"))
@@ -2265,7 +2265,7 @@ mod tests {
 
   /// Test exits from the three possible routes -- before future, future immediate,
   /// future polled failed, future polled success.
-  #[op2(async)]
+  #[op2]
   pub fn op_async_result_impl(
     mode: u8,
   ) -> Result<impl Future<Output = Result<(), JsErrorBox>>, JsErrorBox> {
@@ -2304,7 +2304,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   pub async fn op_async_state_rc(
     state: Rc<RefCell<OpState>>,
     value: u32,
@@ -2324,13 +2324,13 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   #[buffer]
   async fn op_async_buffer(#[buffer] input: JsBuffer) -> JsBuffer {
     input
   }
 
-  #[op2(async)]
+  #[op2]
   #[buffer]
   async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
     let mut output = input.to_vec();
@@ -2338,7 +2338,7 @@ mod tests {
     output
   }
 
-  #[op2(async)]
+  #[op2]
   fn op_async_buffer_impl(
     #[buffer] input: &[u8],
   ) -> impl Future<Output = u32> + use<> {
@@ -2370,7 +2370,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_external(
     input: *const std::ffi::c_void,
   ) -> *const std::ffi::c_void {
@@ -2390,7 +2390,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,

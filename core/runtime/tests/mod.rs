@@ -32,7 +32,7 @@ struct TestState {
 }
 
 #[allow(clippy::await_holding_refcell_ref)] // False positive.
-#[op2(async)]
+#[op2]
 async fn op_test(
   rc_op_state: Rc<RefCell<OpState>>,
   control: u8,
