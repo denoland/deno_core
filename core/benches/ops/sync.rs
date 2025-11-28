@@ -111,16 +111,6 @@ pub fn op_local_scope<'s>(
 #[op2(nofast)]
 pub fn op_local_nofast(_s: v8::Local<v8::String>) {}
 
-#[op2]
-pub fn op_global(#[global] _s: v8::Global<v8::String>) {}
-
-#[op2]
-pub fn op_global_scope(
-  _scope: &mut v8::PinScope,
-  #[global] _s: v8::Global<v8::String>,
-) {
-}
-
 #[op2(fast)]
 pub fn op_scope(_scope: &mut v8::PinScope) {}
 

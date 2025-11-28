@@ -47,7 +47,7 @@ pub(crate) fn map_async_return_type(
       )
     }
   } else {
-    return Err("an async return")
+    return Err("an async return");
   };
 
   Ok((return_value, mapper, return_value_immediate))
@@ -95,7 +95,9 @@ pub(crate) fn generate_dispatch_async(
   }));
 
   // TODO(mmastrac): we should save this unwrapped result
-  if signature.ret_val.unwrap_result().is_some() && !generator_state.is_fake_async {
+  if signature.ret_val.unwrap_result().is_some()
+    && !generator_state.is_fake_async
+  {
     let exception = throw_exception(generator_state);
     output.extend(gs_quote!(generator_state(result) => {
       let #result = match #result {

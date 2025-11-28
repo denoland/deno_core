@@ -151,7 +151,6 @@ pub fn op_panic(#[string] message: String) {
 /// Return map of resources with id as key
 /// and string representation as value.
 #[op2]
-#[serde]
 pub fn op_resources(state: &mut OpState) -> Vec<(ResourceId, String)> {
   state
     .resource_table

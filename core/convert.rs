@@ -615,7 +615,10 @@ pub enum ArrayBufferView {
 impl<'a> ToV8<'a> for ArrayBufferView {
   type Error = JsErrorBox;
 
-  fn to_v8<'i>(self, scope: &mut PinScope<'a, 'i>) -> Result<Local<'a, Value>, Self::Error> {
+  fn to_v8<'i>(
+    self,
+    scope: &mut PinScope<'a, 'i>,
+  ) -> Result<Local<'a, Value>, Self::Error> {
     match self {
       ArrayBufferView::Uint8Array(view) => Ok(view.to_v8(scope).unwrap()),
       ArrayBufferView::Int16Array(view) => view.to_v8(scope),
@@ -631,7 +634,10 @@ impl<'a> ToV8<'a> for ArrayBufferView {
 impl<'a> FromV8<'a> for ArrayBufferView {
   type Error = DataError;
 
-  fn from_v8<'i>(scope: &mut PinScope<'a, 'i>, value: Local<'a, Value>) -> Result<Self, Self::Error> {
+  fn from_v8<'i>(
+    scope: &mut PinScope<'a, 'i>,
+    value: Local<'a, Value>,
+  ) -> Result<Self, Self::Error> {
     if value.is_uint8_array() {
       Ok(Self::Uint8Array(Uint8Array::from_v8(scope, value)?))
     } else if value.is_int16_array() {
@@ -849,40 +855,83 @@ where
   }
 }
 
-impl<'s, T> ToV8<'s> for v8::Global<T>
-where Local<'s, T>: TryInto<Local<'s, v8::Value>, Error = v8::DataError> {
-  type Error = DataError;
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+pub enum V8ConvertError {
+  #[class(inherit)]
+  #[error(transparent)]
+  Infallible(#[from] Infallible),
+  #[class(inherit)]
+  #[error(transparent)]
+  DataError(DataError),
+}
 
-  fn to_v8<'i>(self, scope: &mut PinScope<'s, 'i>) -> Result<Local<'s, Value>, Self::Error> {
+impl From<v8::DataError> for V8ConvertError {
+  fn from(value: v8::DataError) -> Self {
+    Self::DataError(value.into())
+  }
+}
+
+impl<'s, T, E> ToV8<'s> for v8::Global<T>
+where
+  Local<'s, T>: TryInto<Local<'s, v8::Value>, Error = E>,
+  E: Into<V8ConvertError>,
+{
+  type Error = V8ConvertError;
+
+  fn to_v8<'i>(
+    self,
+    scope: &mut PinScope<'s, 'i>,
+  ) -> Result<Local<'s, Value>, Self::Error> {
     let local: Local<'s, T> = Local::new(scope, self);
-    Ok(local.try_into()?)
+    Ok(local.try_into().map_err(Into::into)?)
   }
 }
 
-impl<'s, T> FromV8<'s> for v8::Global<T>
-where Local<'s, Value>: TryInto<Local<'s, T>, Error = v8::DataError> {
-  type Error = DataError;
+impl<'s, T, E> FromV8<'s> for v8::Global<T>
+where
+  Local<'s, Value>: TryInto<Local<'s, T>, Error = E>,
+  E: Into<V8ConvertError>,
+{
+  type Error = V8ConvertError;
 
-  fn from_v8<'i>(scope: &mut PinScope<'s, 'i>, value: Local<'s, Value>) -> Result<Self, Self::Error> {
-    Ok(v8::Global::new(scope, value.try_into()?))
+  fn from_v8<'i>(
+    scope: &mut PinScope<'s, 'i>,
+    value: Local<'s, Value>,
+  ) -> Result<Self, Self::Error> {
+    Ok(v8::Global::new(
+      scope,
+      value.try_into().map_err(Into::into)?,
+    ))
   }
 }
 
-impl<'s, T> ToV8<'s> for v8::Local<'s, T>
-where Local<'s, T>: TryInto<Local<'s, v8::Value>, Error = v8::DataError> {
-  type Error = DataError;
+impl<'s, T, E> ToV8<'s> for v8::Local<'s, T>
+where
+  Local<'s, T>: TryInto<Local<'s, v8::Value>, Error = E>,
+  E: Into<V8ConvertError>,
+{
+  type Error = V8ConvertError;
 
-  fn to_v8<'i>(self, _scope: &mut PinScope<'s, 'i>) -> Result<Local<'s, Value>, Self::Error> {
-    Ok(self.try_into()?)
+  fn to_v8<'i>(
+    self,
+    _scope: &mut PinScope<'s, 'i>,
+  ) -> Result<Local<'s, Value>, Self::Error> {
+    Ok(self.try_into().map_err(Into::into)?)
   }
 }
 
-impl<'s, T> FromV8<'s> for v8::Local<'s, T>
-where Local<'s, Value>: TryInto<Local<'s, T>, Error = v8::DataError> {
-  type Error = DataError;
+impl<'s, T, E> FromV8<'s> for v8::Local<'s, T>
+where
+  Local<'s, Value>: TryInto<Local<'s, T>, Error = E>,
+  E: Into<V8ConvertError>,
+{
+  type Error = V8ConvertError;
 
-  fn from_v8<'i>(_scope: &mut PinScope<'s, 'i>, value: Local<'s, Value>) -> Result<Self, Self::Error> {
-    Ok(value.try_into()?)
+  fn from_v8<'i>(
+    _scope: &mut PinScope<'s, 'i>,
+    value: Local<'s, Value>,
+  ) -> Result<Self, Self::Error> {
+    Ok(value.try_into().map_err(Into::into)?)
   }
 }
 

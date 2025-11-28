@@ -24,10 +24,10 @@ use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
 use self::signature::Arg;
-use self::signature_retval::RetVal;
 use self::signature::SignatureError;
 use self::signature::is_attribute_special;
 use self::signature::parse_signature;
+use self::signature_retval::RetVal;
 
 pub mod config;
 pub mod dispatch_async;
@@ -127,8 +127,7 @@ pub(crate) fn generate_op2(
   } else if config.static_member {
     func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
-  let signature =
-    parse_signature(func.attrs, func.sig.clone())?;
+  let signature = parse_signature(func.attrs, func.sig.clone())?;
   for ident in &signature.lifetimes {
     op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
       LifetimeParam::new(Lifetime {
@@ -576,9 +575,8 @@ mod tests {
         let function = format!("{} fn op_test() -> {} {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig =
-          parse_signature(function.attrs.clone(), function.sig.clone())
-            .expect("Failed to parse signature");
+        let sig = parse_signature(function.attrs.clone(), function.sig.clone())
+          .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
           MacroConfig {
@@ -593,11 +591,9 @@ mod tests {
           let function = format!("{} async fn op_test() -> {} {{}}", attr, ty);
           let function =
             syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-          let sig = parse_signature(
-            function.attrs.clone(),
-            function.sig.clone(),
-          )
-          .expect("Failed to parse signature");
+          let sig =
+            parse_signature(function.attrs.clone(), function.sig.clone())
+              .expect("Failed to parse signature");
           println!("Parsed signature: {sig:?}");
           generate_op2(
             MacroConfig {

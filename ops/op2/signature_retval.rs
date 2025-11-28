@@ -82,7 +82,6 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
   }
 }
 
-
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum RetVal {
   /// An op that can never fail.
@@ -136,9 +135,15 @@ impl RetVal {
   ) -> Result<RetVal, RetError> {
     fn handle_type(ty: &Type, attrs: Attributes) -> Result<RetVal, RetError> {
       Ok(match unwrap_return(ty)? {
-        UnwrappedReturn::Type(ty) => RetVal::Value(parse_type(Position::RetVal, attrs, &ty)?),
-        UnwrappedReturn::Result(ty) => RetVal::Result(Box::new(handle_type(&ty, attrs)?)),
-        UnwrappedReturn::Future(ty) => RetVal::Future(Box::new(handle_type(&ty, attrs)?)),
+        UnwrappedReturn::Type(ty) => {
+          RetVal::Value(parse_type(Position::RetVal, attrs, &ty)?)
+        }
+        UnwrappedReturn::Result(ty) => {
+          RetVal::Result(Box::new(handle_type(&ty, attrs)?))
+        }
+        UnwrappedReturn::Future(ty) => {
+          RetVal::Future(Box::new(handle_type(&ty, attrs)?))
+        }
       })
     }
 
@@ -171,8 +176,14 @@ mod tests {
       (Result(Box::new(Value(Void))), "Result<(), ()>"),
       (Result(Box::new(Value(Void))), "Result<(), (),>"),
       (Future(Box::new(Value(Void))), "impl Future<Output = ()>"),
-      (Future(Box::new(Result(Box::new(Value(Void))))), "impl Future<Output = Result<()>>"),
-      (Result(Box::new(Future(Box::new(Value(Void))))), "Result<impl Future<Output = ()>>"),
+      (
+        Future(Box::new(Result(Box::new(Value(Void))))),
+        "impl Future<Output = Result<()>>",
+      ),
+      (
+        Result(Box::new(Future(Box::new(Value(Void))))),
+        "Result<impl Future<Output = ()>>",
+      ),
       (
         Result(Box::new(Future(Box::new(Result(Box::new(Value(Void))))))),
         "Result<impl Future<Output = Result<()>>>",

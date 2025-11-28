@@ -87,7 +87,9 @@ impl MacroConfig {
       let flag = parse2::<Flags>(meta.to_token_stream())?;
 
       match &flag {
-        Flags::Method(name) => config.method = name.as_ref().map(|name| Ident::new(name, span)),
+        Flags::Method(name) => {
+          config.method = name.as_ref().map(|name| Ident::new(name, span))
+        }
         Flags::Constructor => config.constructor = true,
         Flags::Getter => config.getter = true,
         Flags::Setter => config.setter = true,
@@ -412,8 +414,8 @@ mod kw {
 
 #[cfg(test)]
 mod tests {
-  use quote::format_ident;
   use super::*;
+  use quote::format_ident;
   use syn::ItemFn;
   use syn::Meta;
   use syn::parse::Parser;

@@ -1,7 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use proc_macro2::{Ident, Span};
 use proc_macro2::TokenStream;
+use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::TokenStreamExt;
 use quote::format_ident;
@@ -346,9 +346,7 @@ pub enum Arg {
   OptionNumeric(NumericArg, NumericFlag),
   OptionBuffer(BufferType, BufferMode, BufferSource),
   OptionV8Local(V8Arg),
-  OptionV8Global(V8Arg),
   V8Local(V8Arg),
-  V8Global(V8Arg),
   OptionV8Ref(RefType, V8Arg),
   V8Ref(RefType, V8Arg),
   Numeric(NumericArg, NumericFlag),
@@ -366,6 +364,7 @@ pub enum Arg {
 impl Arg {
   fn from_parsed(
     parsed: ParsedTypeContainer,
+    position: Position,
     attr: Attributes,
   ) -> Result<Self, ArgError> {
     use ParsedType::*;
@@ -399,11 +398,13 @@ impl Arg {
       CRc(TSpecial(special)) => Ok(Arg::Rc(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
-      COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
       COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
       COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
-      CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
+      CUnknown(t) => match position {
+        Position::Arg => Ok(Arg::FromV8(stringify_token(t))),
+        Position::RetVal => Ok(Arg::ToV8(stringify_token(t))),
+      },
       _ => unreachable!(),
     }
   }
@@ -446,7 +447,6 @@ impl Arg {
       Arg::V8Ref(RefType::Ref, v8) => quote!(&deno_core::v8::#v8),
       Arg::V8Ref(RefType::Mut, v8) => quote!(&mut deno_core::v8::#v8),
       Arg::V8Local(v8) => quote!(deno_core::v8::Local<deno_core::v8::#v8>),
-      Arg::V8Global(v8) => quote!(deno_core::v8::Global<deno_core::v8::#v8>),
       Arg::OptionV8Ref(RefType::Ref, v8) => {
         quote!(::std::option::Option<&deno_core::v8::#v8>)
       }
@@ -455,9 +455,6 @@ impl Arg {
       }
       Arg::OptionV8Local(v8) => {
         quote!(::std::option::Option<deno_core::v8::Local<deno_core::v8::#v8>>)
-      }
-      Arg::OptionV8Global(v8) => {
-        quote!(::std::option::Option<deno_core::v8::Global<deno_core::v8::#v8>>)
       }
       _ => todo!(),
     }
@@ -469,7 +466,6 @@ impl Arg {
       self,
       Arg::OptionV8Ref(..)
         | Arg::OptionV8Local(..)
-        | Arg::OptionV8Global(..)
         | Arg::OptionNumeric(..)
         | Arg::Option(..)
         | Arg::OptionString(..)
@@ -483,7 +479,6 @@ impl Arg {
     Some(match self {
       Arg::OptionV8Ref(r, t) => Arg::V8Ref(*r, *t),
       Arg::OptionV8Local(t) => Arg::V8Local(*t),
-      Arg::OptionV8Global(t) => Arg::V8Global(*t),
       Arg::OptionNumeric(t, flag) => Arg::Numeric(*t, *flag),
       Arg::Option(t) => Arg::Special(t.clone()),
       Arg::OptionString(t) => Arg::String(*t),
@@ -530,7 +525,6 @@ impl Arg {
           Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
           // No scope required for these
           Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
-          Arg::V8Global(_) => ArgSlowRetval::V8Local,
           // ArrayBuffer is infallible
           Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
           // TypedArray is fallible
@@ -656,9 +650,8 @@ pub enum ParsedTypeContainer {
   CRc(ParsedType),
   CRcRefCell(ParsedType),
   COptionV8Local(ParsedType),
-  COptionV8Global(ParsedType),
   CV8Local(ParsedType),
-  CV8Global(ParsedType),
+  CUnknown(Type),
 }
 
 impl ParsedTypeContainer {
@@ -670,8 +663,7 @@ impl ParsedTypeContainer {
   ) -> Option<&'static [AttributeModifier]> {
     use ParsedTypeContainer::*;
     match self {
-      CV8Local(_) | COptionV8Local(_) => None,
-      CV8Global(_) | COptionV8Global(_) => Some(&[AttributeModifier::Global]),
+      CV8Local(_) | COptionV8Local(_) | CUnknown(_) => None,
       CBare(t) | COption(t) | CRcRefCell(t) | CRc(t) => {
         t.required_attributes(position)
       }
@@ -786,8 +778,6 @@ pub enum AttributeModifier {
   String(StringMode),
   /// #[buffer], for buffers.
   Buffer(BufferMode, BufferSource),
-  /// #[global], for [`v8::Global`]s
-  Global,
   /// #[bigint], for u64/usize/i64/isize indicating value is a BigInt
   Bigint,
   /// #[number], for u64/usize/i64/isize indicating value is a Number
@@ -820,7 +810,6 @@ impl AttributeModifier {
       AttributeModifier::Serde => "serde",
       AttributeModifier::WebIDL(_) => "webidl",
       AttributeModifier::String(_) => "string",
-      AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
       AttributeModifier::CppGcProto => "proto",
       AttributeModifier::Ignore => "ignore",
@@ -880,10 +869,6 @@ pub enum ArgError {
   InvalidNumericType(String),
   #[error("Invalid numeric #[smi] argument type: {0}")]
   InvalidSmiType(String),
-  #[error(
-    "Invalid argument type path (should this be #[smi], #[serde], or #[to_v8]?): {0}"
-  )]
-  InvalidTypePath(String),
   #[error("The type {0} cannot be a reference")]
   InvalidReference(String),
   #[error("The type {0} must be a reference")]
@@ -1032,8 +1017,10 @@ pub fn parse_signature(
           _ => "(complex)".to_owned(),
         };
 
-        let attrs = parse_attributes(&arg.attrs).map_err(|err| SignatureError::ArgError(name.clone(), err.into()))?;
-        let ty = parse_type(Position::Arg, attrs.clone(), &arg.ty).map_err(|err| SignatureError::ArgError(name, err))?;
+        let attrs = parse_attributes(&arg.attrs)
+          .map_err(|err| SignatureError::ArgError(name.clone(), err.into()))?;
+        let ty = parse_type(Position::Arg, attrs.clone(), &arg.ty)
+          .map_err(|err| SignatureError::ArgError(name, err))?;
 
         args.push((ty, attrs));
       }
@@ -1265,7 +1252,6 @@ fn parse_attribute(
     "undefined" => Some(AttributeModifier::Undefined),
     "serde" => Some(AttributeModifier::Serde),
     "smi" => Some(AttributeModifier::Smi),
-    "global" => Some(AttributeModifier::Global),
     "this" => Some(AttributeModifier::This),
     "cppgc" => Some(AttributeModifier::CppGcResource),
     "proto" => Some(AttributeModifier::CppGcProto),
@@ -1411,7 +1397,7 @@ fn parse_type_path(
         v8::PinScope<'_, '_> | v8::PinScope => Ok(CBare(TSpecial(Special::HandleScope))),
         v8::FastApiCallbackOptions => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
         v8::Local<'_, v8::$v8> | v8::Local<v8::$v8> => Ok(CV8Local(TV8(parse_v8_type(v8)?))),
-        v8::Global<'_, v8::$v8> | v8::Global<v8::$v8> => Ok(CV8Global(TV8(parse_v8_type(v8)?))),
+        v8::Global<'_, v8::$_v8> | v8::Global<v8::$_v8> => Ok(CUnknown(Type::Path(tp.clone()))),
         v8::$v8 => Ok(CBare(TV8(parse_v8_type(v8)?))),
         std?::rc?::Rc<RefCell<$ty>> => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
         std?::rc?::Rc<$ty> => Ok(CRc(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
@@ -1431,8 +1417,7 @@ fn parse_type_path(
             Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
             Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
             Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
-            Arg::V8Global(v8) => Ok(COptionV8Global(TV8(v8))),
-            _ => Err(ArgError::InvalidType(stringify_token(ty), "for option"))
+            _ => Ok(CUnknown(Type::Path(tp.clone()))),
           }
         }
         deno_core::$next::$any? => {
@@ -1442,7 +1427,7 @@ fn parse_type_path(
           let instead = format!("{next}{any}");
           Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), next, instead))
         }
-        _ => Err(ArgError::InvalidTypePath(stringify_token(tp)))
+        _ => Ok(CUnknown(Type::Path(tp.clone()))),
       )?
     }
   };
@@ -1571,11 +1556,18 @@ fn parse_cppgc(
 fn better_alternative_exists(position: Position, of: &TypePath) -> bool {
   // If this type will parse without #[serde]/#[to_v8]/#[from_v8], it is illegal to use this type
   // with #[serde]/#[to_v8]/#[from_v8]
-  if parse_type_path(position, Attributes::default(), TypePathContext::None, of)
-    .is_ok()
-  {
-    return true;
+  match parse_type_path(
+    position,
+    Attributes::default(),
+    TypePathContext::None,
+    of,
+  ) {
+    Err(_) | Ok(ParsedTypeContainer::CUnknown(_)) => {}
+    _ => {
+      return true;
+    }
   }
+
   // If this type will parse with #[string], it is illegal to use this type with #[serde]/#[to_v8]/#[from_v8]
   if parse_type_path(position, Attributes::string(), TypePathContext::None, of)
     .is_ok()
@@ -1617,14 +1609,6 @@ pub(crate) fn parse_type(
         }
 
         return Ok(Arg::VarArgs);
-      }
-      AttributeModifier::Global => {
-        if position == Position::Arg {
-          return Err(ArgError::InvalidAttributePosition(
-            primary.name(),
-            "return value",
-          ));
-        }
       }
       AttributeModifier::CppGcResource => {
         return parse_cppgc(position, ty, false);
@@ -1794,7 +1778,7 @@ pub(crate) fn parse_type(
             numeric => {
               let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, attrs.clone()).map_err(|_| {
+              Arg::from_parsed(res, position, attrs.clone()).map_err(|_| {
                 ArgError::InvalidType(stringify_token(ty), "for slice")
               })
             }
@@ -1843,7 +1827,7 @@ pub(crate) fn parse_type(
             CBare(TNumeric(numeric)) => {
               let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, attrs.clone()).map_err(|_| {
+              Arg::from_parsed(res, position, attrs.clone()).map_err(|_| {
                 ArgError::InvalidType(
                   stringify_token(ty),
                   "for numeric pointer",
@@ -1868,7 +1852,7 @@ pub(crate) fn parse_type(
       if let CBare(TSpecial(Special::Isolate)) = typath {
         return Ok(Arg::Special(Special::Isolate));
       }
-      Arg::from_parsed(typath, attrs)
+      Arg::from_parsed(typath, position, attrs)
         .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
     }
     _ => Err(ArgError::InvalidType(
@@ -1928,10 +1912,9 @@ mod tests {
       .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
 
     let attrs = item_fn.attrs;
-    let sig =
-      parse_signature(attrs, item_fn.sig).unwrap_or_else(|err| {
-        panic!("Failed to successfully parse signature from {op} ({err:?})")
-      });
+    let sig = parse_signature(attrs, item_fn.sig).unwrap_or_else(|err| {
+      panic!("Failed to successfully parse signature from {op} ({err:?})")
+    });
     println!("Raw parsed signatures = {sig:?}");
 
     let mut generics_res = vec![];

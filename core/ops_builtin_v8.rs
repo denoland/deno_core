@@ -44,7 +44,8 @@ pub fn op_set_handled_promise_rejection_handler(
   f: Option<v8::Local<v8::Function>>,
 ) {
   let exception_state = JsRealm::exception_state_from_scope(scope);
-  *exception_state.js_handled_promise_rejection_cb.borrow_mut() = f.map(|f| v8::Global::new(scope, f));
+  *exception_state.js_handled_promise_rejection_cb.borrow_mut() =
+    f.map(|f| v8::Global::new(scope, f));
 }
 
 #[op2(fast)]
@@ -196,7 +197,6 @@ pub fn op_timer_unref(scope: &mut v8::PinScope, id: f64) {
 }
 
 #[op2(reentrant)]
-#[global]
 pub fn op_lazy_load_esm(
   scope: &mut v8::PinScope,
   #[string] module_specifier: String,

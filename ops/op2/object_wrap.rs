@@ -80,7 +80,9 @@ pub(crate) fn generate_impl_ops(
   let mut tokens = TokenStream::new();
 
   let self_ty = &item.self_ty;
-  let syn::Type::Path(path) = &**self_ty else { panic!() };
+  let syn::Type::Path(path) = &**self_ty else {
+    panic!()
+  };
   let self_ty_ident = path.path.get_ident().unwrap();
 
   // State
