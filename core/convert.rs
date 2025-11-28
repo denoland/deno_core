@@ -849,6 +849,43 @@ where
   }
 }
 
+impl<'s, T> ToV8<'s> for v8::Global<T>
+where Local<'s, T>: TryInto<Local<'s, v8::Value>, Error = v8::DataError> {
+  type Error = DataError;
+
+  fn to_v8<'i>(self, scope: &mut PinScope<'s, 'i>) -> Result<Local<'s, Value>, Self::Error> {
+    let local: Local<'s, T> = Local::new(scope, self);
+    Ok(local.try_into()?)
+  }
+}
+
+impl<'s, T> FromV8<'s> for v8::Global<T>
+where Local<'s, Value>: TryInto<Local<'s, T>, Error = v8::DataError> {
+  type Error = DataError;
+
+  fn from_v8<'i>(scope: &mut PinScope<'s, 'i>, value: Local<'s, Value>) -> Result<Self, Self::Error> {
+    Ok(v8::Global::new(scope, value.try_into()?))
+  }
+}
+
+impl<'s, T> ToV8<'s> for v8::Local<'s, T>
+where Local<'s, T>: TryInto<Local<'s, v8::Value>, Error = v8::DataError> {
+  type Error = DataError;
+
+  fn to_v8<'i>(self, _scope: &mut PinScope<'s, 'i>) -> Result<Local<'s, Value>, Self::Error> {
+    Ok(self.try_into()?)
+  }
+}
+
+impl<'s, T> FromV8<'s> for v8::Local<'s, T>
+where Local<'s, Value>: TryInto<Local<'s, T>, Error = v8::DataError> {
+  type Error = DataError;
+
+  fn from_v8<'i>(_scope: &mut PinScope<'s, 'i>, value: Local<'s, Value>) -> Result<Self, Self::Error> {
+    Ok(value.try_into()?)
+  }
+}
+
 #[cfg(all(test, not(miri)))]
 mod tests {
   use super::*;

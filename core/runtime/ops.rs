@@ -601,7 +601,6 @@ mod tests {
       op_test_v8_type_handle_scope,
       op_test_v8_type_handle_scope_obj,
       op_test_v8_type_handle_scope_result,
-      op_test_v8_global,
       op_test_serde_v8,
       op_jsruntimestate,
       op_state_rc,
@@ -1380,25 +1379,6 @@ mod tests {
       1,
       "op_test_v8_type_handle_scope_result",
       "try { op_test_v8_type_handle_scope_result({}); assert(false); } catch (e) {}",
-    )?;
-    Ok(())
-  }
-
-  #[op2]
-  pub fn op_test_v8_global(
-    scope: &mut v8::PinScope,
-    #[global] s: v8::Global<v8::String>,
-  ) -> u32 {
-    let s = s.open(scope);
-    s.length() as _
-  }
-
-  #[tokio::test]
-  pub async fn test_op_v8_global() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(
-      1,
-      "op_test_v8_global",
-      "assert(op_test_v8_global('hello world') == 11)",
     )?;
     Ok(())
   }

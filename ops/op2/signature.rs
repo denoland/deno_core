@@ -1618,6 +1618,14 @@ pub(crate) fn parse_type(
 
         return Ok(Arg::VarArgs);
       }
+      AttributeModifier::Global => {
+        if position == Position::Arg {
+          return Err(ArgError::InvalidAttributePosition(
+            primary.name(),
+            "return value",
+          ));
+        }
+      }
       AttributeModifier::CppGcResource => {
         return parse_cppgc(position, ty, false);
       }
@@ -1702,8 +1710,7 @@ pub(crate) fn parse_type(
 
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
-      | AttributeModifier::Bigint
-      | AttributeModifier::Global => {
+      | AttributeModifier::Bigint => {
         // We handle this as part of the normal parsing process
       }
       AttributeModifier::This => {
@@ -2069,8 +2076,8 @@ mod tests {
     <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Value(Void)
   );
   test!(
-    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, #[global] s3: v8::Global<v8::String>);
-    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Value(Void)
+    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>);
+    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String)) -> Value(Void)
   );
   test!(
     fn op_v8_scope<'s>(scope: &mut v8::PinScope<'s, '_>);
@@ -2230,14 +2237,6 @@ mod tests {
       MissingAttribute("global", "v8::Global<v8::String>".into())
     ),
     fn f(g: v8::Global<v8::String>) {}
-  );
-  expect_fail!(
-    op_with_invalid_global,
-    ArgError(
-      "l".into(),
-      InvalidAttributeType("global", "v8::Local<v8::String>".into())
-    ),
-    fn f(#[global] l: v8::Local<v8::String>) {}
   );
   expect_fail!(
     op_duplicate_js_runtime_state,

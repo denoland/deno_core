@@ -6,7 +6,6 @@ use super::V8MappingError;
 use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
-use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
 use super::generator_state::GeneratorState;
@@ -641,20 +640,6 @@ pub fn from_arg(
         ))
       };
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
-      v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
-    }
-    Arg::V8Global(v8) | Arg::OptionV8Global(v8) => {
-      // Only requires isolate, not a full scope
-      *needs_isolate = true;
-      let scope = scope.clone();
-      let throw_type_error = || {
-        Ok(throw_type_error(
-          generator_state,
-          format!("expected {v8:?}"),
-        ))
-      };
-      let extract_intermediate =
-        v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
     Arg::SerdeV8(_class) => {

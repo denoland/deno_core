@@ -24,11 +24,13 @@ use std::rc::Rc;
 use v8::ValueDeserializerHelper;
 use v8::ValueSerializerHelper;
 
-#[op2]
+#[op2(fast)]
 pub fn op_add_main_module_handler(
   scope: &mut v8::PinScope,
-  #[global] f: v8::Global<v8::Function>,
+  f: v8::Local<v8::Function>,
 ) {
+  let f = v8::Global::new(scope, f);
+
   JsRealm::module_map_from(scope)
     .get_data()
     .borrow_mut()
@@ -36,13 +38,13 @@ pub fn op_add_main_module_handler(
     .push(f);
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_set_handled_promise_rejection_handler(
   scope: &mut v8::PinScope,
-  #[global] f: Option<v8::Global<v8::Function>>,
+  f: Option<v8::Local<v8::Function>>,
 ) {
   let exception_state = JsRealm::exception_state_from_scope(scope);
-  *exception_state.js_handled_promise_rejection_cb.borrow_mut() = f;
+  *exception_state.js_handled_promise_rejection_cb.borrow_mut() = f.map(|f| v8::Global::new(scope, f));
 }
 
 #[op2(fast)]
@@ -121,14 +123,15 @@ pub fn op_leak_tracing_get<'s, 'i>(
 /// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
 /// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
 /// `u32`.
-#[op2]
+#[op2(fast)]
 pub fn op_timer_queue(
   scope: &mut v8::PinScope,
   depth: u32,
   repeat: bool,
   timeout_ms: f64,
-  #[global] task: v8::Global<v8::Function>,
+  task: v8::Local<v8::Function>,
 ) -> f64 {
+  let task = v8::Global::new(scope, task);
   let context_state = JsRealm::state_from_scope(scope);
   if repeat {
     context_state
@@ -144,13 +147,14 @@ pub fn op_timer_queue(
 /// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
 /// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
 /// `u32`.
-#[op2]
+#[op2(fast)]
 pub fn op_timer_queue_system(
   scope: &mut v8::PinScope,
   repeat: bool,
   timeout_ms: f64,
-  #[global] task: v8::Global<v8::Function>,
+  task: v8::Local<v8::Function>,
 ) -> f64 {
+  let task = v8::Global::new(scope, task);
   let context_state = JsRealm::state_from_scope(scope);
   context_state
     .timers
@@ -160,11 +164,12 @@ pub fn op_timer_queue_system(
 /// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
 /// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
 /// `u32`.
-#[op2]
+#[op2(fast)]
 pub fn op_timer_queue_immediate(
   scope: &mut v8::PinScope,
-  #[global] task: v8::Global<v8::Function>,
+  task: v8::Local<v8::Function>,
 ) -> f64 {
+  let task = v8::Global::new(scope, task);
   let context_state = JsRealm::state_from_scope(scope);
   context_state.timers.queue_timer(0, (task, 0)) as _
 }
@@ -1042,11 +1047,12 @@ pub fn op_get_ext_import_meta_proto<'s, 'i>(
   }
 }
 
-#[op2]
+#[op2(fast)]
 pub fn op_set_wasm_streaming_callback(
   scope: &mut v8::PinScope,
-  #[global] cb: v8::Global<v8::Function>,
+  cb: v8::Local<v8::Function>,
 ) -> Result<(), JsErrorBox> {
+  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   // The callback to pass to the v8 API has to be a unit type, so it can't
   // borrow or move any local variables. Therefore, we're storing the JS
@@ -1229,8 +1235,9 @@ pub fn op_current_user_call_site(
 #[op2]
 pub fn op_set_format_exception_callback<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
-  #[global] cb: v8::Global<v8::Function>,
+  cb: v8::Local<v8::Function>,
 ) -> Option<v8::Local<'s, v8::Value>> {
+  let cb = v8::Global::new(scope, cb);
   let context_state_rc = JsRealm::state_from_scope(scope);
   let old = context_state_rc
     .exception_state

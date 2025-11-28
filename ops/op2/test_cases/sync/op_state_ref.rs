@@ -18,13 +18,6 @@ fn op_state_ref(_state: &OpState) {}
 #[op2(fast)]
 fn op_state_mut(_state: &mut OpState) {}
 
-#[op2]
-fn op_state_and_v8(
-  _state: &mut OpState,
-  #[global] _callback: v8::Global<v8::Function>,
-) {
-}
-
 #[op2(fast)]
 fn op_state_and_v8_local(
   _state: &mut OpState,
