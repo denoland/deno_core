@@ -240,6 +240,26 @@ impl FastString {
   }
 
   /// Creates a cheap copy of this [`FastString`], potentially transmuting it
+  /// to a faster form. Note that this is not a clone operation as it mutates
+  /// the old [`FastString`].
+  pub fn cheap_copy(&mut self) -> Self {
+    match self.inner {
+      FastStringInner::Owned(_) => {
+        let self_ = std::mem::replace(
+          self,
+          FastString {
+            inner: FastStringInner::Static(""),
+          },
+        );
+        let (self_, self_copy) = self_.into_cheap_copy();
+        *self = self_;
+        self_copy
+      }
+      _ => self.try_clone().unwrap(),
+    }
+  }
+
+  /// Creates a cheap copy of this [`FastString`], potentially transmuting it
   /// to a faster form. Note that this is not a clone operation as it consumes
   /// the old [`FastString`].
   pub fn into_cheap_copy(self) -> (Self, Self) {
