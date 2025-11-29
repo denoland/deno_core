@@ -2314,6 +2314,7 @@ mod tests {
     assert_eq!(result, None);
   }
 
+  #[cfg(not(miri))]
   #[test]
   fn test_to_v8_error_handles_null_builder_exception() {
     let mut runtime = JsRuntime::new(Default::default());
