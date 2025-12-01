@@ -2,7 +2,6 @@
 
 #![allow(clippy::print_stderr)]
 
-use crate::FastString;
 use crate::ModuleCodeString;
 use crate::ModuleSource;
 use crate::ModuleSpecifier;
@@ -30,6 +29,7 @@ use crate::resolve_import;
 use crate::resolve_url;
 use crate::runtime::JsRuntime;
 use crate::runtime::JsRuntimeForSnapshot;
+use crate::{FastString, ModuleName};
 use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
 use deno_ops::op2;
@@ -53,6 +53,7 @@ use url::Url;
 
 // deno_ops macros generate code assuming deno_core in scope.
 use crate::deno_core;
+use crate::modules::module_map_data::SymbolicModule;
 
 #[derive(Default)]
 struct MockLoader {
@@ -362,6 +363,10 @@ fn test_recursive_load() {
   let module_map_rc = runtime.module_map();
   let modules = module_map_rc;
 
+  assert_eq!(
+    modules.get("file:///a.js", RequestedModuleType::None),
+    Some(SymbolicModule::Mod(a_id))
+  );
   assert_eq!(
     modules.get_id("file:///a.js", RequestedModuleType::None),
     Some(a_id)
@@ -2460,4 +2465,70 @@ throwError();
     "Error should not contain excessive ../ sequences: {}",
     err_str
   );
+}
+
+#[test]
+fn test_map() {
+  let loader = MockLoader::new();
+  let mut runtime = JsRuntime::new(RuntimeOptions {
+    module_loader: Some(loader),
+    ..Default::default()
+  });
+  let modules = runtime.module_map();
+
+  let fut = async move {
+    let spec = resolve_url("file:///a.js").unwrap();
+    const A_NAME: ModuleName = ModuleName::from_static("file:///a.js");
+    let a_id = runtime.load_main_es_module(&spec).await.unwrap();
+    modules.alias_id(
+      ModuleName::from_static("#alias0"),
+      A_NAME,
+      RequestedModuleType::None,
+    );
+    modules.set(
+      ModuleName::from_static("#alias1"),
+      SymbolicModule::Alias(A_NAME),
+      RequestedModuleType::None,
+    );
+    assert_eq!(
+      modules.get(
+        &ModuleName::from_static("#alias0"),
+        RequestedModuleType::None
+      ),
+      modules.get(
+        &ModuleName::from_static("#alias1"),
+        RequestedModuleType::None
+      ),
+    );
+    modules.set_id(
+      ModuleName::from_static("#id0"),
+      a_id,
+      RequestedModuleType::None,
+    );
+    modules.set(
+      ModuleName::from_static("#id1"),
+      SymbolicModule::Mod(a_id),
+      RequestedModuleType::None,
+    );
+    assert_eq!(
+      modules.get(&ModuleName::from_static("#id0"), RequestedModuleType::None),
+      modules.get(&ModuleName::from_static("#id1"), RequestedModuleType::None),
+    );
+    assert_eq!(
+      modules.get("#alias0", RequestedModuleType::None),
+      Some(SymbolicModule::Alias(A_NAME))
+    );
+    assert_eq!(
+      modules.get("#id0", RequestedModuleType::None),
+      Some(SymbolicModule::Mod(a_id))
+    );
+    modules.delete(
+      &ModuleName::from_static("#alias0"),
+      RequestedModuleType::None,
+    );
+    assert_eq!(modules.get("#alias0", RequestedModuleType::None), None);
+  }
+  .boxed_local();
+
+  futures::executor::block_on(fut);
 }

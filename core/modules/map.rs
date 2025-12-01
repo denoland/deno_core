@@ -4,7 +4,7 @@ use super::IntoModuleCodeString;
 use super::IntoModuleName;
 use super::ModuleConcreteError;
 use super::loaders::ModuleLoadOptions;
-use super::module_map_data::ModuleMapSnapshotData;
+use super::module_map_data::{ModuleMapSnapshotData, SymbolicModule};
 use super::recursive_load::SideModuleKind;
 use crate::FastStaticString;
 use crate::JsRuntime;
@@ -57,10 +57,11 @@ use super::LazyEsmModuleLoader;
 use super::RequestedModuleType;
 use super::module_map_data::ModuleMapData;
 use deno_core::error::CoreError;
-use std::borrow::Cow;
+use std::borrow::{Borrow, Cow};
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::hash::Hash;
 use std::ops::DerefMut;
 use std::pin::Pin;
 use std::rc::Rc;
@@ -129,7 +130,7 @@ struct DynImportState {
 }
 
 /// A collection of JS modules.
-pub(crate) struct ModuleMap {
+pub struct ModuleMap {
   // Handling of futures for loading module sources
   // TODO(mmastrac): we should not be swapping this loader out
   pub(crate) loader: RefCell<Rc<dyn ModuleLoader>>,
@@ -252,12 +253,91 @@ impl ModuleMap {
 
   /// Get module id, following all aliases in case of module specifier
   /// that had been redirected.
-  pub(crate) fn get_id(
+  pub fn get_id<Q>(
     &self,
-    name: &str,
+    name: &Q,
     requested_module_type: impl AsRef<RequestedModuleType>,
-  ) -> Option<ModuleId> {
+  ) -> Option<ModuleId>
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
+  {
     self.data.borrow().get_id(name, requested_module_type)
+  }
+
+  pub fn get<Q>(
+    &self,
+    name: &Q,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<SymbolicModule>
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
+  {
+    self.data.borrow().get(name, requested_module_type).cloned()
+  }
+
+  pub fn set(
+    &self,
+    name: ModuleName,
+    symbolic_module: SymbolicModule,
+    requested_module_type: RequestedModuleType,
+  ) -> Option<SymbolicModule> {
+    self
+      .data
+      .borrow_mut()
+      .set(name, symbolic_module, requested_module_type)
+  }
+
+  // set so import(`name`) will be the namespace of Module with `id`
+  pub fn set_id(
+    &self,
+    name: ModuleName,
+    id: ModuleId,
+    requested_module_type: RequestedModuleType,
+  ) -> Option<SymbolicModule> {
+    self
+      .data
+      .borrow_mut()
+      .set_id(name, id, requested_module_type)
+  }
+
+  // drop so now import(`name`) will evaluate the module again
+  pub fn delete<Q>(
+    &self,
+    name: &Q,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<SymbolicModule>
+  where
+    ModuleName: Borrow<Q>,
+    Q: Eq + Hash + ?Sized,
+  {
+    self
+      .data
+      .borrow_mut()
+      .delete(name, requested_module_type.as_ref())
+  }
+
+  // alias so now import(`name`) will have the same result of import(`alias`)
+  pub fn alias_id(
+    &self,
+    name: ModuleName,
+    alias: ModuleName,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+  ) -> Option<SymbolicModule> {
+    self
+      .data
+      .borrow_mut()
+      .alias(name, requested_module_type.as_ref(), alias)
+  }
+  pub fn with_map(
+    &self,
+    requested_module_type: impl AsRef<RequestedModuleType>,
+    f: impl FnOnce(Option<&HashMap<ModuleName, SymbolicModule>>),
+  ) {
+    let data = self.data.borrow();
+    let map = data.get_map(requested_module_type.as_ref());
+    f(map);
   }
 
   pub(crate) fn is_main_module(&self, global: &v8::Global<v8::Module>) -> bool {
@@ -268,15 +348,25 @@ impl ModuleMap {
     self.data.borrow().main_module_id == Some(id)
   }
 
-  pub(crate) fn get_name_by_module(
+  pub fn get_name_by_module(
     &self,
     global: &v8::Global<v8::Module>,
   ) -> Option<String> {
-    self.data.borrow().get_name_by_module(global)
+    // todo(CyanChanges): do not clone here
+    self
+      .data
+      .borrow()
+      .get_name_by_module(global)
+      .map(|name| name.as_str().to_owned())
   }
 
-  pub(crate) fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
-    self.data.borrow().get_name_by_id(id)
+  pub fn get_name_by_id(&self, id: ModuleId) -> Option<String> {
+    // todo(CyanChanges): do not clone here
+    self
+      .data
+      .borrow()
+      .get_name_by_id(id)
+      .map(|name| name.as_str().to_owned())
   }
 
   pub(crate) fn get_type_by_module(
@@ -315,7 +405,7 @@ impl ModuleMap {
   }
 
   #[cfg(test)]
-  pub fn assert_module_map(&self, modules: &Vec<super::ModuleInfo>) {
+  pub(crate) fn assert_module_map(&self, modules: &Vec<super::ModuleInfo>) {
     self.data.borrow().assert_module_map(modules);
   }
 
@@ -612,7 +702,7 @@ impl ModuleMap {
     if main {
       let data = self.data.borrow();
       if let Some(main_module) = data.main_module_id {
-        let main_name = self.data.borrow().get_name_by_id(main_module).unwrap();
+        let main_name = data.get_name_by_id(main_module).unwrap();
         return Err(ModuleError::Concrete(
           ModuleConcreteError::MainModuleAlreadyExists {
             main_module: main_name.to_string(),
@@ -1001,6 +1091,7 @@ impl ModuleMap {
       .data
       .borrow()
       .get_name_by_module(&referrer_global)
+      .map(|name| name.as_str().to_string())
       .expect("ModuleInfo not found");
 
     let specifier_str = specifier.to_rust_string_lossy(scope);
@@ -1114,7 +1205,7 @@ impl ModuleMap {
     None
   }
 
-  pub(crate) fn get_requested_modules(
+  pub fn get_requested_modules(
     &self,
     id: ModuleId,
   ) -> Option<Vec<ModuleRequest>> {
