@@ -660,34 +660,31 @@ extern "C" fn handle_interrupt(_isolate: &mut v8::Isolate, arg: *mut c_void) {
 impl task::ArcWake for InspectorWaker {
   fn wake_by_ref(arc_self: &Arc<Self>) {
     arc_self.update(|w| {
-      let poll_state = w.poll_state;
+      match w.poll_state {
+        PollState::Idle => {
+          // Wake the task, if any, that has polled the Inspector future last.
+          if let Some(waker) = w.task_waker.take() {
+            waker.wake()
+          }
+          // TODO(bartlomieju): this comment has a lot of wisdom related to `poll_sessions`
+          // interaction - figure it out
+          // Request an interrupt from the isolate if it's running and there's
+          // not unhandled interrupt request in flight.
+          if let Some(state_ptr) = w.state_ptr.take() {
+            let arg = state_ptr.as_ptr() as *mut c_void;
+            w.isolate_handle.request_interrupt(handle_interrupt, arg);
+          }
+        }
+        PollState::Parked => {
+          // Unpark the isolate thread.
+          let parked_thread = w.parked_thread.take().unwrap();
+          assert_ne!(parked_thread.id(), thread::current().id());
+          parked_thread.unpark();
+        }
+        _ => {}
+      };
       w.poll_state = PollState::Woken;
-
-      if matches!(poll_state, PollState::Parked) {
-        // Unpark the isolate thread.
-        let parked_thread = w.parked_thread.take().unwrap();
-        assert_ne!(parked_thread.id(), thread::current().id());
-        parked_thread.unpark();
-        return;
-      }
-
-      if !matches!(poll_state, PollState::Idle) {
-        return;
-      }
-
-      // Wake the task, if any, that has polled the Inspector future last.
-      if let Some(waker) = w.task_waker.take() {
-        waker.wake()
-      }
-      // TODO(bartlomieju): this comment has a lot of wisdom related to `poll_sessions`
-      // interaction - figure it out
-      // Request an interrupt from the isolate if it's running and there's
-      // not unhandled interrupt request in flight.
-      if let Some(state_ptr) = w.state_ptr.take() {
-        let arg = state_ptr.as_ptr() as *mut c_void;
-        w.isolate_handle.request_interrupt(handle_interrupt, arg);
-      }
-    });
+    })
   }
 }
 
