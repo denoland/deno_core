@@ -313,7 +313,8 @@ impl JsRuntimeInspector {
       let cx = &mut Context::from_waker(&waker_ref);
       // Poll once to register context's waker with relevant task
       sessions.pump_messages_for_remote_sessions(cx);
-      let state_ptr = &state as *const _ as *mut JsRuntimeInspectorState;
+      let state_ptr =
+        &inspector.state as *const _ as *mut JsRuntimeInspectorState;
       state.waker.update(|w| {
         w.state_ptr = NonNull::new(state_ptr);
       });
