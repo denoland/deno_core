@@ -190,6 +190,7 @@ fn handle_ws_request(
       },
       worker_tx: None,
       worker_rx: None,
+      worker_url: None,
     };
 
     eprintln!("Debugger session started.");

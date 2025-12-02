@@ -54,6 +54,8 @@ pub struct InspectorSessionProxy {
   // When set, this proxy represents a worker and these channels should be registered
   pub worker_tx: Option<UnboundedSender<String>>,
   pub worker_rx: Option<UnboundedReceiver<InspectorMsg>>,
+  // Worker URL for display in DevTools (e.g., "file:///path/to/worker.ts")
+  pub worker_url: Option<String>,
 }
 
 pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
@@ -216,15 +218,16 @@ impl JsRuntimeInspectorState {
                 pending.len()
               );
               let main_send = session.state.send.clone();
-              for (worker_id, worker_send, worker_tx, worker_rx) in pending {
+              for (worker_id, worker_send, worker_tx, worker_rx, worker_url) in pending {
                 eprintln!(
-                  "[WORKER DEBUG] Registering buffered worker {}",
-                  worker_id
+                  "[WORKER DEBUG] Registering buffered worker {} with URL: {}",
+                  worker_id, worker_url
                 );
                 sessions.register_worker_session(
                   worker_id,
                   worker_send,
                   &*main_send,
+                  worker_url,
                 );
                 sessions
                   .register_worker_channels(worker_id, worker_tx, worker_rx);
@@ -247,9 +250,11 @@ impl JsRuntimeInspectorState {
             // Just extract the channels and register the worker directly
             let worker_tx = session_proxy.worker_tx.take().unwrap();
             let worker_rx = session_proxy.worker_rx.take().unwrap();
+            let worker_url = session_proxy.worker_url.take().unwrap_or_default();
 
             eprintln!(
-              "[WORKER DEBUG] Received worker proxy, registering worker"
+              "[WORKER DEBUG] Received worker proxy, registering worker with URL: {}",
+              worker_url
             );
 
             // Create a dummy send function for the worker target session
@@ -277,6 +282,7 @@ impl JsRuntimeInspectorState {
                 worker_id,
                 worker_send.clone(),
                 &*main_send,
+                worker_url.clone(),
               );
 
               // Register the worker channels
@@ -298,6 +304,7 @@ impl JsRuntimeInspectorState {
                 worker_send,
                 worker_tx,
                 worker_rx,
+                worker_url,
               ));
             }
 
@@ -686,6 +693,7 @@ pub struct SessionContainer {
     Rc<InspectorSessionSend>,
     UnboundedSender<String>,
     UnboundedReceiver<InspectorMsg>,
+    String, // worker_url
   )>,
 }
 
@@ -700,6 +708,8 @@ struct TargetSession {
   worker_tx: Option<UnboundedSender<String>>,
   // worker -> main: receive CDP messages from worker
   worker_rx: Option<UnboundedReceiver<InspectorMsg>>,
+  // Worker URL for DevTools display
+  url: String,
 }
 
 impl SessionContainer {
@@ -831,7 +841,7 @@ impl SessionContainer {
                   "targetId": target_session.target_id,
                   "type": "worker",
                   "title": format!("Worker {}", target_session.local_session_id),
-                  "url": "",
+                  "url": target_session.url,
                   "attached": false,
                   "canAccessOpener": false
                 }
@@ -924,6 +934,7 @@ impl SessionContainer {
     local_session_id: i32,
     send: Rc<InspectorSessionSend>,
     main_session_send: &InspectorSessionSend,
+    worker_url: String,
   ) {
     let target_id = format!("worker-{}", local_session_id);
     let session_id = format!("session-{}", self.next_target_session_id);
@@ -936,6 +947,7 @@ impl SessionContainer {
       send,
       worker_tx: None,
       worker_rx: None,
+      url: worker_url.clone(),
     };
     self
       .target_sessions
@@ -949,7 +961,7 @@ impl SessionContainer {
           "targetId": target_id,
           "type": "worker",
           "title": format!("Worker {}", local_session_id),
-          "url": "",
+          "url": worker_url,
           "attached": false,
           "canAccessOpener": false
         }
@@ -970,7 +982,7 @@ impl SessionContainer {
             "targetId": target_id,
             "type": "worker",
             "title": format!("Worker {}", local_session_id),
-            "url": "",
+            "url": worker_url,
             "attached": true,
             "canAccessOpener": false
           },
@@ -1282,7 +1294,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                           "targetId": target_session.target_id,
                           "type": "worker",
                           "title": format!("Worker {}", target_session.local_session_id),
-                          "url": "",
+                          "url": target_session.url,
                           "attached": true,
                           "canAccessOpener": false
                         }
@@ -1307,7 +1319,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                           "targetId": target_session.target_id,
                           "type": "worker",
                           "title": format!("Worker {}", target_session.local_session_id),
-                          "url": "",
+                          "url": target_session.url,
                           "attached": true,
                           "canAccessOpener": false
                         },
@@ -1357,7 +1369,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                           "targetId": target_session.target_id,
                           "type": "worker",
                           "title": format!("Worker {}", target_session.local_session_id),
-                          "url": "",
+                          "url": target_session.url,
                           "attached": true,
                           "canAccessOpener": false
                         },
@@ -1423,24 +1435,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               "id": id,
               "result": result
             });
-
-            // let response = match result {
-            //   Ok(result_value) => {
-            //     json!({
-            //       "id": id,
-            //       "result": result_value
-            //     })
-            //   }
-            //   Err(error) => {
-            //     json!({
-            //       "id": id,
-            //       "error": {
-            //         "code": -32000,
-            //         "message": error
-            //       }
-            //     })
-            //   }
-            // };
 
             let response_msg = InspectorMsg {
               kind: InspectorMsgKind::Message(id),
