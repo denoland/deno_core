@@ -863,7 +863,7 @@ impl ModuleMap {
     };
     {
       let mut data = self.data.borrow_mut();
-      if loaded_source.module_url_found.is_none() {
+      if loaded_source.module_url_found.is_some() {
         data.sources.insert(
           loaded_source.module_url_specified.cheap_copy(),
           entry.clone(),
