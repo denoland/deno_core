@@ -1224,6 +1224,7 @@ impl ModuleMap {
   }
 
   // Initiate loading of a module graph imported using `import()`.
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn load_dynamic_import(
     self: Rc<Self>,
     scope: &mut v8::PinScope,
