@@ -303,22 +303,46 @@ impl JsRuntimeInspectorState {
                 if let Some(worker_rx) = worker_rx_ref.as_mut() {
                   match worker_rx.poll_next_unpin(cx) {
                     Poll::Ready(Some(msg)) => {
-                      // Wrap the message in Target.receivedMessageFromTarget
-                      let wrapped = json!({
+                      eprintln!(
+                        "[WORKER DEBUG] Received from worker {}: kind={:?}, content={}",
+                        target_session.session_id,
+                        msg.kind,
+                        &msg.content[..msg.content.len().min(150)]
+                      );
+
+                      // Send both Target.receivedMessageFromTarget (for Chrome)
+                      // and NodeWorker.receivedMessageFromWorker (for VSCode)
+
+                      // For Chrome DevTools
+                      let wrapped_target = json!({
                         "method": "Target.receivedMessageFromTarget",
                         "params": {
                           "sessionId": target_session.session_id,
-                          "message": msg.content,
+                          "message": msg.content.clone(),
                           "targetId": target_session.target_id
                         }
                       });
 
-                      let wrapped_msg = InspectorMsg {
+                      send(InspectorMsg {
                         kind: InspectorMsgKind::Notification,
-                        content: wrapped.to_string(),
-                      };
+                        content: wrapped_target.to_string(),
+                      });
 
-                      send(wrapped_msg);
+                      // For VSCode
+                      let wrapped_nodeworker = json!({
+                        "method": "NodeWorker.receivedMessageFromWorker",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "message": msg.content,
+                          "workerId": target_session.target_id
+                        }
+                      });
+
+                      send(InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: wrapped_nodeworker.to_string(),
+                      });
+
                       has_worker_message = true;
                     }
                     Poll::Ready(None) => {
@@ -771,12 +795,13 @@ impl SessionContainer {
     // This notifies DevTools that a worker target exists
     if let Some(main_id) = self.main_session_id {
       if let Some(main_session) = self.local.get(&main_id) {
+        // For Chrome DevTools
         let created_event = json!({
           "method": "Target.targetCreated",
           "params": {
             "targetInfo": {
               "targetId": target_id,
-              "type": "node_worker",
+              "type": "worker",
               "title": format!("[worker {}] WorkerThread", local_session_id),
               "url": worker_url,
               "attached": false,
@@ -789,6 +814,9 @@ impl SessionContainer {
           kind: InspectorMsgKind::Notification,
           content: created_event.to_string(),
         });
+
+        // Note: NodeWorker.attachedToWorker will be sent later in register_worker_channels
+        // when the worker's inspector is fully ready
       }
     }
   }
@@ -1003,6 +1031,9 @@ type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
   while let Some(msg) = rx.next().await {
+    // Log ALL incoming messages for debugging
+    eprintln!("[INSPECTOR DEBUG] Incoming: {}", &msg[..msg.len().min(200)]);
+
     // Parse the incoming message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
       // FIRST: Check if this message has a top-level sessionId field
@@ -1041,8 +1072,108 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
         }
       }
 
-      // SECOND: Check if this is a Target domain message (for the main session)
+      // SECOND: Check if this is a NodeWorker or Target domain message (for the main session)
       if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
+        if method.starts_with("NodeWorker.") {
+          eprintln!("[WORKER DEBUG] Intercepted NodeWorker message: {}", method);
+          let id = parsed.get("id").and_then(|i| i.as_i64()).map(|i| i as i32);
+          let params = parsed.get("params").cloned();
+
+          let result: serde_json::Value = match method {
+            "NodeWorker.enable" => {
+              // VSCode uses NodeWorker.enable to request worker debugging
+              let wait_for_debugger = params
+                .as_ref()
+                .and_then(|p| p.get("waitForDebuggerOnStart"))
+                .and_then(|w| w.as_bool())
+                .unwrap_or(false);
+
+              eprintln!("[WORKER DEBUG] NodeWorker.enable called with waitForDebuggerOnStart={}", wait_for_debugger);
+
+              // Send any existing workers as NodeWorker.attachedToWorker events
+              let sessions = session.state.sessions.clone();
+              let send = session.state.send.clone();
+              deno_core::unsync::spawn(async move {
+                let sessions = sessions.borrow();
+                for target_session in sessions.target_sessions.values() {
+                  eprintln!("[WORKER DEBUG] Sending NodeWorker.attachedToWorker for worker: {}", target_session.url);
+
+                  let attached_event = json!({
+                    "method": "NodeWorker.attachedToWorker",
+                    "params": {
+                      "sessionId": target_session.session_id,
+                      "workerInfo": {
+                        "workerId": target_session.target_id,
+                        "type": "worker",
+                        "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                        "url": target_session.url
+                      },
+                      "waitingForDebugger": false
+                    }
+                  });
+
+                  send(InspectorMsg {
+                    kind: InspectorMsgKind::Notification,
+                    content: attached_event.to_string(),
+                  });
+                }
+              });
+
+              json!({})
+            }
+            "NodeWorker.sendMessageToWorker" => {
+              // VSCode uses this to send messages to workers
+              let message = params
+                .as_ref()
+                .and_then(|p| p.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_owned())
+                .unwrap_or_default();
+
+              let session_id = params
+                .as_ref()
+                .and_then(|p| p.get("sessionId"))
+                .and_then(|s| s.as_str())
+                .map(|s| s.to_owned())
+                .unwrap_or_default();
+
+              eprintln!("[WORKER DEBUG] NodeWorker.sendMessageToWorker: sessionId={}", session_id);
+
+              let sessions = session.state.sessions.clone();
+              deno_core::unsync::spawn(async move {
+                let sessions = sessions.borrow();
+                if let Some(target_session) = sessions.target_sessions.get(&session_id) {
+                  if let Some(worker_tx) = target_session.worker_tx.borrow().as_ref() {
+                    eprintln!("[WORKER DEBUG] Sending to worker via NodeWorker: {}", &message[..message.len().min(100)]);
+                    let _ = worker_tx.unbounded_send(message);
+                  }
+                }
+              });
+
+              json!({})
+            }
+            _ => {
+              eprintln!("[WORKER DEBUG] Unhandled NodeWorker method: {}", method);
+              json!({})
+            }
+          };
+
+          // Send response if this was a request (has id)
+          if let Some(id) = id {
+            let response = json!({
+              "id": id,
+              "result": result
+            });
+
+            (session.state.send)(InspectorMsg {
+              kind: InspectorMsgKind::Message(id as i32),
+              content: response.to_string(),
+            });
+          }
+
+          continue; // Don't process this message locally
+        }
+
         if method.starts_with("Target.") {
           eprintln!("[WORKER DEBUG] Intercepted Target message: {}", method);
           let id = parsed.get("id").and_then(|i| i.as_i64()).map(|i| i as i32);
@@ -1054,18 +1185,56 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
             .map(|s| s.to_owned())
             .unwrap_or_default();
 
-          let message = params
-            .as_ref()
-            .and_then(|p| p.get("message"))
-            .and_then(|m| m.as_str())
-            .map(|s| s.to_owned())
-            .unwrap_or_default();
+          // let message = params
+          //   .as_ref()
+          //   .and_then(|p| p.get("message"))
+          //   .and_then(|m| m.as_str())
+          //   .map(|s| s.to_owned())
+          //   .unwrap_or_default();
 
-          // Handle Target domain messages inline to avoid deadlock
           let result: serde_json::Value = match method {
             "Target.setDiscoverTargets" => {
-              // Node.js doesn't implement this method, so we'll just return success
-              // Workers send Target.targetCreated immediately when registered
+              let discover = params
+                .as_ref()
+                .and_then(|p| p.get("discover"))
+                .and_then(|d| d.as_bool())
+                .unwrap_or(false);
+
+              if discover {
+                // When DevTools calls setDiscoverTargets with discover=true,
+                // send attachedToTarget for all existing workers
+                let sessions = session.state.sessions.clone();
+                let send = session.state.send.clone();
+                deno_core::unsync::spawn(async move {
+                  let sessions = sessions.borrow();
+                  for target_session in sessions.target_sessions.values() {
+                    if !*target_session.attached.borrow() {
+                      *target_session.attached.borrow_mut() = true;
+
+                      let attached_to_target = json!({
+                        "method": "Target.attachedToTarget",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "targetInfo": {
+                            "targetId": target_session.target_id,
+                            "type": "worker",
+                            "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                            "url": target_session.url,
+                            "attached": false,
+                            "canAccessOpener": true
+                          },
+                          "waitingForDebugger": true
+                        }
+                      });
+
+                      send(InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: attached_to_target.to_string(),
+                      });
+                    }
+                  }
+                });
+              }
               json!({})
             }
             "Target.setAutoAttach" => {
@@ -1094,7 +1263,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                           "sessionId": target_session.session_id,
                           "targetInfo": {
                             "targetId": target_session.target_id,
-                            "type": "node_worker",
+                            "type": "worker",
                             "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
                             "url": target_session.url,
                             "attached": false,
@@ -1118,6 +1287,81 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 }
               });
               json!({})
+            }
+            "Target.attachToTarget" => {
+              // VSCode and other debuggers use this to explicitly attach to a target
+              let target_id = params
+                .as_ref()
+                .and_then(|p| p.get("targetId"))
+                .and_then(|t| t.as_str())
+                .map(|s| s.to_owned())
+                .unwrap_or_default();
+
+              let flatten = params
+                .as_ref()
+                .and_then(|p| p.get("flatten"))
+                .and_then(|f| f.as_bool())
+                .unwrap_or(false);
+
+              eprintln!("[WORKER DEBUG] attachToTarget: targetId={}, flatten={}", target_id, flatten);
+
+              let sessions = session.state.sessions.clone();
+              let send = session.state.send.clone();
+              let target_id_clone = target_id.clone();
+
+              // Find the target and attach
+              deno_core::unsync::spawn(async move {
+                let sessions = sessions.borrow();
+
+                // Look for target by target_id (which is the worker-N id)
+                for target_session in sessions.target_sessions.values() {
+                  if target_session.target_id == target_id_clone {
+                    eprintln!("[WORKER DEBUG] Found target session: {}", target_session.session_id);
+
+                    // Mark as attached
+                    *target_session.attached.borrow_mut() = true;
+
+                    // Send attachedToTarget event
+                    let attached_event = json!({
+                      "method": "Target.attachedToTarget",
+                      "params": {
+                        "sessionId": target_session.session_id,
+                        "targetInfo": {
+                          "targetId": target_session.target_id,
+                          "type": "worker",
+                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                          "url": target_session.url,
+                          "attached": true,
+                          "canAccessOpener": true
+                        },
+                        "waitingForDebugger": false
+                      }
+                    });
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: attached_event.to_string(),
+                    });
+
+                    break;
+                  }
+                }
+              });
+
+              // Return the sessionId for this target
+              let sessions = session.state.sessions.borrow();
+              let mut result = json!({});
+
+              for target_session in sessions.target_sessions.values() {
+                if target_session.target_id == target_id {
+                  result = json!({
+                    "sessionId": target_session.session_id
+                  });
+                  break;
+                }
+              }
+
+              result
             }
             "Target.sendMessageToTarget" => {
               // Extract the inner message and route it to the worker
