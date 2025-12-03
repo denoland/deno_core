@@ -65,20 +65,6 @@ impl<T> ModuleNameTypeMap<T> {
     map.get(name)
   }
 
-  pub fn get_mut<Q>(
-    &mut self,
-    ty: &RequestedModuleType,
-    name: &Q,
-  ) -> Option<&mut T>
-  where
-    ModuleName: std::borrow::Borrow<Q>,
-    Q: std::cmp::Eq + std::hash::Hash + std::fmt::Debug + ?Sized,
-  {
-    let index = self.map_index(ty)?;
-    let map = self.submaps.get_mut(index)?;
-    map.get_mut(name)
-  }
-
   pub fn insert(
     &mut self,
     module_type: &RequestedModuleType,
@@ -265,18 +251,6 @@ impl ModuleMapData {
       name,
       SymbolicModule::Alias(target),
     );
-  }
-
-  pub(crate) fn follow_if_alias(
-    &mut self,
-    name: &str,
-    requested_module_type: impl AsRef<RequestedModuleType>,
-  ) -> Option<FastString> {
-    let entry = self.by_name.get_mut(requested_module_type.as_ref(), name)?;
-    let SymbolicModule::Alias(name) = entry else {
-      return None;
-    };
-    Some(name.cheap_copy())
   }
 
   #[cfg(test)]

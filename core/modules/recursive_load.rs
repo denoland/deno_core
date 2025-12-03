@@ -54,7 +54,7 @@ enum LoadInit {
   Side(String, SideModuleKind),
   /// Dynamic import specifier with referrer and expected
   /// module type (which is determined by import assertion).
-  DynamicImport(String, String, RequestedModuleType),
+  DynamicImport(String, String, RequestedModuleType, ModuleImportPhase),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -110,6 +110,7 @@ impl RecursiveModuleLoad {
     specifier: &str,
     referrer: &str,
     requested_module_type: RequestedModuleType,
+    phase: ModuleImportPhase,
     module_map_rc: Rc<ModuleMap>,
   ) -> Self {
     Self::new(
@@ -117,6 +118,7 @@ impl RecursiveModuleLoad {
         specifier.to_string(),
         referrer.to_string(),
         requested_module_type,
+        phase,
       ),
       module_map_rc,
     )
@@ -126,7 +128,7 @@ impl RecursiveModuleLoad {
     let id = module_map_rc.next_load_id();
     let loader = module_map_rc.loader.borrow().clone();
     let requested_module_type = match &init {
-      LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
+      LoadInit::DynamicImport(_, _, module_type, _) => module_type.clone(),
       _ => RequestedModuleType::None,
     };
     let mut load = Self {
@@ -151,7 +153,7 @@ impl RecursiveModuleLoad {
     load
   }
 
-  fn resolve_root(&self) -> Result<ModuleSpecifier, CoreError> {
+  pub fn resolve_root(&self) -> Result<ModuleSpecifier, CoreError> {
     match self.init {
       LoadInit::Main(ref specifier) => {
         self
@@ -163,7 +165,7 @@ impl RecursiveModuleLoad {
           .module_map_rc
           .resolve(specifier, ".", ResolutionKind::Import)
       }
-      LoadInit::DynamicImport(ref specifier, ref referrer, _) => self
+      LoadInit::DynamicImport(ref specifier, ref referrer, _, _) => self
         .module_map_rc
         .resolve(specifier, referrer, ResolutionKind::DynamicImport),
     }
@@ -203,6 +205,7 @@ impl RecursiveModuleLoad {
         ref specifier,
         ref referrer,
         ref requested_module_type,
+        _,
       ) => {
         let spec = self.module_map_rc.resolve(
           specifier,
@@ -429,9 +432,11 @@ impl Stream for RecursiveModuleLoad {
             return Poll::Ready(Some(Err(error)));
           }
         };
-        let requested_module_type = match &inner.init {
-          LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
-          _ => RequestedModuleType::None,
+        let (requested_module_type, phase) = match &inner.init {
+          LoadInit::DynamicImport(_, _, module_type, phase) => {
+            (module_type.clone(), *phase)
+          }
+          _ => (RequestedModuleType::None, ModuleImportPhase::Evaluation),
         };
         let module_request = ModuleRequest {
           reference: ModuleReference {
@@ -440,9 +445,11 @@ impl Stream for RecursiveModuleLoad {
           },
           specifier_key: None,
           referrer_source_offset: None,
-          phase: ModuleImportPhase::Evaluation,
+          phase,
         };
-        let load_fut = if let Some(module_id) = inner.root_module_id {
+        let load_fut = if phase == ModuleImportPhase::Evaluation
+          && let Some(module_id) = inner.root_module_id
+        {
           // If the inner future is already in the map, we might be done (assuming there are no pending
           // loads).
           inner.register_and_recurse_inner(

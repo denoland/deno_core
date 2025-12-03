@@ -126,9 +126,11 @@ struct DynImportModEvaluate {
   module: v8::Global<v8::Module>,
 }
 
+#[derive(Debug, Clone)]
 struct DynImportState {
   resolver: v8::Global<v8::PromiseResolver>,
   cped: v8::Global<v8::Value>,
+  phase: ModuleImportPhase,
 }
 
 /// A collection of JS modules.
@@ -855,13 +857,20 @@ impl ModuleMap {
     let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
     let wasm_module_object_global = v8::Global::new(scope, wasm_module_object);
 
-    self.data.borrow_mut().sources.insert(
-      name,
-      ModuleSourceData {
-        value: wasm_module_object_global,
-        kind: ModuleSourceKind::Wasm,
-      },
-    );
+    let entry = ModuleSourceData {
+      value: wasm_module_object_global,
+      kind: ModuleSourceKind::Wasm,
+    };
+    {
+      let mut data = self.data.borrow_mut();
+      if loaded_source.module_url_found.is_none() {
+        data.sources.insert(
+          loaded_source.module_url_specified.cheap_copy(),
+          entry.clone(),
+        );
+      }
+      data.sources.insert(name, entry);
+    }
     Ok(())
   }
 
@@ -1093,15 +1102,12 @@ impl ModuleMap {
         .expect("ModuleInfo::requests did not contain a matching specifier_key when getting source");
       module_request.reference.clone()
     };
-    let module_name = module_map
+    match module_map
       .data
-      .borrow_mut()
-      .follow_if_alias(
-        module_reference.specifier.as_str(),
-        &module_reference.requested_module_type,
-      )
-      .unwrap_or(module_reference.specifier.to_string().into());
-    match module_map.data.borrow().sources.get(&module_name) {
+      .borrow()
+      .sources
+      .get(module_reference.specifier.as_str())
+    {
       Some(ModuleSourceData {
         value,
         kind: ModuleSourceKind::Wasm,
@@ -1224,13 +1230,15 @@ impl ModuleMap {
     specifier: &str,
     referrer: &str,
     requested_module_type: RequestedModuleType,
+    phase: ModuleImportPhase,
     resolver_handle: v8::Global<v8::PromiseResolver>,
     cped_handle: v8::Global<v8::Value>,
   ) -> bool {
     let resolve_result =
       self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
 
-    if let Ok(module_specifier) = &resolve_result
+    if phase == ModuleImportPhase::Evaluation
+      && let Ok(module_specifier) = &resolve_result
       && let Some(id) = self
         .data
         .borrow()
@@ -1256,6 +1264,7 @@ impl ModuleMap {
       specifier,
       referrer,
       requested_module_type,
+      phase,
       self.clone(),
     );
 
@@ -1264,6 +1273,7 @@ impl ModuleMap {
       DynImportState {
         resolver: resolver_handle,
         cped: cped_handle,
+        phase,
       },
     );
 
@@ -1538,8 +1548,9 @@ impl ModuleMap {
   fn dynamic_import_module_evaluate(
     &self,
     scope: &mut v8::PinScope,
-    load_id: ModuleLoadId,
     id: ModuleId,
+    load_id: ModuleLoadId,
+    state: DynImportState,
   ) -> Result<(), CoreError> {
     let module_handle = self.get_handle(id).expect("ModuleInfo not found");
 
@@ -1566,17 +1577,8 @@ impl ModuleMap {
     // https://v8.dev/features/top-level-await#module-execution-order
     v8::tc_scope!(let tc_scope, scope);
 
-    {
-      let cped = self
-        .dynamic_import_map
-        .borrow()
-        .get(&load_id)
-        .unwrap()
-        .cped
-        .clone();
-      let cped = v8::Local::new(tc_scope, cped);
-      tc_scope.set_continuation_preserved_embedder_data(cped);
-    }
+    let cped = v8::Local::new(tc_scope, state.cped);
+    tc_scope.set_continuation_preserved_embedder_data(cped);
 
     let module = v8::Local::new(tc_scope, &module_handle);
     let maybe_value = module.evaluate(tc_scope);
@@ -1897,19 +1899,47 @@ impl ModuleMap {
             }
           }
           _ => {
-            // The top-level module from a dynamic import has been instantiated.
-            // Load is done.
-            let module_id =
-              load.root_module_id.expect("Root module should be loaded");
-            let result = self.instantiate_module(scope, module_id);
-            if let Err(exception) = result {
-              self.dynamic_import_reject(scope, dyn_import_id, exception);
+            let state = self
+              .dynamic_import_map
+              .borrow()
+              .get(&dyn_import_id)
+              .unwrap()
+              .clone();
+            match state.phase {
+              ModuleImportPhase::Evaluation => {
+                // The top-level module from a dynamic import has been instantiated.
+                // Load is done.
+                let module_id =
+                  load.root_module_id.expect("Root module should be loaded");
+                let result = self.instantiate_module(scope, module_id);
+                if let Err(exception) = result {
+                  self.dynamic_import_reject(scope, dyn_import_id, exception);
+                }
+                self.dynamic_import_module_evaluate(
+                  scope,
+                  module_id,
+                  dyn_import_id,
+                  state,
+                )?;
+              }
+              ModuleImportPhase::Source => {
+                // TODO(nayeemrmn): Dedup this resolution and cleanup.
+                let specifier = load.resolve_root().expect("load.resolve_root() should have succeeded already on first iteration of recursion.");
+                let source = self
+                  .data
+                  .borrow()
+                  .sources
+                  .get(specifier.as_str())
+                  .unwrap()
+                  .value
+                  .clone();
+                let source = v8::Local::new(scope, source).into();
+                {
+                  let resolver = state.resolver.open(scope);
+                  resolver.resolve(scope, source).unwrap();
+                }
+              }
             }
-            self.dynamic_import_module_evaluate(
-              scope,
-              dyn_import_id,
-              module_id,
-            )?;
           }
         }
 
