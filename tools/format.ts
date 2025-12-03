@@ -1,5 +1,9 @@
-#!/usr/bin/env -S deno run --quiet --allow-read --allow-write --allow-run --allow-env
+#!/usr/bin/env -S deno run --quiet -RWE --allow-run
 // Copyright 2018-2025 the Deno authors. MIT license.
-import { main } from "./check.ts";
+import { $ } from "@deno/rust-automation";
 
-await main("format", Deno.args[0]);
+if (Deno.args[0] == "--check") {
+  await $`deno run -A npm:dprint@0.47.6 check`;
+} else {
+  await $`deno run -A npm:dprint@0.47.6 fmt`;
+}

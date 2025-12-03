@@ -739,6 +739,9 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
           results.push("nextTick");
           Deno.core.setHasTickScheduled(false);
         });
+        Deno.core.setImmediateCallback(() => {
+          results.push("immediate");
+        });
         Deno.core.setHasTickScheduled(true);
         await op_async_sleep();
         if (results[0] != "nextTick") {
@@ -746,6 +749,11 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
         }
         if (results[1] != "macrotask") {
           throw new Error(`expected macrotask, got: ${results[1]}`);
+        }
+        // Manually trigger immediate callbacks to test they were registered
+        Deno.core.runImmediateCallbacks();
+        if (results[2] != "immediate") {
+          throw new Error(`expected immediate, got: ${results[2]}`);
         }
       })();
       "#,
@@ -755,7 +763,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
 }
 
 #[test]
-fn test_has_tick_scheduled() {
+fn test_next_tick() {
   use futures::task::ArcWake;
 
   static MACROTASK: AtomicUsize = AtomicUsize::new(0);
