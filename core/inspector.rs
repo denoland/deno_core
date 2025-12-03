@@ -99,8 +99,7 @@ impl Drop for JsRuntimeInspector {
     // deleted, however InspectorSession also has a drop handler that cleans
     // up after itself. To avoid a double free, make sure the inspector is
     // dropped last.
-    // self.state.sessions.borrow_mut().drop_sessions();
-    self.state.sessions.lock().drop_sessions();
+    self.state.sessions.borrow_mut().drop_sessions();
 
     // Notify counterparty that this instance is being destroyed. Ignoring
     // result because counterparty waiting for the signal might have already
@@ -117,8 +116,7 @@ struct JsRuntimeInspectorState {
   context: v8::Global<v8::Context>,
   flags: Rc<RefCell<InspectorFlags>>,
   waker: Arc<InspectorWaker>,
-  // sessions: Rc<RefCell<SessionContainer>>,
-  sessions: Rc<Mutex<SessionContainer>>,
+  sessions: Rc<RefCell<SessionContainer>>,
   is_dispatching_message: Rc<RefCell<bool>>,
 }
 
@@ -175,8 +173,7 @@ impl JsRuntimeInspectorState {
     // However it is can happen that poll_sessions() gets re-entered, e.g.
     // when an interrupt request is honored while the inspector future is polled
     // by the task executor. We let the caller know by returning some error.
-    // let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
-    let Some(mut sessions) = self.sessions.try_lock() else {
+    let Ok(mut sessions) = self.sessions.try_borrow_mut() else {
       return Err(());
     };
 
@@ -208,32 +205,6 @@ impl JsRuntimeInspectorState {
           if sessions.main_session_id.is_none() {
             eprintln!("[WORKER DEBUG] Setting main session ID: {}", id);
             sessions.main_session_id = Some(id);
-
-            // Process any buffered worker proxies
-            let pending = std::mem::take(&mut sessions.pending_worker_proxies);
-            if !pending.is_empty() {
-              eprintln!(
-                "[WORKER DEBUG] Processing {} buffered workers",
-                pending.len()
-              );
-              let main_send = session.state.send.clone();
-              for (worker_id, worker_send, worker_tx, worker_rx, worker_url) in
-                pending
-              {
-                eprintln!(
-                  "[WORKER DEBUG] Registering buffered worker {} with URL: {}",
-                  worker_id, worker_url
-                );
-                sessions.register_worker_session(
-                  worker_id,
-                  worker_send,
-                  &*main_send,
-                  worker_url,
-                );
-                sessions
-                  .register_worker_channels(worker_id, worker_tx, worker_rx);
-              }
-            }
           }
 
           continue;
@@ -259,13 +230,20 @@ impl JsRuntimeInspectorState {
               worker_url
             );
 
-            // Create a dummy send function for the worker target session
+            // Create send function for the worker target session
+            // This sends messages to the worker via the worker_tx channel
+            let worker_tx_clone = worker_tx.clone();
             let worker_send = Rc::new(Box::new(move |msg: InspectorMsg| {
-              // Worker communication happens through worker_tx/worker_rx, not this send
               eprintln!(
-                "[WORKER DEBUG] Dummy worker send called: {:?}",
+                "[WORKER DEBUG] worker_send called with message kind: {:?}",
                 msg.kind
               );
+              if let Err(e) = worker_tx_clone.unbounded_send(msg.content) {
+                eprintln!(
+                  "[WORKER DEBUG] Failed to send to worker via worker_send: {}",
+                  e
+                );
+              }
             }) as InspectorSessionSend);
 
             // Get the next local ID for this worker
@@ -273,42 +251,21 @@ impl JsRuntimeInspectorState {
             sessions.next_local_id += 1;
 
             // Get main session send function
-            let main_session_send = sessions
-              .main_session_id
-              .and_then(|main_id| sessions.local.get(&main_id))
-              .map(|s| s.state.send.clone());
+            // let main_session_send = sessions
+            //   .main_session_id
+            //   .and_then(|main_id| sessions.local.get(&main_id))
+            //   .map(|s| s.state.send.clone());
 
-            if let Some(main_send) = main_session_send {
-              // Register the worker session with the Target domain
-              sessions.register_worker_session(
-                worker_id,
-                worker_send.clone(),
-                &*main_send,
-                worker_url.clone(),
-              );
+            // if let Some(main_send) = main_session_send {
+            // Register the worker session with the Target domain
+            sessions.register_worker_session(
+              worker_id,
+              worker_send.clone(),
+              worker_url.clone(),
+            );
 
-              // Register the worker channels
-              sessions
-                .register_worker_channels(worker_id, worker_tx, worker_rx);
-
-              eprintln!(
-                "[WORKER DEBUG] Worker registered with ID {}",
-                worker_id
-              );
-            } else {
-              // Buffer the worker until main session connects
-              eprintln!(
-                "[WORKER DEBUG] No main session yet, buffering worker with ID {}",
-                worker_id
-              );
-              sessions.pending_worker_proxies.push((
-                worker_id,
-                worker_send,
-                worker_tx,
-                worker_rx,
-                worker_url,
-              ));
-            }
+            // Register the worker channels
+            sessions.register_worker_channels(worker_id, worker_tx, worker_rx);
 
             continue;
           }
@@ -339,48 +296,36 @@ impl JsRuntimeInspectorState {
           if let Some(send) = main_session_send {
             let mut has_worker_message = false;
 
-            for target_session in sessions.target_sessions.values_mut() {
-              if let Some(worker_rx) = &mut target_session.worker_rx {
-                match worker_rx.poll_next_unpin(cx) {
-                  Poll::Ready(Some(msg)) => {
-                    // Parse the message to see what it is
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
-                      if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
-                        eprintln!("[WORKER DEBUG] Received {} from worker", method);
-                        if method == "Debugger.scriptParsed" {
-                          if let Some(url) = parsed.get("params").and_then(|p| p.get("url")).and_then(|u| u.as_str()) {
-                            eprintln!("[WORKER DEBUG]   Script URL: {}", url);
-                          }
+            for target_session in sessions.target_sessions.values() {
+              if let Ok(mut worker_rx_ref) =
+                target_session.worker_rx.try_borrow_mut()
+              {
+                if let Some(worker_rx) = worker_rx_ref.as_mut() {
+                  match worker_rx.poll_next_unpin(cx) {
+                    Poll::Ready(Some(msg)) => {
+                      // Wrap the message in Target.receivedMessageFromTarget
+                      let wrapped = json!({
+                        "method": "Target.receivedMessageFromTarget",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "message": msg.content,
+                          "targetId": target_session.target_id
                         }
-                      } else if let Some(id) = parsed.get("id") {
-                        eprintln!("[WORKER DEBUG] Received response from worker (id: {})", id);
-                      }
-                    } else {
-                      eprintln!("[WORKER DEBUG] Received message from worker: {}", msg.content);
+                      });
+
+                      let wrapped_msg = InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: wrapped.to_string(),
+                      };
+
+                      send(wrapped_msg);
+                      has_worker_message = true;
                     }
-
-                    // Wrap the message in Target.receivedMessageFromTarget
-                    let wrapped = json!({
-                      "method": "Target.receivedMessageFromTarget",
-                      "params": {
-                        "sessionId": target_session.session_id,
-                        "message": msg.content,
-                        "targetId": target_session.target_id
-                      }
-                    });
-
-                    let wrapped_msg = InspectorMsg {
-                      kind: InspectorMsgKind::Notification,
-                      content: wrapped.to_string(),
-                    };
-
-                    send(wrapped_msg);
-                    has_worker_message = true;
+                    Poll::Ready(None) => {
+                      eprintln!("[WORKER DEBUG] Worker channel closed");
+                    }
+                    Poll::Pending => {}
                   }
-                  Poll::Ready(None) => {
-                    eprintln!("[WORKER DEBUG] Worker channel closed");
-                  }
-                  Poll::Pending => {}
                 }
               }
             }
@@ -482,8 +427,7 @@ impl JsRuntimeInspector {
       isolate_ptr,
       context: v8::Global::new(scope, context),
       sessions: Rc::new(
-        // RefCell::new(SessionContainer::temporary_placeholder()),
-        Mutex::new(SessionContainer::temporary_placeholder()),
+        RefCell::new(SessionContainer::temporary_placeholder()),
       ),
       is_dispatching_message: Default::default(),
     });
@@ -494,8 +438,7 @@ impl JsRuntimeInspector {
       v8_inspector_client,
     ));
 
-    // *state.sessions.borrow_mut() =
-    *state.sessions.lock() =
+    *state.sessions.borrow_mut() =
       SessionContainer::new(v8_inspector.clone(), new_session_rx);
 
     // Tell the inspector about the main realm.
@@ -573,8 +516,7 @@ impl JsRuntimeInspector {
   }
 
   pub fn sessions_state(&self) -> SessionsState {
-    // self.state.sessions.borrow().sessions_state()
-    self.state.sessions.lock().sessions_state()
+    self.state.sessions.borrow().sessions_state()
   }
 
   pub fn poll_sessions_from_event_loop(&self, cx: &mut Context) {
@@ -586,8 +528,7 @@ impl JsRuntimeInspector {
   pub fn wait_for_session(&self) {
     loop {
       if let Some(_session) =
-        // self.state.sessions.borrow_mut().local.values().next()
-        self.state.sessions.lock().local.values().next()
+        self.state.sessions.borrow_mut().local.values().next()
       {
         self.state.flags.borrow_mut().waiting_for_session = false;
         break;
@@ -607,8 +548,7 @@ impl JsRuntimeInspector {
   pub fn wait_for_session_and_break_on_next_statement(&self) {
     loop {
       if let Some(session) =
-        // self.state.sessions.borrow_mut().local.values().next()
-        self.state.sessions.lock().local.values().next()
+        self.state.sessions.borrow_mut().local.values().next()
       {
         break session.break_on_next_statement();
       } else {
@@ -654,8 +594,7 @@ impl JsRuntimeInspector {
       );
 
       let session_id = {
-        // let mut s = sessions.borrow_mut();
-        let mut s = sessions.lock();
+        let mut s = sessions.borrow_mut();
         let id = s.next_local_id;
         s.next_local_id += 1;
         assert!(s.local.insert(id, inspector_session).is_none());
@@ -696,18 +635,9 @@ pub struct SessionContainer {
 
   // Target domain support for worker debugging
   next_target_session_id: i32,
-  target_sessions: HashMap<String, TargetSession>, // sessionId -> TargetSession
+  target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
   main_session_id: Option<i32>, // The first session that should receive Target events
-  pending_worker_channels:
-    Option<(UnboundedSender<String>, UnboundedReceiver<InspectorMsg>)>,
-  pending_worker_proxies: Vec<(
-    i32,
-    Rc<InspectorSessionSend>,
-    UnboundedSender<String>,
-    UnboundedReceiver<InspectorMsg>,
-    String, // worker_url
-  )>,
 }
 
 /// Represents a CDP Target session (e.g., a worker)
@@ -718,9 +648,9 @@ struct TargetSession {
   send: Rc<InspectorSessionSend>,
   // Channels for communicating with the worker's V8 inspector
   // main -> worker: send CDP messages to worker
-  worker_tx: Option<UnboundedSender<String>>,
+  worker_tx: RefCell<Option<UnboundedSender<String>>>,
   // worker -> main: receive CDP messages from worker
-  worker_rx: Option<UnboundedReceiver<InspectorMsg>>,
+  worker_rx: RefCell<Option<UnboundedReceiver<InspectorMsg>>>,
   // Worker URL for DevTools display
   url: String,
 }
@@ -742,8 +672,6 @@ impl SessionContainer {
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
-      pending_worker_channels: None,
-      pending_worker_proxies: Vec::new(),
     }
   }
 
@@ -799,8 +727,6 @@ impl SessionContainer {
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
-      pending_worker_channels: None,
-      pending_worker_proxies: Vec::new(),
     }
   }
 
@@ -813,140 +739,11 @@ impl SessionContainer {
     session.dispatch_message(message);
   }
 
-  /// Handle Target domain CDP messages for worker debugging
-  fn handle_target_message(
-    &mut self,
-    method: &str,
-    params: Option<serde_json::Value>,
-    id: Option<i32>,
-    send: &InspectorSessionSend,
-  ) -> Result<serde_json::Value, String> {
-    eprintln!(
-      "[WORKER DEBUG] handle_target_message called: method={}",
-      method
-    );
-    match method {
-      "Target.setDiscoverTargets" => {
-        // Enable target discovery
-        let discover = params
-          .as_ref()
-          .and_then(|p| p.get("discover"))
-          .and_then(|d| d.as_bool())
-          .unwrap_or(false);
-
-        eprintln!(
-          "[WORKER DEBUG] Target.setDiscoverTargets: discover={}, target_sessions.len()={}",
-          discover,
-          self.target_sessions.len()
-        );
-
-        // Send targetCreated events for all existing workers
-        if discover {
-          for target_session in self.target_sessions.values() {
-            eprintln!(
-              "[WORKER DEBUG] Sending Target.targetCreated for {}",
-              target_session.target_id
-            );
-            let event = json!({
-              "method": "Target.targetCreated",
-              "params": {
-                "targetInfo": {
-                  "targetId": target_session.target_id,
-                  "type": "worker",
-                  "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-                  "url": target_session.url,
-                  "attached": false,
-                  "canAccessOpener": false
-                }
-              }
-            });
-
-            send(InspectorMsg {
-              kind: InspectorMsgKind::Notification,
-              content: event.to_string(),
-            });
-          }
-        }
-
-        Ok(json!({}))
-      }
-      "Target.setAutoAttach" => {
-        // Enable auto-attach to workers
-        let auto_attach = params
-          .as_ref()
-          .and_then(|p| p.get("autoAttach"))
-          .and_then(|a| a.as_bool())
-          .unwrap_or(false);
-
-        self.auto_attach_enabled = auto_attach;
-        eprintln!(
-          "[WORKER DEBUG] Target.setAutoAttach: autoAttach={}",
-          auto_attach
-        );
-        Ok(json!({}))
-      }
-      "Target.sendMessageToTarget" => {
-        // Route message to worker session
-        let session_id = params
-          .as_ref()
-          .and_then(|p| p.get("sessionId"))
-          .and_then(|s| s.as_str())
-          .ok_or("Missing sessionId")
-          .unwrap();
-        // .ok_or("Missing sessionId")?;
-
-        let message = params
-          .as_ref()
-          .and_then(|p| p.get("message"))
-          .and_then(|m| m.as_str())
-          .ok_or("Missing message")
-          .unwrap();
-        // .ok_or("Missing message")?;
-
-        eprintln!(
-          "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
-          session_id, message
-        );
-
-        if let Some(target_session) = self.target_sessions.get(session_id) {
-          // Use worker channel if available, otherwise fall back to local session
-          if let Some(worker_tx) = &target_session.worker_tx {
-            eprintln!(
-              "[WORKER DEBUG] Forwarding message to worker via channel"
-            );
-            if let Err(e) = worker_tx.unbounded_send(message.to_string()) {
-              eprintln!(
-                "[WORKER DEBUG] Failed to send message to worker: {}",
-                e
-              );
-              return Err(format!("Failed to send message to worker: {}", e));
-            }
-          } else {
-            eprintln!(
-              "[WORKER DEBUG] Warning: No worker channel, using local session (won't work for real workers)"
-            );
-            let local_session =
-              self.local.get(&target_session.local_session_id).unwrap();
-            local_session.dispatch_message(message.to_string());
-          }
-          Ok(json!({}))
-        } else {
-          Err(format!("Target session not found: {}", session_id))
-        }
-      }
-      _ => {
-        eprintln!("[WORKER DEBUG] Unhandled Target method: {}", method);
-        Ok(json!({}))
-      }
-    }
-  }
-
   /// Register a worker session and send Target.attachedToTarget event
   fn register_worker_session(
     &mut self,
     local_session_id: i32,
-    send: Rc<InspectorSessionSend>,
-    main_session_send: &InspectorSessionSend,
+    worker_send: Rc<InspectorSessionSend>,
     worker_url: String,
   ) {
     let target_id = format!("worker-{}", local_session_id);
@@ -954,90 +751,59 @@ impl SessionContainer {
     self.next_target_session_id += 1;
 
     // Extract just the filename for display (like Node.js does)
-    let target_session = TargetSession {
+    let target_session = Rc::new(TargetSession {
       target_id: target_id.clone(),
       session_id: session_id.clone(),
       local_session_id,
-      send,
-      worker_tx: None,
-      worker_rx: None,
+      send: worker_send.clone(),
+      worker_tx: RefCell::new(None),
+      worker_rx: RefCell::new(None),
       url: worker_url.clone(),
-    };
+    });
     self
       .target_sessions
       .insert(session_id.clone(), target_session);
 
     // Target.targetCreated still goes directly to the main session.
-    // let created_event = json!({
-    //   "method": "Target.targetCreated",
-    //   "params": {
-    //     "targetInfo": {
-    //       "targetId": target_id,
-    //       "type": "worker",
-    //       "title": format!("[worker {}] WorkerThread", local_session_id),
-    //       "url": worker_url,
-    //       "attached": false,
-    //       "canAccessOpener": false
-    //     }
-    //   }
-    // });
-    // main_session_send(InspectorMsg {
-    //   kind: InspectorMsgKind::Notification,
-    //   content: created_event.to_string(),
-    // });
+    let created_event = json!({
+      "method": "Target.targetCreated",
+      "params": {
+        "targetInfo": {
+          "targetId": target_id,
+          "type": "worker",
+          "title": format!("Worker {}", local_session_id),
+          "url": "",
+          "attached": false,
+          "canAccessOpener": false
+        }
+      }
+    });
 
-    if self.auto_attach_enabled {
-      // 1) Use the correct key: sessionId
-      // let attached_event = json!({
-      //   "method": "Target.attachedToTarget",
-      //   "params": {
-      //     "sessionId": session_id,
-      //     "targetInfo": {
-      //       "targetId": target_id,
-      //       "type": "worker",
-      //       "title": format!("[worker {}] WorkerThread", local_session_id),
-      //       "url": worker_url,
-      //       "attached": true,
-      //       "canAccessOpener": false
-      //     },
-      //     "waitingForDebugger": false
-      //   }
-      // });
-      // main_session_send(InspectorMsg {
-      //   kind: InspectorMsgKind::Notification,
-      //   content: attached_event.to_string(),
-      // });
+    worker_send(InspectorMsg {
+      kind: InspectorMsgKind::Notification,
+      content: created_event.to_string(),
+    });
 
-      // 2) Runtime.* events must arrive via Target.receivedMessageFromTarget.
-      // let runtime_event = json!({
-      //   "method": "Runtime.executionContextCreated",
-      //   "params": {
-      //     "context": {
-      //       "id": local_session_id,
-      //       "origin": "",
-      //       "name": format!("[worker {}] WorkerThread", local_session_id),
-      //       "uniqueId": format!("worker-{}", local_session_id),
-      //       "auxData": {
-      //         "isDefault": true,
-      //         "type": "worker"
-      //       }
-      //     }
-      //   }
-      // });
-      //
-      // let wrapped = json!({
-      //   "method": "Target.receivedMessageFromTarget",
-      //   "params": {
-      //     "sessionId": format!("session-{}", self.next_target_session_id - 1),
-      //     "targetId": format!("worker-{}", local_session_id),
-      //     "message": runtime_event.to_string()
-      //   }
-      // });
-      // main_session_send(InspectorMsg {
-      //   kind: InspectorMsgKind::Notification,
-      //   content: wrapped.to_string(),
-      // });
-    }
+    // if auto_attach_enabled?
+    let attached_event = json!({
+      "method": "Target.attachedToTarget",
+      "params": {
+        "sessionId": session_id,
+        "targetInfo": {
+          "targetId": target_id,
+          "type": "worker",
+          "title": format!("Worker {}", local_session_id),
+          "url": "",
+          "attached": true,
+          "canAccessOpener": false
+        },
+        "waitingForDebugger": false
+      }
+    });
+    worker_send(InspectorMsg {
+      kind: InspectorMsgKind::Notification,
+      content: attached_event.to_string(),
+    });
   }
 
   /// Register the communication channels for a worker's V8 inspector
@@ -1049,14 +815,14 @@ impl SessionContainer {
     worker_rx: UnboundedReceiver<InspectorMsg>,
   ) -> bool {
     // Find the target session for this local session ID
-    for target_session in self.target_sessions.values_mut() {
+    for target_session in self.target_sessions.values() {
       if target_session.local_session_id == local_session_id {
         eprintln!(
           "[WORKER DEBUG] Registering channels for worker session: {}",
           target_session.session_id
         );
-        target_session.worker_tx = Some(worker_tx);
-        target_session.worker_rx = Some(worker_rx);
+        *target_session.worker_tx.borrow_mut() = Some(worker_tx);
+        *target_session.worker_rx.borrow_mut() = Some(worker_rx);
         return true;
       }
     }
@@ -1158,7 +924,7 @@ struct InspectorSessionState {
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
-  sessions: Rc<Mutex<SessionContainer>>,
+  sessions: Rc<RefCell<SessionContainer>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -1177,8 +943,7 @@ impl InspectorSession {
     send: InspectorSessionSend,
     rx: Option<SessionProxyReceiver>,
     kind: InspectorSessionKind,
-    // sessions: Rc<RefCell<SessionContainer>>,
-    sessions: Rc<Mutex<SessionContainer>>,
+    sessions: Rc<RefCell<SessionContainer>>,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
@@ -1251,8 +1016,6 @@ type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
   while let Some(msg) = rx.next().await {
-    eprintln!("[WORKER DEBUG] Received message from frontend: {}", msg);
-
     // Check if this is a Target domain message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
       if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
@@ -1284,47 +1047,40 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 .unwrap_or(false);
 
               if discover {
-                // Send targetCreated AND attachedToTarget events for existing workers
-                // (like Node.js --experimental-worker-inspection)
                 let sessions = session.state.sessions.clone();
                 let send = session.state.send.clone();
                 deno_core::unsync::spawn(async move {
-                  let sessions = sessions.lock();
+                  let sessions = sessions.borrow();
                   eprintln!(
                     "[WORKER DEBUG] Target.setDiscoverTargets: discover=true, target_sessions.len()={}",
                     sessions.target_sessions.len()
                   );
 
                   for target_session in sessions.target_sessions.values() {
-                    eprintln!(
-                      "[WORKER DEBUG] Sending Target.targetCreated for {}",
-                      target_session.target_id
-                    );
-                    // Send targetCreated event
-                    let target_created = json!({
-                      "method": "Target.targetCreated",
-                      "params": {
-                        "targetInfo": {
-                          "targetId": target_session.target_id,
-                          "type": "worker",
-                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-                          "url": target_session.url,
-                          "attached": true,
-                          "canAccessOpener": false
-                        }
-                      }
-                    });
+                    // eprintln!(
+                    //   "[WORKER DEBUG] Sending Target.targetCreated for {}",
+                    //   target_session.target_id
+                    // );
+                    // // Send targetCreated event
+                    // let target_created = json!({
+                    //   "method": "Target.targetCreated",
+                    //   "params": {
+                    //     "targetInfo": {
+                    //       "targetId": target_session.target_id,
+                    //       "type": "worker",
+                    //       "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                    //       "url": target_session.url,
+                    //       "attached": true,
+                    //       "canAccessOpener": false
+                    //     }
+                    //   }
+                    // });
+                    //
+                    // send(InspectorMsg {
+                    //   kind: InspectorMsgKind::Notification,
+                    //   content: target_created.to_string(),
+                    // });
 
-                    send(InspectorMsg {
-                      kind: InspectorMsgKind::Notification,
-                      content: target_created.to_string(),
-                    });
-
-                    eprintln!(
-                      "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
-                      target_session.target_id
-                    );
-                    // Send attachedToTarget event immediately after
                     let attached_to_target = json!({
                       "method": "Target.attachedToTarget",
                       "params": {
@@ -1340,6 +1096,10 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                         "waitingForDebugger": false
                       }
                     });
+                    eprintln!(
+                      "[WORKER DEBUG] Sending Target.attachedToTarget to frontend for worker: {}",
+                      target_session.url
+                    );
 
                     send(InspectorMsg {
                       kind: InspectorMsgKind::Notification,
@@ -1360,28 +1120,18 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               let sessions = session.state.sessions.clone();
               let send = session.state.send.clone();
               deno_core::unsync::spawn(async move {
-                let mut sessions = sessions.lock();
+                let mut sessions = sessions.borrow_mut();
                 sessions.auto_attach_enabled = auto_attach;
-                eprintln!(
-                  "[WORKER DEBUG] Target.setAutoAttach: autoAttach={}, sending attachedToTarget for {} workers",
-                  auto_attach,
-                  sessions.target_sessions.len()
-                );
 
-                // Send Target.attachedToTarget for all existing workers
                 if auto_attach {
                   for target_session in sessions.target_sessions.values() {
-                    eprintln!(
-                      "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
-                      target_session.target_id
-                    );
                     let event = json!({
                       "method": "Target.attachedToTarget",
                       "params": {
                         "sessionId": target_session.session_id,
                         "targetInfo": {
                           "targetId": target_session.target_id,
-                          "type": "node_worker",
+                          "type": "worker",
                           "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
                           "url": target_session.url,
                           "attached": true,
@@ -1401,35 +1151,17 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               json!({})
             }
             "Target.sendMessageToTarget" => {
-              // Parse the inner message to see what method is being sent
-              if let Ok(inner) = serde_json::from_str::<serde_json::Value>(&message) {
-                if let Some(method) = inner.get("method").and_then(|m| m.as_str()) {
-                  eprintln!(
-                    "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, method={}",
-                    session_id, method
-                  );
-                } else {
-                  eprintln!(
-                    "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
-                    session_id, message
-                  );
-                }
-              } else {
-                eprintln!(
-                  "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
-                  session_id, message
-                );
-              }
-
               // Route the message to the worker
               let sessions = session.state.sessions.clone();
               let message_str = message.to_string();
               deno_core::unsync::spawn(async move {
-                let sessions = sessions.lock();
+                let sessions = sessions.borrow();
                 if let Some(target_session) =
                   sessions.target_sessions.get(&session_id)
                 {
-                  if let Some(worker_tx) = &target_session.worker_tx {
+                  if let Some(worker_tx) =
+                    target_session.worker_tx.borrow().as_ref()
+                  {
                     // No need to log here, already logged above
                     //eprintln!("[WORKER DEBUG] Sending message to worker via channel");
                     if let Err(e) = worker_tx.unbounded_send(message_str) {
@@ -1487,12 +1219,12 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 ///
 /// Does not provide any abstraction over CDP messages.
 pub struct LocalInspectorSession {
-  sessions: Rc<Mutex<SessionContainer>>,
+  sessions: Rc<RefCell<SessionContainer>>,
   session_id: i32,
 }
 
 impl LocalInspectorSession {
-  pub fn new(session_id: i32, sessions: Rc<Mutex<SessionContainer>>) -> Self {
+  pub fn new(session_id: i32, sessions: Rc<RefCell<SessionContainer>>) -> Self {
     Self {
       sessions,
       session_id,
@@ -1502,10 +1234,11 @@ impl LocalInspectorSession {
   pub fn dispatch(&mut self, msg: String) {
     self
       .sessions
-      .lock()
+      .borrow_mut()
       .dispatch_message_from_frontend(self.session_id, msg);
   }
 
+  //TODO: use this instead
   pub fn post_message<T: serde::Serialize>(
     &mut self,
     id: i32,
