@@ -653,6 +653,8 @@ struct TargetSession {
   worker_rx: RefCell<Option<UnboundedReceiver<InspectorMsg>>>,
   // Worker URL for DevTools display
   url: String,
+  // Track if we've already sent Target.attachedToTarget for this worker
+  attached: RefCell<bool>,
 }
 
 impl SessionContainer {
@@ -739,7 +741,7 @@ impl SessionContainer {
     session.dispatch_message(message);
   }
 
-  /// Register a worker session and send Target.attachedToTarget event
+  /// Register a worker session and send Target.targetCreated event
   fn register_worker_session(
     &mut self,
     local_session_id: i32,
@@ -759,51 +761,36 @@ impl SessionContainer {
       worker_tx: RefCell::new(None),
       worker_rx: RefCell::new(None),
       url: worker_url.clone(),
+      attached: RefCell::new(false),
     });
     self
       .target_sessions
       .insert(session_id.clone(), target_session);
 
-    // Target.targetCreated still goes directly to the main session.
-    let created_event = json!({
-      "method": "Target.targetCreated",
-      "params": {
-        "targetInfo": {
-          "targetId": target_id,
-          "type": "worker",
-          "title": format!("Worker {}", local_session_id),
-          "url": "",
-          "attached": false,
-          "canAccessOpener": false
-        }
-      }
-    });
+    // Send Target.targetCreated to the main session immediately (like Node.js does)
+    // This notifies DevTools that a worker target exists
+    if let Some(main_id) = self.main_session_id {
+      if let Some(main_session) = self.local.get(&main_id) {
+        let created_event = json!({
+          "method": "Target.targetCreated",
+          "params": {
+            "targetInfo": {
+              "targetId": target_id,
+              "type": "node_worker",
+              "title": format!("[worker {}] WorkerThread", local_session_id),
+              "url": worker_url,
+              "attached": false,
+              "canAccessOpener": true
+            }
+          }
+        });
 
-    worker_send(InspectorMsg {
-      kind: InspectorMsgKind::Notification,
-      content: created_event.to_string(),
-    });
-
-    // if auto_attach_enabled?
-    let attached_event = json!({
-      "method": "Target.attachedToTarget",
-      "params": {
-        "sessionId": session_id,
-        "targetInfo": {
-          "targetId": target_id,
-          "type": "worker",
-          "title": format!("Worker {}", local_session_id),
-          "url": "",
-          "attached": true,
-          "canAccessOpener": false
-        },
-        "waitingForDebugger": false
+        (main_session.state.send)(InspectorMsg {
+          kind: InspectorMsgKind::Notification,
+          content: created_event.to_string(),
+        });
       }
-    });
-    worker_send(InspectorMsg {
-      kind: InspectorMsgKind::Notification,
-      content: attached_event.to_string(),
-    });
+    }
   }
 
   /// Register the communication channels for a worker's V8 inspector
@@ -1016,8 +1003,45 @@ type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
   while let Some(msg) = rx.next().await {
-    // Check if this is a Target domain message
+    // Parse the incoming message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
+      // FIRST: Check if this message has a top-level sessionId field
+      // This is how DevTools routes messages to worker sessions after Target.attachedToTarget
+      if let Some(target_session_id_str) = parsed.get("sessionId").and_then(|s| s.as_str()) {
+        if !target_session_id_str.is_empty() {
+          // This message is intended for a worker session, not the main session
+          let target_session_id = target_session_id_str.to_owned();
+          eprintln!("[WORKER DEBUG] Routing message to session: {}", target_session_id);
+
+          // Remove the sessionId field before sending to worker's V8 inspector
+          // V8 inspector doesn't understand this CDP Target domain concept
+          let mut cleaned = parsed.clone();
+          if let Some(obj) = cleaned.as_object_mut() {
+            obj.remove("sessionId");
+          }
+          let cleaned_msg = cleaned.to_string();
+
+          let sessions = session.state.sessions.clone();
+          deno_core::unsync::spawn(async move {
+            let sessions = sessions.borrow();
+            if let Some(target_session) = sessions.target_sessions.get(&target_session_id) {
+              if let Some(worker_tx) = target_session.worker_tx.borrow().as_ref() {
+                eprintln!("[WORKER DEBUG] Sending to worker: {}", &cleaned_msg[..cleaned_msg.len().min(100)]);
+                if let Err(e) = worker_tx.unbounded_send(cleaned_msg) {
+                  eprintln!("[WORKER DEBUG] Failed to send to worker: {}", e);
+                }
+              } else {
+                eprintln!("[WORKER DEBUG] No worker_tx for session: {}", target_session_id);
+              }
+            } else {
+              eprintln!("[WORKER DEBUG] Session not found: {}", target_session_id);
+            }
+          });
+          continue; // Don't process this message locally
+        }
+      }
+
+      // SECOND: Check if this is a Target domain message (for the main session)
       if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
         if method.starts_with("Target.") {
           eprintln!("[WORKER DEBUG] Intercepted Target message: {}", method);
@@ -1040,74 +1064,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
           // Handle Target domain messages inline to avoid deadlock
           let result: serde_json::Value = match method {
             "Target.setDiscoverTargets" => {
-              let discover = params
-                .as_ref()
-                .and_then(|p| p.get("discover"))
-                .and_then(|d| d.as_bool())
-                .unwrap_or(false);
-
-              if discover {
-                let sessions = session.state.sessions.clone();
-                let send = session.state.send.clone();
-                deno_core::unsync::spawn(async move {
-                  let sessions = sessions.borrow();
-                  eprintln!(
-                    "[WORKER DEBUG] Target.setDiscoverTargets: discover=true, target_sessions.len()={}",
-                    sessions.target_sessions.len()
-                  );
-
-                  for target_session in sessions.target_sessions.values() {
-                    // eprintln!(
-                    //   "[WORKER DEBUG] Sending Target.targetCreated for {}",
-                    //   target_session.target_id
-                    // );
-                    // // Send targetCreated event
-                    // let target_created = json!({
-                    //   "method": "Target.targetCreated",
-                    //   "params": {
-                    //     "targetInfo": {
-                    //       "targetId": target_session.target_id,
-                    //       "type": "worker",
-                    //       "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-                    //       "url": target_session.url,
-                    //       "attached": true,
-                    //       "canAccessOpener": false
-                    //     }
-                    //   }
-                    // });
-                    //
-                    // send(InspectorMsg {
-                    //   kind: InspectorMsgKind::Notification,
-                    //   content: target_created.to_string(),
-                    // });
-
-                    let attached_to_target = json!({
-                      "method": "Target.attachedToTarget",
-                      "params": {
-                        "sessionId": target_session.session_id,
-                        "targetInfo": {
-                          "targetId": target_session.target_id,
-                          "type": "worker",
-                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-                          "url": target_session.url,
-                          "attached": true,
-                          "canAccessOpener": false
-                        },
-                        "waitingForDebugger": false
-                      }
-                    });
-                    eprintln!(
-                      "[WORKER DEBUG] Sending Target.attachedToTarget to frontend for worker: {}",
-                      target_session.url
-                    );
-
-                    send(InspectorMsg {
-                      kind: InspectorMsgKind::Notification,
-                      content: attached_to_target.to_string(),
-                    });
-                  }
-                });
-              }
+              // Node.js doesn't implement this method, so we'll just return success
+              // Workers send Target.targetCreated immediately when registered
               json!({})
             }
             "Target.setAutoAttach" => {
@@ -1125,46 +1083,64 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
                 if auto_attach {
                   for target_session in sessions.target_sessions.values() {
-                    let event = json!({
-                      "method": "Target.attachedToTarget",
-                      "params": {
-                        "sessionId": target_session.session_id,
-                        "targetInfo": {
-                          "targetId": target_session.target_id,
-                          "type": "worker",
-                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-                          "url": target_session.url,
-                          "attached": true,
-                          "canAccessOpener": false
-                        },
-                        "waitingForDebugger": false
-                      }
-                    });
+                    // Only attach if not already attached (like Node.js does)
+                    if !*target_session.attached.borrow() {
+                      *target_session.attached.borrow_mut() = true;
 
-                    send(InspectorMsg {
-                      kind: InspectorMsgKind::Notification,
-                      content: event.to_string(),
-                    });
+                      // Send Target.attachedToTarget (targetCreated was already sent when worker registered)
+                      let attached_to_target = json!({
+                        "method": "Target.attachedToTarget",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "targetInfo": {
+                            "targetId": target_session.target_id,
+                            "type": "node_worker",
+                            "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                            "url": target_session.url,
+                            "attached": false,
+                            "canAccessOpener": true
+                          },
+                          "waitingForDebugger": true
+                        }
+                      });
+
+                      eprintln!(
+                        "[WORKER DEBUG] Attaching to worker: {}",
+                        target_session.url
+                      );
+
+                      send(InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: attached_to_target.to_string(),
+                      });
+                    }
                   }
                 }
               });
               json!({})
             }
             "Target.sendMessageToTarget" => {
-              // Route the message to the worker
+              // Extract the inner message and route it to the worker
+              let inner_message = params
+                .as_ref()
+                .and_then(|p| p.get("message"))
+                .and_then(|m| m.as_str())
+                .map(|s| s.to_owned())
+                .unwrap_or_default();
+
               let sessions = session.state.sessions.clone();
-              let message_str = message.to_string();
+              eprintln!("[WORKER DEBUG] sendMessageToTarget: looking for session_id={}", session_id);
               deno_core::unsync::spawn(async move {
                 let sessions = sessions.borrow();
+                eprintln!("[WORKER DEBUG] Available sessions: {:?}", sessions.target_sessions.keys().collect::<Vec<_>>());
                 if let Some(target_session) =
                   sessions.target_sessions.get(&session_id)
                 {
                   if let Some(worker_tx) =
                     target_session.worker_tx.borrow().as_ref()
                   {
-                    // No need to log here, already logged above
-                    //eprintln!("[WORKER DEBUG] Sending message to worker via channel");
-                    if let Err(e) = worker_tx.unbounded_send(message_str) {
+                    eprintln!("[WORKER DEBUG] Sending message to worker: {}", &inner_message[..inner_message.len().min(100)]);
+                    if let Err(e) = worker_tx.unbounded_send(inner_message) {
                       eprintln!(
                         "[WORKER DEBUG] Failed to send to worker: {}",
                         e
