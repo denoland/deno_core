@@ -54,7 +54,6 @@ pub struct InspectorSessionProxy {
   // When set, this proxy represents a worker and these channels should be registered
   pub worker_tx: Option<UnboundedSender<String>>,
   pub worker_rx: Option<UnboundedReceiver<InspectorMsg>>,
-  // Worker URL for display in DevTools (e.g., "file:///path/to/worker.ts")
   pub worker_url: Option<String>,
 }
 
@@ -218,7 +217,9 @@ impl JsRuntimeInspectorState {
                 pending.len()
               );
               let main_send = session.state.send.clone();
-              for (worker_id, worker_send, worker_tx, worker_rx, worker_url) in pending {
+              for (worker_id, worker_send, worker_tx, worker_rx, worker_url) in
+                pending
+              {
                 eprintln!(
                   "[WORKER DEBUG] Registering buffered worker {} with URL: {}",
                   worker_id, worker_url
@@ -250,7 +251,8 @@ impl JsRuntimeInspectorState {
             // Just extract the channels and register the worker directly
             let worker_tx = session_proxy.worker_tx.take().unwrap();
             let worker_rx = session_proxy.worker_rx.take().unwrap();
-            let worker_url = session_proxy.worker_url.take().unwrap_or_default();
+            let worker_url =
+              session_proxy.worker_url.take().unwrap_or_default();
 
             eprintln!(
               "[WORKER DEBUG] Received worker proxy, registering worker with URL: {}",
@@ -341,10 +343,21 @@ impl JsRuntimeInspectorState {
               if let Some(worker_rx) = &mut target_session.worker_rx {
                 match worker_rx.poll_next_unpin(cx) {
                   Poll::Ready(Some(msg)) => {
-                    eprintln!(
-                      "[WORKER DEBUG] Received message from worker: {}, forwarding to main session",
-                      msg.content
-                    );
+                    // Parse the message to see what it is
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
+                      if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
+                        eprintln!("[WORKER DEBUG] Received {} from worker", method);
+                        if method == "Debugger.scriptParsed" {
+                          if let Some(url) = parsed.get("params").and_then(|p| p.get("url")).and_then(|u| u.as_str()) {
+                            eprintln!("[WORKER DEBUG]   Script URL: {}", url);
+                          }
+                        }
+                      } else if let Some(id) = parsed.get("id") {
+                        eprintln!("[WORKER DEBUG] Received response from worker (id: {})", id);
+                      }
+                    } else {
+                      eprintln!("[WORKER DEBUG] Received message from worker: {}", msg.content);
+                    }
 
                     // Wrap the message in Target.receivedMessageFromTarget
                     let wrapped = json!({
@@ -840,7 +853,7 @@ impl SessionContainer {
                 "targetInfo": {
                   "targetId": target_session.target_id,
                   "type": "worker",
-                  "title": format!("Worker {}", target_session.local_session_id),
+                  "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
                   "url": target_session.url,
                   "attached": false,
                   "canAccessOpener": false
@@ -940,6 +953,7 @@ impl SessionContainer {
     let session_id = format!("session-{}", self.next_target_session_id);
     self.next_target_session_id += 1;
 
+    // Extract just the filename for display (like Node.js does)
     let target_session = TargetSession {
       target_id: target_id.clone(),
       session_id: session_id.clone(),
@@ -954,75 +968,75 @@ impl SessionContainer {
       .insert(session_id.clone(), target_session);
 
     // Target.targetCreated still goes directly to the main session.
-    let created_event = json!({
-      "method": "Target.targetCreated",
-      "params": {
-        "targetInfo": {
-          "targetId": target_id,
-          "type": "worker",
-          "title": format!("Worker {}", local_session_id),
-          "url": worker_url,
-          "attached": false,
-          "canAccessOpener": false
-        }
-      }
-    });
-    main_session_send(InspectorMsg {
-      kind: InspectorMsgKind::Notification,
-      content: created_event.to_string(),
-    });
+    // let created_event = json!({
+    //   "method": "Target.targetCreated",
+    //   "params": {
+    //     "targetInfo": {
+    //       "targetId": target_id,
+    //       "type": "worker",
+    //       "title": format!("[worker {}] WorkerThread", local_session_id),
+    //       "url": worker_url,
+    //       "attached": false,
+    //       "canAccessOpener": false
+    //     }
+    //   }
+    // });
+    // main_session_send(InspectorMsg {
+    //   kind: InspectorMsgKind::Notification,
+    //   content: created_event.to_string(),
+    // });
 
     if self.auto_attach_enabled {
       // 1) Use the correct key: sessionId
-      let attached_event = json!({
-        "method": "Target.attachedToTarget",
-        "params": {
-          "sessionId": session_id,
-          "targetInfo": {
-            "targetId": target_id,
-            "type": "worker",
-            "title": format!("Worker {}", local_session_id),
-            "url": worker_url,
-            "attached": true,
-            "canAccessOpener": false
-          },
-          "waitingForDebugger": false
-        }
-      });
-      main_session_send(InspectorMsg {
-        kind: InspectorMsgKind::Notification,
-        content: attached_event.to_string(),
-      });
+      // let attached_event = json!({
+      //   "method": "Target.attachedToTarget",
+      //   "params": {
+      //     "sessionId": session_id,
+      //     "targetInfo": {
+      //       "targetId": target_id,
+      //       "type": "worker",
+      //       "title": format!("[worker {}] WorkerThread", local_session_id),
+      //       "url": worker_url,
+      //       "attached": true,
+      //       "canAccessOpener": false
+      //     },
+      //     "waitingForDebugger": false
+      //   }
+      // });
+      // main_session_send(InspectorMsg {
+      //   kind: InspectorMsgKind::Notification,
+      //   content: attached_event.to_string(),
+      // });
 
       // 2) Runtime.* events must arrive via Target.receivedMessageFromTarget.
-      let runtime_event = json!({
-        "method": "Runtime.executionContextCreated",
-        "params": {
-          "context": {
-            "id": local_session_id,
-            "origin": "",
-            "name": format!("Worker {}", local_session_id),
-            "uniqueId": format!("worker-{}", local_session_id),
-            "auxData": {
-              "isDefault": true,
-              "type": "worker"
-            }
-          }
-        }
-      });
-
-      let wrapped = json!({
-        "method": "Target.receivedMessageFromTarget",
-        "params": {
-          "sessionId": format!("session-{}", self.next_target_session_id - 1),
-          "targetId": format!("worker-{}", local_session_id),
-          "message": runtime_event.to_string()
-        }
-      });
-      main_session_send(InspectorMsg {
-        kind: InspectorMsgKind::Notification,
-        content: wrapped.to_string(),
-      });
+      // let runtime_event = json!({
+      //   "method": "Runtime.executionContextCreated",
+      //   "params": {
+      //     "context": {
+      //       "id": local_session_id,
+      //       "origin": "",
+      //       "name": format!("[worker {}] WorkerThread", local_session_id),
+      //       "uniqueId": format!("worker-{}", local_session_id),
+      //       "auxData": {
+      //         "isDefault": true,
+      //         "type": "worker"
+      //       }
+      //     }
+      //   }
+      // });
+      //
+      // let wrapped = json!({
+      //   "method": "Target.receivedMessageFromTarget",
+      //   "params": {
+      //     "sessionId": format!("session-{}", self.next_target_session_id - 1),
+      //     "targetId": format!("worker-{}", local_session_id),
+      //     "message": runtime_event.to_string()
+      //   }
+      // });
+      // main_session_send(InspectorMsg {
+      //   kind: InspectorMsgKind::Notification,
+      //   content: wrapped.to_string(),
+      // });
     }
   }
 
@@ -1293,7 +1307,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                         "targetInfo": {
                           "targetId": target_session.target_id,
                           "type": "worker",
-                          "title": format!("Worker {}", target_session.local_session_id),
+                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
                           "url": target_session.url,
                           "attached": true,
                           "canAccessOpener": false
@@ -1318,7 +1332,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                         "targetInfo": {
                           "targetId": target_session.target_id,
                           "type": "worker",
-                          "title": format!("Worker {}", target_session.local_session_id),
+                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
                           "url": target_session.url,
                           "attached": true,
                           "canAccessOpener": false
@@ -1367,8 +1381,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                         "sessionId": target_session.session_id,
                         "targetInfo": {
                           "targetId": target_session.target_id,
-                          "type": "worker",
-                          "title": format!("Worker {}", target_session.local_session_id),
+                          "type": "node_worker",
+                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
                           "url": target_session.url,
                           "attached": true,
                           "canAccessOpener": false
@@ -1387,10 +1401,25 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               json!({})
             }
             "Target.sendMessageToTarget" => {
-              eprintln!(
-                "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
-                session_id, message
-              );
+              // Parse the inner message to see what method is being sent
+              if let Ok(inner) = serde_json::from_str::<serde_json::Value>(&message) {
+                if let Some(method) = inner.get("method").and_then(|m| m.as_str()) {
+                  eprintln!(
+                    "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, method={}",
+                    session_id, method
+                  );
+                } else {
+                  eprintln!(
+                    "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
+                    session_id, message
+                  );
+                }
+              } else {
+                eprintln!(
+                  "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
+                  session_id, message
+                );
+              }
 
               // Route the message to the worker
               let sessions = session.state.sessions.clone();
@@ -1401,9 +1430,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                   sessions.target_sessions.get(&session_id)
                 {
                   if let Some(worker_tx) = &target_session.worker_tx {
-                    eprintln!(
-                      "[WORKER DEBUG] Sending message to worker via channel"
-                    );
+                    // No need to log here, already logged above
+                    //eprintln!("[WORKER DEBUG] Sending message to worker via channel");
                     if let Err(e) = worker_tx.unbounded_send(message_str) {
                       eprintln!(
                         "[WORKER DEBUG] Failed to send to worker: {}",
