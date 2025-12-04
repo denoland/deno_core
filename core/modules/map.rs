@@ -1921,7 +1921,7 @@ impl ModuleMap {
                 let key = ModuleSourceKey::from_reference(module_reference);
                 let source = {
                   let data = self.data.borrow();
-                  let source = data.sources.get(&key).unwrap().as_ref();
+                  let source = data.sources.get(&key).expect("Source had to have been inserted successfully, or recursion would error.").as_ref();
                   v8::Local::new(scope, source).into()
                 };
                 {
