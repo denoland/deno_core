@@ -8,13 +8,16 @@ use crate::error::CoreError;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
+use crate::modules::ModuleImportPhase;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoaderError;
 use crate::modules::ModuleReference;
+use crate::modules::ModuleRequest;
 use crate::modules::RequestedModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::loaders::ModuleLoadReferrer;
 use crate::modules::map::ModuleMap;
+use crate::modules::module_map_data::ModuleSourceKind;
 use crate::source_map::SourceMapApplication;
 use crate::source_map::SourceMapper;
 use futures::future::FutureExt;
@@ -33,7 +36,7 @@ use std::task::Poll;
 use super::loaders::ModuleLoadOptions;
 
 type ModuleLoadFuture = dyn Future<
-  Output = Result<Option<(ModuleReference, ModuleSource)>, ModuleLoaderError>,
+  Output = Result<Option<(ModuleRequest, ModuleSource)>, ModuleLoaderError>,
 >;
 
 #[derive(Debug, Copy, Clone)]
@@ -51,7 +54,7 @@ enum LoadInit {
   Side(String, SideModuleKind),
   /// Dynamic import specifier with referrer and expected
   /// module type (which is determined by import assertion).
-  DynamicImport(String, String, RequestedModuleType),
+  DynamicImport(String, String, RequestedModuleType, ModuleImportPhase),
 }
 
 #[derive(Debug, Eq, PartialEq)]
@@ -72,6 +75,7 @@ pub(crate) struct RecursiveModuleLoad {
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
   visited: HashSet<ModuleReference>,
   visited_as_alias: Rc<RefCell<HashSet<String>>>,
+  pub root_module_reference: Option<ModuleReference>,
   // The loader is copied from `module_map_rc`, but its reference is cloned
   // ahead of time to avoid already-borrowed errors.
   loader: Rc<dyn ModuleLoader>,
@@ -107,6 +111,7 @@ impl RecursiveModuleLoad {
     specifier: &str,
     referrer: &str,
     requested_module_type: RequestedModuleType,
+    phase: ModuleImportPhase,
     module_map_rc: Rc<ModuleMap>,
   ) -> Self {
     Self::new(
@@ -114,6 +119,7 @@ impl RecursiveModuleLoad {
         specifier.to_string(),
         referrer.to_string(),
         requested_module_type,
+        phase,
       ),
       module_map_rc,
     )
@@ -123,7 +129,7 @@ impl RecursiveModuleLoad {
     let id = module_map_rc.next_load_id();
     let loader = module_map_rc.loader.borrow().clone();
     let requested_module_type = match &init {
-      LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
+      LoadInit::DynamicImport(_, _, module_type, _) => module_type.clone(),
       _ => RequestedModuleType::None,
     };
     let mut load = Self {
@@ -136,6 +142,7 @@ impl RecursiveModuleLoad {
       pending: FuturesUnordered::new(),
       visited: HashSet::new(),
       visited_as_alias: Default::default(),
+      root_module_reference: None,
     };
     // FIXME(bartlomieju): this seems fishy
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
@@ -148,7 +155,7 @@ impl RecursiveModuleLoad {
     load
   }
 
-  fn resolve_root(&self) -> Result<ModuleSpecifier, CoreError> {
+  pub fn resolve_root(&self) -> Result<ModuleSpecifier, CoreError> {
     match self.init {
       LoadInit::Main(ref specifier) => {
         self
@@ -160,7 +167,7 @@ impl RecursiveModuleLoad {
           .module_map_rc
           .resolve(specifier, ".", ResolutionKind::Import)
       }
-      LoadInit::DynamicImport(ref specifier, ref referrer, _) => self
+      LoadInit::DynamicImport(ref specifier, ref referrer, _, _) => self
         .module_map_rc
         .resolve(specifier, referrer, ResolutionKind::DynamicImport),
     }
@@ -200,6 +207,7 @@ impl RecursiveModuleLoad {
         ref specifier,
         ref referrer,
         ref requested_module_type,
+        _,
       ) => {
         let spec = self.module_map_rc.resolve(
           specifier,
@@ -247,10 +255,42 @@ impl RecursiveModuleLoad {
   pub(crate) fn register_and_recurse(
     &mut self,
     scope: &mut v8::PinScope,
-    module_reference: &ModuleReference,
-    module_source: ModuleSource,
+    module_request: &ModuleRequest,
+    mut module_source: ModuleSource,
   ) -> Result<(), ModuleError> {
-    let (module_source, code) = module_source.into_cheap_copy_of_code();
+    if let Some(source_kind) =
+      ModuleSourceKind::from_module_type(&module_source.module_type)
+    {
+      match source_kind {
+        ModuleSourceKind::Wasm => {
+          module_source = self.module_map_rc.new_wasm_module_source(
+            scope,
+            &module_request.reference,
+            module_source,
+          )?;
+        }
+      }
+      if module_request.phase == ModuleImportPhase::Source {
+        if self.pending.is_empty() {
+          self.state = LoadState::Done;
+        }
+        return Ok(());
+      }
+    } else if module_request.phase == ModuleImportPhase::Source {
+      let message = v8::String::new(
+        scope,
+        &format!(
+          "Source phase imports are not supported for {} modules",
+          &module_source.module_type
+        ),
+      )
+      .unwrap();
+      let exception = v8::Exception::reference_error(scope, message);
+      return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
+    }
+
+    let code = module_source.cheap_copy_code();
+
     let module_id = self.module_map_rc.new_module(
       scope,
       self.is_currently_loading_main_module(),
@@ -258,9 +298,12 @@ impl RecursiveModuleLoad {
       module_source,
     )?;
 
-    self.register_and_recurse_inner(module_id, module_reference, Some(&code));
+    self.register_and_recurse_inner(
+      module_id,
+      &module_request.reference,
+      Some(&code),
+    );
 
-    // Update `self.state` however applicable.
     if self.state == LoadState::LoadingRoot {
       self.root_module_id = Some(module_id);
       self.state = LoadState::LoadingImports;
@@ -363,7 +406,7 @@ impl RecursiveModuleLoad {
                     .borrow_mut()
                     .insert(found_specifier.as_str().to_string());
                 }
-                load_result.map(|s| Some((request.reference, s)))
+                load_result.map(|s| Some((request, s)))
               };
               self.pending.push(fut.boxed_local());
             }
@@ -376,7 +419,7 @@ impl RecursiveModuleLoad {
 }
 
 impl Stream for RecursiveModuleLoad {
-  type Item = Result<(ModuleReference, ModuleSource), CoreError>;
+  type Item = Result<(ModuleRequest, ModuleSource), CoreError>;
 
   fn poll_next(
     self: Pin<&mut Self>,
@@ -393,18 +436,32 @@ impl Stream for RecursiveModuleLoad {
             return Poll::Ready(Some(Err(error)));
           }
         };
-        let requested_module_type = match &inner.init {
-          LoadInit::DynamicImport(_, _, module_type) => module_type.clone(),
-          _ => RequestedModuleType::None,
+        let (requested_module_type, phase) = match &inner.init {
+          LoadInit::DynamicImport(_, _, module_type, phase) => {
+            (module_type.clone(), *phase)
+          }
+          _ => (RequestedModuleType::None, ModuleImportPhase::Evaluation),
         };
-        let module_reference = ModuleReference {
-          specifier: module_specifier.clone(),
-          requested_module_type: requested_module_type.clone(),
+        let module_request = ModuleRequest {
+          reference: ModuleReference {
+            specifier: module_specifier.clone(),
+            requested_module_type: requested_module_type.clone(),
+          },
+          specifier_key: None,
+          referrer_source_offset: None,
+          phase,
         };
-        let load_fut = if let Some(module_id) = inner.root_module_id {
+        inner.root_module_reference = Some(module_request.reference.clone());
+        let load_fut = if phase == ModuleImportPhase::Evaluation
+          && let Some(module_id) = inner.root_module_id
+        {
           // If the inner future is already in the map, we might be done (assuming there are no pending
           // loads).
-          inner.register_and_recurse_inner(module_id, &module_reference, None);
+          inner.register_and_recurse_inner(
+            module_id,
+            &module_request.reference,
+            None,
+          );
           if inner.pending.is_empty() {
             inner.state = LoadState::Done;
           } else {
@@ -431,7 +488,7 @@ impl Stream for RecursiveModuleLoad {
               ModuleLoadResponse::Sync(result) => result,
               ModuleLoadResponse::Async(fut) => fut.await,
             };
-            result.map(|s| Some((module_reference, s)))
+            result.map(|s| Some((module_request, s)))
           }
           .boxed_local()
         };

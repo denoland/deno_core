@@ -506,10 +506,30 @@ impl ModuleSource {
     }
   }
 
-  pub fn into_cheap_copy_of_code(self) -> (Self, ModuleSourceCode) {
-    let (code, code_copy) = self.code.into_cheap_copy();
-    let copy = Self { code, ..self };
-    (copy, code_copy)
+  pub fn cheap_copy_code(&mut self) -> ModuleSourceCode {
+    let code = std::mem::replace(
+      &mut self.code,
+      ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+    );
+    let (code1, code2) = code.into_cheap_copy();
+    self.code = code1;
+    code2
+  }
+
+  pub fn cheap_copy_module_url_specified(&mut self) -> ModuleName {
+    let url = std::mem::replace(&mut self.module_url_specified, unsafe {
+      FastString::from_ascii_static_unchecked("")
+    });
+    let (url1, url2) = url.into_cheap_copy();
+    self.module_url_specified = url1;
+    url2
+  }
+
+  pub fn cheap_copy_module_url_found(&mut self) -> Option<ModuleName> {
+    let url = std::mem::take(&mut self.module_url_found)?;
+    let (url1, url2) = url.into_cheap_copy();
+    self.module_url_found = Some(url1);
+    Some(url2)
   }
 }
 
@@ -681,6 +701,12 @@ pub(crate) struct ModuleReference {
   pub requested_module_type: RequestedModuleType,
 }
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub(crate) enum ModuleImportPhase {
+  Evaluation,
+  Source,
+}
+
 /// Describes a request for a module as parsed from the source code.
 /// Usually executable (`JavaScriptOrWasm`) is used, except when an
 /// import assertions explicitly constrains an import to JSON, in
@@ -689,7 +715,10 @@ pub(crate) struct ModuleReference {
 pub(crate) struct ModuleRequest {
   pub reference: ModuleReference,
   /// None if this is a root request.
+  pub specifier_key: Option<String>,
+  /// None if this is a root request.
   pub referrer_source_offset: Option<i32>,
+  pub phase: ModuleImportPhase,
 }
 
 #[derive(Debug, PartialEq, Serialize, Deserialize)]

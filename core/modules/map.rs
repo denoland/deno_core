@@ -22,6 +22,7 @@ use crate::modules::ImportAttributesKind;
 use crate::modules::ModuleCodeString;
 use crate::modules::ModuleError;
 use crate::modules::ModuleId;
+use crate::modules::ModuleImportPhase;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleLoader;
 use crate::modules::ModuleName;
@@ -30,6 +31,7 @@ use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::module_map_data::ModuleSourceKey;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::runtime::JsRealm;
@@ -123,9 +125,11 @@ struct DynImportModEvaluate {
   module: v8::Global<v8::Module>,
 }
 
+#[derive(Debug, Clone)]
 struct DynImportState {
   resolver: v8::Global<v8::PromiseResolver>,
   cped: v8::Global<v8::Value>,
+  phase: ModuleImportPhase,
 }
 
 /// A collection of JS modules.
@@ -396,9 +400,6 @@ impl ModuleMap {
         )?
       }
       ModuleType::Wasm => {
-        let ModuleSourceCode::Bytes(code) = code else {
-          return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
-        };
         self.new_wasm_module(scope, module_url_found, code, dynamic)?
       }
       ModuleType::Json => self.new_json_module(
@@ -801,7 +802,12 @@ impl ModuleMap {
           specifier: module_specifier,
           requested_module_type,
         },
+        specifier_key: Some(import_specifier),
         referrer_source_offset,
+        phase: match module_request.get_phase() {
+          v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
+          v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+        },
       };
       requests.push(request);
     }
@@ -818,11 +824,57 @@ impl ModuleMap {
     Ok(id)
   }
 
+  pub(crate) fn new_wasm_module_source(
+    &self,
+    scope: &mut v8::PinScope,
+    module_reference: &ModuleReference,
+    mut loaded_source: ModuleSource,
+  ) -> Result<ModuleSource, ModuleError> {
+    if let Some(module_url_found) = loaded_source.cheap_copy_module_url_found()
+    {
+      self.data.borrow_mut().alias(
+        loaded_source.cheap_copy_module_url_specified(),
+        &loaded_source.module_type.clone().into(),
+        module_url_found,
+      );
+    }
+    let reference_key = ModuleSourceKey::from_reference(module_reference);
+    if self.data.borrow().sources.contains_key(&reference_key) {
+      return Ok(loaded_source);
+    }
+    let loaded_key = ModuleSourceKey::from_loaded_source(&mut loaded_source);
+    if let Some(source) = self.data.borrow().sources.get(&loaded_key).cloned() {
+      self.data.borrow_mut().sources.insert(reference_key, source);
+      return Ok(loaded_source);
+    }
+
+    let ModuleSourceCode::Bytes(code) = &loaded_source.code else {
+      return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
+    };
+    let Some(wasm_module) =
+      v8::WasmModuleObject::compile(scope, code.as_bytes())
+    else {
+      return Err(
+        ModuleConcreteError::WasmCompile(loaded_key.name.to_string()).into(),
+      );
+    };
+    let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
+    let wasm_module_object_global = v8::Global::new(scope, wasm_module_object);
+
+    let source = Rc::new(wasm_module_object_global);
+    {
+      let mut data = self.data.borrow_mut();
+      data.sources.insert(reference_key, source.clone());
+      data.sources.insert(loaded_key, source);
+    }
+    Ok(loaded_source)
+  }
+
   pub(crate) fn new_wasm_module(
     &self,
     scope: &mut v8::PinScope,
     name: ModuleName,
-    source: ModuleCodeBytes,
+    source: ModuleSourceCode,
     is_dynamic_import: bool,
   ) -> Result<ModuleId, ModuleError> {
     let bytes = source.as_bytes();
@@ -832,28 +884,14 @@ impl ModuleMap {
     )
     .map_err(ModuleConcreteError::WasmParse)?;
 
-    let Some(wasm_module) = v8::WasmModuleObject::compile(scope, bytes) else {
-      return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
-    };
-    let wasm_module_value: v8::Local<v8::Value> = wasm_module.into();
-
     let js_wasm_module_source =
       render_js_wasm_module(name.as_str(), wasm_module_analysis);
-
-    let synthetic_module_type =
-      ModuleType::Other("$$deno-core-internal-wasm-module".into());
-
-    let (name1, name2) = name.into_cheap_copy();
-    let value = v8::Local::new(scope, wasm_module_value);
-    let exports = vec![(ascii_str!("default"), value)];
-    let _synthetic_mod_id =
-      self.new_synthetic_module(scope, name1, synthetic_module_type, exports);
 
     self.new_module_from_js_source(
       scope,
       false,
       ModuleType::Wasm,
-      name2,
+      name,
       js_wasm_module_source.into(),
       is_dynamic_import,
       None,
@@ -1005,7 +1043,7 @@ impl ModuleMap {
 
     let specifier_str = specifier.to_rust_string_lossy(scope);
 
-    let assertions = parse_import_attributes(
+    let attributes = parse_import_attributes(
       scope,
       import_attributes,
       ImportAttributesKind::StaticImport,
@@ -1014,7 +1052,7 @@ impl ModuleMap {
       scope,
       &specifier_str,
       &referrer_name,
-      assertions,
+      attributes,
     );
     if let Some(module) = maybe_module {
       return Some(module);
@@ -1032,22 +1070,54 @@ impl ModuleMap {
   fn module_source_callback<'s>(
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
-    _import_attributes: v8::Local<'s, v8::FixedArray>,
-    _referrer: v8::Local<'s, v8::Module>,
+    import_attributes: v8::Local<'s, v8::FixedArray>,
+    referrer: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Object>> {
     // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
     v8::callback_scope!(unsafe scope, context);
 
-    let specifier_str = specifier.to_rust_string_lossy(scope);
+    let module_map =
+      // SAFETY: We retrieve the pointer from the slot, having just set it a few stack frames up
+      unsafe { scope.get_slot::<*const Self>().unwrap().as_ref().unwrap() };
 
-    let message = v8::String::new(
+    let specifier_str = specifier.to_rust_string_lossy(scope);
+    let referrer_global = v8::Global::new(scope, referrer);
+    let attributes = parse_import_attributes(
       scope,
-      &format!(r#"Module source can not be imported for "{specifier_str}""#),
-    )
-    .unwrap();
-    let exception = v8::Exception::syntax_error(scope, message);
-    scope.throw_exception(exception);
-    None
+      import_attributes,
+      ImportAttributesKind::StaticImport,
+    );
+    let requested_module_type =
+      get_requested_module_type_from_attributes(&attributes);
+    let module_reference = {
+      let module_map_data = module_map.data.borrow();
+      let referrer_info = module_map_data
+        .get_info_by_module(&referrer_global)
+        .expect("ModuleInfo not found");
+      let module_request = referrer_info
+        .requests
+        .iter()
+        .find(|r| {
+          r.specifier_key
+            .as_ref()
+            .is_some_and(|s| s == &specifier_str) && r.reference.requested_module_type == requested_module_type
+        })
+        .expect("ModuleInfo::requests did not contain a matching specifier_key when getting source");
+      module_request.reference.clone()
+    };
+    let key = ModuleSourceKey::from_reference(&module_reference);
+    if let Some(entry) = module_map.data.borrow().sources.get(&key) {
+      Some(v8::Local::new(scope, entry.as_ref()))
+    } else {
+      let message = v8::String::new(
+        scope,
+        &format!(r#"Module source can not be imported for "{specifier_str}""#),
+      )
+      .unwrap();
+      let exception = v8::Exception::reference_error(scope, message);
+      scope.throw_exception(exception);
+      None
+    }
   }
 
   /// Resolve provided module. This function calls out to `loader.resolve`,
@@ -1147,19 +1217,22 @@ impl ModuleMap {
   }
 
   // Initiate loading of a module graph imported using `import()`.
+  #[allow(clippy::too_many_arguments)]
   pub(crate) fn load_dynamic_import(
     self: Rc<Self>,
     scope: &mut v8::PinScope,
     specifier: &str,
     referrer: &str,
     requested_module_type: RequestedModuleType,
+    phase: ModuleImportPhase,
     resolver_handle: v8::Global<v8::PromiseResolver>,
     cped_handle: v8::Global<v8::Value>,
   ) -> bool {
     let resolve_result =
       self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
 
-    if let Ok(module_specifier) = &resolve_result
+    if phase == ModuleImportPhase::Evaluation
+      && let Ok(module_specifier) = &resolve_result
       && let Some(id) = self
         .data
         .borrow()
@@ -1185,6 +1258,7 @@ impl ModuleMap {
       specifier,
       referrer,
       requested_module_type,
+      phase,
       self.clone(),
     );
 
@@ -1193,6 +1267,7 @@ impl ModuleMap {
       DynImportState {
         resolver: resolver_handle,
         cped: cped_handle,
+        phase,
       },
     );
 
@@ -1467,8 +1542,9 @@ impl ModuleMap {
   fn dynamic_import_module_evaluate(
     &self,
     scope: &mut v8::PinScope,
-    load_id: ModuleLoadId,
     id: ModuleId,
+    load_id: ModuleLoadId,
+    state: DynImportState,
   ) -> Result<(), CoreError> {
     let module_handle = self.get_handle(id).expect("ModuleInfo not found");
 
@@ -1495,17 +1571,8 @@ impl ModuleMap {
     // https://v8.dev/features/top-level-await#module-execution-order
     v8::tc_scope!(let tc_scope, scope);
 
-    {
-      let cped = self
-        .dynamic_import_map
-        .borrow()
-        .get(&load_id)
-        .unwrap()
-        .cped
-        .clone();
-      let cped = v8::Local::new(tc_scope, cped);
-      tc_scope.set_continuation_preserved_embedder_data(cped);
-    }
+    let cped = v8::Local::new(tc_scope, state.cped);
+    tc_scope.set_continuation_preserved_embedder_data(cped);
 
     let module = v8::Local::new(tc_scope, &module_handle);
     let maybe_value = module.evaluate(tc_scope);
@@ -1788,12 +1855,12 @@ impl ModuleMap {
         match maybe_result {
           Some(load_stream_result) => {
             match load_stream_result {
-              Ok((reference, info)) => {
+              Ok((request, info)) => {
                 // A module (not necessarily the one dynamically imported) has been
                 // fetched. Create and register it, and if successful, poll for the
                 // next recursive-load event related to this dynamic import.
                 let register_result =
-                  load.register_and_recurse(scope, &reference, info);
+                  load.register_and_recurse(scope, &request, info);
 
                 match register_result {
                   Ok(()) => {
@@ -1826,19 +1893,43 @@ impl ModuleMap {
             }
           }
           _ => {
-            // The top-level module from a dynamic import has been instantiated.
-            // Load is done.
-            let module_id =
-              load.root_module_id.expect("Root module should be loaded");
-            let result = self.instantiate_module(scope, module_id);
-            if let Err(exception) = result {
-              self.dynamic_import_reject(scope, dyn_import_id, exception);
+            let state = self
+              .dynamic_import_map
+              .borrow()
+              .get(&dyn_import_id)
+              .unwrap()
+              .clone();
+            match state.phase {
+              ModuleImportPhase::Evaluation => {
+                // The top-level module from a dynamic import has been instantiated.
+                // Load is done.
+                let module_id =
+                  load.root_module_id.expect("Root module should be loaded");
+                let result = self.instantiate_module(scope, module_id);
+                if let Err(exception) = result {
+                  self.dynamic_import_reject(scope, dyn_import_id, exception);
+                }
+                self.dynamic_import_module_evaluate(
+                  scope,
+                  module_id,
+                  dyn_import_id,
+                  state,
+                )?;
+              }
+              ModuleImportPhase::Source => {
+                let module_reference = load.root_module_reference.as_ref().expect("Root module reference had to have been resolved to get here.");
+                let key = ModuleSourceKey::from_reference(module_reference);
+                let source = {
+                  let data = self.data.borrow();
+                  let source = data.sources.get(&key).expect("Source had to have been inserted successfully, or recursion would error.").as_ref();
+                  v8::Local::new(scope, source).into()
+                };
+                {
+                  let resolver = state.resolver.open(scope);
+                  resolver.resolve(scope, source).unwrap();
+                }
+              }
             }
-            self.dynamic_import_module_evaluate(
-              scope,
-              dyn_import_id,
-              module_id,
-            )?;
           }
         }
 
@@ -2216,9 +2307,9 @@ fn render_js_wasm_module(specifier: &str, wasm_deps: WasmDeps) -> String {
     .collect::<Vec<_>>();
 
   StringBuilder::build(|builder| {
-    builder.append("import wasmMod from \"");
+    builder.append("import source wasmMod from \"");
     builder.append(specifier);
-    builder.append("\" with { type: \"$$deno-core-internal-wasm-module\" };\n");
+    builder.append("\";\n");
 
     if !aggregated_imports.is_empty() {
       for (i, (_, import_info)) in aggregated_imports.iter().enumerate() {
@@ -2297,7 +2388,7 @@ fn test_render_js_wasm_module() {
   let rendered = render_js_wasm_module("./foo.wasm", deps);
   pretty_assertions::assert_eq!(
     rendered,
-    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+    r#"import source wasmMod from "./foo.wasm";
 const modInstance = new import.meta.WasmInstance(wasmMod);
 "#,
   );
@@ -2386,7 +2477,7 @@ const modInstance = new import.meta.WasmInstance(wasmMod);
   let rendered = render_js_wasm_module("./foo.wasm", deps);
   pretty_assertions::assert_eq!(
     rendered,
-    r#"import wasmMod from "./foo.wasm" with { type: "$$deno-core-internal-wasm-module" };
+    r#"import source wasmMod from "./foo.wasm";
 import { "foo" as import_0_0, "bar" as import_0_1, "fizz" as import_0_2 } from "./import.js";
 import { "buzz" as import_1_0 } from "./buzz.js";
 const importsObject = {
@@ -2436,7 +2527,7 @@ export default modInstance.exports.default;
   let rendered = render_js_wasm_module("./bar.wasm", deps);
   pretty_assertions::assert_eq!(
     rendered,
-    r#"import wasmMod from "./bar.wasm" with { type: "$$deno-core-internal-wasm-module" };
+    r#"import source wasmMod from "./bar.wasm";
 import { "\n" as import_0_0 } from "\n";
 const importsObject = {
   "\n": {
