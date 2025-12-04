@@ -289,7 +289,7 @@ impl RecursiveModuleLoad {
       return Err(ModuleError::Exception(v8::Global::new(scope, exception)));
     }
 
-    let code = module_source.code.cheap_copy();
+    let code = module_source.cheap_copy_code();
 
     let module_id = self.module_map_rc.new_module(
       scope,

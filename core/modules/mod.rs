@@ -59,14 +59,6 @@ impl ModuleSourceCode {
     }
   }
 
-  pub fn cheap_copy(&mut self) -> Self {
-    let self_ =
-      std::mem::replace(self, Self::Bytes(ModuleCodeBytes::Static(&[])));
-    let (self_, self_copy) = self_.into_cheap_copy();
-    *self = self_;
-    self_copy
-  }
-
   pub fn into_cheap_copy(self) -> (Self, Self) {
     match self {
       Self::String(s) => {
@@ -181,21 +173,6 @@ impl ModuleCodeBytes {
       ModuleCodeBytes::Static(s) => s.to_vec(),
       ModuleCodeBytes::Boxed(s) => s.to_vec(),
       ModuleCodeBytes::Arc(s) => s.to_vec(),
-    }
-  }
-
-  /// Creates a cheap copy of this [`ModuleCodeBytes`], potentially transmuting
-  /// it to a faster form. Note that this is not a clone operation as it
-  /// mutates the old [`ModuleCodeBytes`].
-  pub fn cheap_copy(&mut self) -> Self {
-    match self {
-      Self::Boxed(_) => {
-        let self_ = std::mem::replace(self, Self::Static(&[]));
-        let (self_, self_copy) = self_.into_cheap_copy();
-        *self = self_;
-        self_copy
-      }
-      _ => self.try_clone().unwrap(),
     }
   }
 
@@ -527,6 +504,32 @@ impl ModuleSource {
         }
       }
     }
+  }
+
+  pub fn cheap_copy_code(&mut self) -> ModuleSourceCode {
+    let code = std::mem::replace(
+      &mut self.code,
+      ModuleSourceCode::Bytes(ModuleCodeBytes::Static(&[])),
+    );
+    let (code1, code2) = code.into_cheap_copy();
+    self.code = code1;
+    code2
+  }
+
+  pub fn cheap_copy_module_url_specified(&mut self) -> ModuleName {
+    let url = std::mem::replace(&mut self.module_url_specified, unsafe {
+      FastString::from_ascii_static_unchecked("")
+    });
+    let (url1, url2) = url.into_cheap_copy();
+    self.module_url_specified = url1;
+    url2
+  }
+
+  pub fn cheap_copy_module_url_found(&mut self) -> Option<ModuleName> {
+    let url = std::mem::replace(&mut self.module_url_found, None)?;
+    let (url1, url2) = url.into_cheap_copy();
+    self.module_url_found = Some(url1);
+    Some(url2)
   }
 }
 

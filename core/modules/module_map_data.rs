@@ -164,12 +164,13 @@ impl ModuleSourceKey {
   }
 
   pub fn from_loaded_source(loaded_source: &mut ModuleSource) -> Self {
-    let name =
-      if let Some(module_url_found) = &mut loaded_source.module_url_found {
-        module_url_found.cheap_copy()
-      } else {
-        loaded_source.module_url_specified.cheap_copy()
-      };
+    let name = if let Some(module_url_found) =
+      loaded_source.cheap_copy_module_url_found()
+    {
+      module_url_found
+    } else {
+      loaded_source.cheap_copy_module_url_specified()
+    };
     Self {
       name,
       typ: ModuleSourceType::Actual(loaded_source.module_type.clone()),

@@ -830,11 +830,12 @@ impl ModuleMap {
     module_reference: &ModuleReference,
     mut loaded_source: ModuleSource,
   ) -> Result<ModuleSource, ModuleError> {
-    if let Some(module_url_found) = &mut loaded_source.module_url_found {
+    if let Some(module_url_found) = loaded_source.cheap_copy_module_url_found()
+    {
       self.data.borrow_mut().alias(
-        loaded_source.module_url_specified.cheap_copy(),
+        loaded_source.cheap_copy_module_url_specified(),
         &loaded_source.module_type.clone().into(),
-        module_url_found.cheap_copy(),
+        module_url_found,
       );
     }
     let reference_key = ModuleSourceKey::from_reference(module_reference);
