@@ -526,7 +526,7 @@ impl ModuleSource {
   }
 
   pub fn cheap_copy_module_url_found(&mut self) -> Option<ModuleName> {
-    let url = std::mem::replace(&mut self.module_url_found, None)?;
+    let url = std::mem::take(&mut self.module_url_found)?;
     let (url1, url2) = url.into_cheap_copy();
     self.module_url_found = Some(url1);
     Some(url2)
