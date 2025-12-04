@@ -16,7 +16,6 @@ use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
 use serde::Deserialize;
 use serde::Serialize;
-use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -143,52 +142,28 @@ impl ModuleSourceKind {
 }
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
-enum ModuleSourceType<'a> {
-  Actual(Cow<'a, ModuleType>),
-  Requested(Cow<'a, RequestedModuleType>),
-}
-
-impl<'a> ModuleSourceType<'a> {
-  fn into_owned_contents(self) -> ModuleSourceType<'static> {
-    match self {
-      Self::Actual(typ) => {
-        ModuleSourceType::Actual(Cow::Owned(typ.into_owned()))
-      }
-      Self::Requested(typ) => {
-        ModuleSourceType::Requested(Cow::Owned(typ.into_owned()))
-      }
-    }
-  }
+enum ModuleSourceType {
+  Actual(ModuleType),
+  Requested(RequestedModuleType),
 }
 
 #[derive(Debug, Eq, PartialEq, Hash)]
-pub(crate) struct ModuleSourceKey<'a> {
+pub(crate) struct ModuleSourceKey {
   pub name: ModuleName,
-  typ: ModuleSourceType<'a>,
+  typ: ModuleSourceType,
 }
 
-impl<'a> ModuleSourceKey<'a> {
-  pub fn into_owned_contents(self) -> ModuleSourceKey<'static> {
-    ModuleSourceKey {
-      name: self.name,
-      typ: self.typ.into_owned_contents(),
-    }
-  }
-}
-
-impl<'a> From<&'a ModuleReference> for ModuleSourceKey<'a> {
-  fn from(module_reference: &'a ModuleReference) -> Self {
+impl ModuleSourceKey {
+  pub fn from_reference(module_reference: &ModuleReference) -> Self {
     Self {
       name: module_reference.specifier.to_string().into(),
-      typ: ModuleSourceType::Requested(Cow::Borrowed(
-        &module_reference.requested_module_type,
-      )),
+      typ: ModuleSourceType::Requested(
+        module_reference.requested_module_type.clone(),
+      ),
     }
   }
-}
 
-impl<'a> From<&'a mut ModuleSource> for ModuleSourceKey<'a> {
-  fn from(loaded_source: &'a mut ModuleSource) -> Self {
+  pub fn from_loaded_source(loaded_source: &mut ModuleSource) -> Self {
     let name =
       if let Some(module_url_found) = &mut loaded_source.module_url_found {
         module_url_found.cheap_copy()
@@ -197,7 +172,7 @@ impl<'a> From<&'a mut ModuleSource> for ModuleSourceKey<'a> {
       };
     Self {
       name,
-      typ: ModuleSourceType::Actual(Cow::Borrowed(&loaded_source.module_type)),
+      typ: ModuleSourceType::Actual(loaded_source.module_type.clone()),
     }
   }
 }
@@ -222,8 +197,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
-  pub(crate) sources:
-    HashMap<ModuleSourceKey<'static>, Rc<v8::Global<v8::Object>>>,
+  pub(crate) sources: HashMap<ModuleSourceKey, Rc<v8::Global<v8::Object>>>,
 }
 
 /// Snapshot-compatible representation of this data.

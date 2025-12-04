@@ -837,15 +837,14 @@ impl ModuleMap {
         module_url_found.cheap_copy(),
       );
     }
-    let reference_key = ModuleSourceKey::from(module_reference);
+    let reference_key = ModuleSourceKey::from_reference(module_reference);
     if self.data.borrow().sources.contains_key(&reference_key) {
       return Ok(loaded_source);
     }
-    let loaded_key = ModuleSourceKey::from(&mut loaded_source);
+    let loaded_key = ModuleSourceKey::from_loaded_source(&mut loaded_source);
     if self.data.borrow().sources.contains_key(&loaded_key) {
       return Ok(loaded_source);
     }
-    let loaded_key = loaded_key.into_owned_contents();
 
     let ModuleSourceCode::Bytes(code) = &loaded_source.code else {
       return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
@@ -863,9 +862,7 @@ impl ModuleMap {
     let source = Rc::new(wasm_module_object_global);
     {
       let mut data = self.data.borrow_mut();
-      data
-        .sources
-        .insert(reference_key.into_owned_contents(), source.clone());
+      data.sources.insert(reference_key, source.clone());
       data.sources.insert(loaded_key, source);
     }
     Ok(loaded_source)
@@ -1106,7 +1103,7 @@ impl ModuleMap {
         .expect("ModuleInfo::requests did not contain a matching specifier_key when getting source");
       module_request.reference.clone()
     };
-    let key = ModuleSourceKey::from(&module_reference);
+    let key = ModuleSourceKey::from_reference(&module_reference);
     if let Some(entry) = module_map.data.borrow().sources.get(&key) {
       Some(v8::Local::new(scope, entry.as_ref()))
     } else {
@@ -1919,7 +1916,7 @@ impl ModuleMap {
               }
               ModuleImportPhase::Source => {
                 let module_reference = load.root_module_reference.as_ref().expect("Root module reference had to have been resolved to get here.");
-                let key = ModuleSourceKey::from(module_reference);
+                let key = ModuleSourceKey::from_reference(module_reference);
                 let source = {
                   let data = self.data.borrow();
                   let source = data.sources.get(&key).unwrap().as_ref();
