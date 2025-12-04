@@ -139,12 +139,6 @@ impl ModuleSourceKind {
   }
 }
 
-#[derive(Debug, Clone)]
-pub(crate) struct ModuleSourceData {
-  pub value: v8::Global<v8::Object>,
-  pub kind: ModuleSourceKind,
-}
-
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
@@ -165,7 +159,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
-  pub(crate) sources: HashMap<ModuleName, ModuleSourceData>,
+  pub(crate) sources: HashMap<ModuleName, Rc<v8::Global<v8::Object>>>,
 }
 
 /// Snapshot-compatible representation of this data.

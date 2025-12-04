@@ -31,8 +31,6 @@ use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::get_requested_module_type_from_attributes;
-use crate::modules::module_map_data::ModuleSourceData;
-use crate::modules::module_map_data::ModuleSourceKind;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::runtime::JsRealm;
@@ -857,10 +855,7 @@ impl ModuleMap {
     let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
     let wasm_module_object_global = v8::Global::new(scope, wasm_module_object);
 
-    let entry = ModuleSourceData {
-      value: wasm_module_object_global,
-      kind: ModuleSourceKind::Wasm,
-    };
+    let entry = Rc::new(wasm_module_object_global);
     {
       let mut data = self.data.borrow_mut();
       if loaded_source.module_url_found.is_some() {
@@ -1102,28 +1097,22 @@ impl ModuleMap {
         .expect("ModuleInfo::requests did not contain a matching specifier_key when getting source");
       module_request.reference.clone()
     };
-    match module_map
+    if let Some(entry) = module_map
       .data
       .borrow()
       .sources
       .get(module_reference.specifier.as_str())
     {
-      Some(ModuleSourceData {
-        value,
-        kind: ModuleSourceKind::Wasm,
-      }) => Some(v8::Local::new(scope, value)),
-      None => {
-        let message = v8::String::new(
-          scope,
-          &format!(
-            r#"Module source can not be imported for "{specifier_str}""#
-          ),
-        )
-        .unwrap();
-        let exception = v8::Exception::reference_error(scope, message);
-        scope.throw_exception(exception);
-        None
-      }
+      Some(v8::Local::new(scope, entry.as_ref()))
+    } else {
+      let message = v8::String::new(
+        scope,
+        &format!(r#"Module source can not be imported for "{specifier_str}""#),
+      )
+      .unwrap();
+      let exception = v8::Exception::reference_error(scope, message);
+      scope.throw_exception(exception);
+      None
     }
   }
 
@@ -1926,15 +1915,12 @@ impl ModuleMap {
               ModuleImportPhase::Source => {
                 // TODO(nayeemrmn): Dedup this resolution and cleanup.
                 let specifier = load.resolve_root().expect("load.resolve_root() should have succeeded already on first iteration of recursion.");
-                let source = self
-                  .data
-                  .borrow()
-                  .sources
-                  .get(specifier.as_str())
-                  .unwrap()
-                  .value
-                  .clone();
-                let source = v8::Local::new(scope, source).into();
+                let source = {
+                  let data = self.data.borrow();
+                  let source =
+                    data.sources.get(specifier.as_str()).unwrap().as_ref();
+                  v8::Local::new(scope, source).into()
+                };
                 {
                   let resolver = state.resolver.open(scope);
                   resolver.resolve(scope, source).unwrap();
