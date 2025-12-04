@@ -143,7 +143,7 @@ impl ModuleSourceKind {
 
 #[derive(Debug, Clone, Eq, PartialEq, Hash)]
 enum ModuleSourceType {
-  Actual(ModuleType),
+  Loaded(ModuleType),
   Requested(RequestedModuleType),
 }
 
@@ -173,7 +173,7 @@ impl ModuleSourceKey {
     };
     Self {
       name,
-      typ: ModuleSourceType::Actual(loaded_source.module_type.clone()),
+      typ: ModuleSourceType::Loaded(loaded_source.module_type.clone()),
     }
   }
 }
