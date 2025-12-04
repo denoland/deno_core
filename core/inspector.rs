@@ -50,7 +50,6 @@ pub struct InspectorSessionProxy {
   pub tx: SessionProxySender,
   pub rx: SessionProxyReceiver,
   pub kind: InspectorSessionKind,
-  // Optional worker debugging channels
   // When set, this proxy represents a worker and these channels should be registered
   pub worker_tx: Option<UnboundedSender<String>>,
   pub worker_rx: Option<UnboundedReceiver<InspectorMsg>>,
@@ -303,11 +302,23 @@ impl JsRuntimeInspectorState {
                 if let Some(worker_rx) = worker_rx_ref.as_mut() {
                   match worker_rx.poll_next_unpin(cx) {
                     Poll::Ready(Some(msg)) => {
+                      // Check if this is a response to a stepOver/resume command
+                      let is_step_response = msg.content.contains("Debugger.stepOver") ||
+                                             msg.content.contains("Debugger.resume") ||
+                                             msg.content.contains("Debugger.stepInto") ||
+                                             msg.content.contains("Debugger.stepOut");
+
+                      let is_paused = msg.content.contains("\"method\":\"Debugger.paused\"");
+                      let is_resumed = msg.content.contains("\"method\":\"Debugger.resumed\"");
+
                       eprintln!(
-                        "[WORKER DEBUG] Received from worker {}: kind={:?}, content={}",
+                        "[WORKER DEBUG] Received from worker {}: kind={:?}, content={} {}{}{}",
                         target_session.session_id,
                         msg.kind,
-                        &msg.content[..msg.content.len().min(150)]
+                        &msg.content[..msg.content.len().min(150)],
+                        if is_step_response { " <<< STEP/RESUME RESPONSE" } else { "" },
+                        if is_paused { " <<< PAUSED EVENT" } else { "" },
+                        if is_resumed { " <<< RESUMED EVENT" } else { "" }
                       );
 
                       // Send both Target.receivedMessageFromTarget (for Chrome)
@@ -662,6 +673,9 @@ pub struct SessionContainer {
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
   main_session_id: Option<i32>, // The first session that should receive Target events
+
+  // Store breakpoint commands set on main thread to replay to new workers (for VSCode)
+  stored_breakpoints: Vec<String>, // Vector of Debugger.setBreakpointByUrl commands
 }
 
 /// Represents a CDP Target session (e.g., a worker)
@@ -698,6 +712,7 @@ impl SessionContainer {
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
+      stored_breakpoints: Vec::new(),
     }
   }
 
@@ -753,6 +768,7 @@ impl SessionContainer {
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
+      stored_breakpoints: Vec::new(),
     }
   }
 
@@ -1139,6 +1155,20 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
               eprintln!("[WORKER DEBUG] NodeWorker.sendMessageToWorker: sessionId={}", session_id);
 
+              // Check if this is a Debugger.enable message or step/resume command
+              let (is_debugger_enable, is_step_resume) = if let Ok(msg_parsed) = serde_json::from_str::<serde_json::Value>(&message) {
+                let method = msg_parsed.get("method").and_then(|m| m.as_str());
+                let is_enable = method == Some("Debugger.enable");
+                let is_step = matches!(method, Some("Debugger.stepOver") | Some("Debugger.resume") | Some("Debugger.stepInto") | Some("Debugger.stepOut"));
+                (is_enable, is_step)
+              } else {
+                (false, false)
+              };
+
+              if is_step_resume {
+                eprintln!("[WORKER DEBUG] >>> Sending step/resume command to worker: {}", message);
+              }
+
               let sessions = session.state.sessions.clone();
               deno_core::unsync::spawn(async move {
                 let sessions = sessions.borrow();
@@ -1146,6 +1176,15 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                   if let Some(worker_tx) = target_session.worker_tx.borrow().as_ref() {
                     eprintln!("[WORKER DEBUG] Sending to worker via NodeWorker: {}", &message[..message.len().min(100)]);
                     let _ = worker_tx.unbounded_send(message);
+
+                    // If this is Debugger.enable, replay all stored breakpoints to this worker
+                    if is_debugger_enable {
+                      eprintln!("[BREAKPOINT] Debugger.enable received for worker, replaying {} stored breakpoints", sessions.stored_breakpoints.len());
+                      for breakpoint_cmd in &sessions.stored_breakpoints {
+                        eprintln!("[BREAKPOINT] Replaying breakpoint to worker: {}", &breakpoint_cmd[..breakpoint_cmd.len().min(100)]);
+                        let _ = worker_tx.unbounded_send(breakpoint_cmd.clone());
+                      }
+                    }
                   }
                 }
               });
@@ -1425,6 +1464,21 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
           }
 
           continue; // Don't dispatch to V8
+        }
+
+        // THIRD: Intercept Debugger.setBreakpointByUrl on main thread to store for replaying to workers
+        // This is needed for VSCode which sets breakpoints on main thread before workers exist
+        if method == "Debugger.setBreakpointByUrl" {
+          eprintln!("[BREAKPOINT] Intercepting Debugger.setBreakpointByUrl on main thread");
+          // Store this breakpoint command for replaying to new workers
+          let sessions = session.state.sessions.clone();
+          let msg_clone = msg.clone();
+          deno_core::unsync::spawn(async move {
+            let mut sessions = sessions.borrow_mut();
+            sessions.stored_breakpoints.push(msg_clone);
+            eprintln!("[BREAKPOINT] Stored breakpoint, total: {}", sessions.stored_breakpoints.len());
+          });
+          // Fall through to dispatch to V8 main session as well
         }
       }
     }
