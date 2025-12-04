@@ -1042,7 +1042,7 @@ impl ModuleMap {
 
     let specifier_str = specifier.to_rust_string_lossy(scope);
 
-    let assertions = parse_import_attributes(
+    let attributes = parse_import_attributes(
       scope,
       import_attributes,
       ImportAttributesKind::StaticImport,
@@ -1051,7 +1051,7 @@ impl ModuleMap {
       scope,
       &specifier_str,
       &referrer_name,
-      assertions,
+      attributes,
     );
     if let Some(module) = maybe_module {
       return Some(module);
@@ -1069,7 +1069,7 @@ impl ModuleMap {
   fn module_source_callback<'s>(
     context: v8::Local<'s, v8::Context>,
     specifier: v8::Local<'s, v8::String>,
-    _import_attributes: v8::Local<'s, v8::FixedArray>,
+    import_attributes: v8::Local<'s, v8::FixedArray>,
     referrer: v8::Local<'s, v8::Module>,
   ) -> Option<v8::Local<'s, v8::Object>> {
     // SAFETY: `CallbackScope` can be safely constructed from `Local<Context>`
@@ -1081,6 +1081,13 @@ impl ModuleMap {
 
     let specifier_str = specifier.to_rust_string_lossy(scope);
     let referrer_global = v8::Global::new(scope, referrer);
+    let attributes = parse_import_attributes(
+      scope,
+      import_attributes,
+      ImportAttributesKind::StaticImport,
+    );
+    let requested_module_type =
+      get_requested_module_type_from_attributes(&attributes);
     let module_reference = {
       let module_map_data = module_map.data.borrow();
       let referrer_info = module_map_data
@@ -1092,7 +1099,7 @@ impl ModuleMap {
         .find(|r| {
           r.specifier_key
             .as_ref()
-            .is_some_and(|s| s == &specifier_str)
+            .is_some_and(|s| s == &specifier_str) && r.reference.requested_module_type == requested_module_type
         })
         .expect("ModuleInfo::requests did not contain a matching specifier_key when getting source");
       module_request.reference.clone()
