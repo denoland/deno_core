@@ -155,7 +155,7 @@ pub(crate) struct ModuleMap {
     RefCell<FuturesUnordered<Pin<Box<CodeCacheReadyFuture>>>>,
   pending_code_cache_ready: Cell<bool>,
   module_waker: AtomicWaker,
-  pub(crate) data: RefCell<ModuleMapData>,
+  data: RefCell<ModuleMapData>,
   will_snapshot: bool,
 
   /// A counter used to delay our dynamic import deadlock detection by one spin
