@@ -2,11 +2,13 @@
 
 use super::RequestedModuleType;
 use crate::ModuleCodeString;
+use crate::ModuleSource;
 use crate::fast_string::FastString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleName;
+use crate::modules::ModuleReference;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::runtime::SnapshotDataId;
@@ -14,6 +16,7 @@ use crate::runtime::SnapshotLoadDataStore;
 use crate::runtime::SnapshotStoreDataStore;
 use serde::Deserialize;
 use serde::Serialize;
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -139,6 +142,66 @@ impl ModuleSourceKind {
   }
 }
 
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+enum ModuleSourceType<'a> {
+  Actual(Cow<'a, ModuleType>),
+  Requested(Cow<'a, RequestedModuleType>),
+}
+
+impl<'a> ModuleSourceType<'a> {
+  fn into_owned_contents(self) -> ModuleSourceType<'static> {
+    match self {
+      Self::Actual(typ) => {
+        ModuleSourceType::Actual(Cow::Owned(typ.into_owned()))
+      }
+      Self::Requested(typ) => {
+        ModuleSourceType::Requested(Cow::Owned(typ.into_owned()))
+      }
+    }
+  }
+}
+
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub(crate) struct ModuleSourceKey<'a> {
+  pub name: ModuleName,
+  typ: ModuleSourceType<'a>,
+}
+
+impl<'a> ModuleSourceKey<'a> {
+  pub fn into_owned_contents(self) -> ModuleSourceKey<'static> {
+    ModuleSourceKey {
+      name: self.name,
+      typ: self.typ.into_owned_contents(),
+    }
+  }
+}
+
+impl<'a> From<&'a ModuleReference> for ModuleSourceKey<'a> {
+  fn from(module_reference: &'a ModuleReference) -> Self {
+    Self {
+      name: module_reference.specifier.to_string().into(),
+      typ: ModuleSourceType::Requested(Cow::Borrowed(
+        &module_reference.requested_module_type,
+      )),
+    }
+  }
+}
+
+impl<'a> From<&'a mut ModuleSource> for ModuleSourceKey<'a> {
+  fn from(loaded_source: &'a mut ModuleSource) -> Self {
+    let name =
+      if let Some(module_url_found) = &mut loaded_source.module_url_found {
+        module_url_found.cheap_copy()
+      } else {
+        loaded_source.module_url_specified.cheap_copy()
+      };
+    Self {
+      name,
+      typ: ModuleSourceType::Actual(Cow::Borrowed(&loaded_source.module_type)),
+    }
+  }
+}
+
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
@@ -159,7 +222,8 @@ pub(crate) struct ModuleMapData {
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
-  pub(crate) sources: HashMap<ModuleName, Rc<v8::Global<v8::Object>>>,
+  pub(crate) sources:
+    HashMap<ModuleSourceKey<'static>, Rc<v8::Global<v8::Object>>>,
 }
 
 /// Snapshot-compatible representation of this data.

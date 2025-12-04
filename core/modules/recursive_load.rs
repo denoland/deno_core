@@ -75,6 +75,7 @@ pub(crate) struct RecursiveModuleLoad {
   pending: FuturesUnordered<Pin<Box<ModuleLoadFuture>>>,
   visited: HashSet<ModuleReference>,
   visited_as_alias: Rc<RefCell<HashSet<String>>>,
+  pub root_module_reference: Option<ModuleReference>,
   // The loader is copied from `module_map_rc`, but its reference is cloned
   // ahead of time to avoid already-borrowed errors.
   loader: Rc<dyn ModuleLoader>,
@@ -141,6 +142,7 @@ impl RecursiveModuleLoad {
       pending: FuturesUnordered::new(),
       visited: HashSet::new(),
       visited_as_alias: Default::default(),
+      root_module_reference: None,
     };
     // FIXME(bartlomieju): this seems fishy
     // Ignore the error here, let it be hit in `Stream::poll_next()`.
@@ -261,9 +263,11 @@ impl RecursiveModuleLoad {
     {
       match source_kind {
         ModuleSourceKind::Wasm => {
-          self
-            .module_map_rc
-            .new_wasm_module_source(scope, &mut module_source)?;
+          module_source = self.module_map_rc.new_wasm_module_source(
+            scope,
+            &module_request.reference,
+            module_source,
+          )?;
         }
       }
       if module_request.phase == ModuleImportPhase::Source {
@@ -447,6 +451,7 @@ impl Stream for RecursiveModuleLoad {
           referrer_source_offset: None,
           phase,
         };
+        inner.root_module_reference = Some(module_request.reference.clone());
         let load_fut = if phase == ModuleImportPhase::Evaluation
           && let Some(module_id) = inner.root_module_id
         {

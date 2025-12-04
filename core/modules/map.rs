@@ -31,6 +31,7 @@ use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::modules::ResolutionKind;
 use crate::modules::get_requested_module_type_from_attributes;
+use crate::modules::module_map_data::ModuleSourceKey;
 use crate::modules::parse_import_attributes;
 use crate::modules::recursive_load::RecursiveModuleLoad;
 use crate::runtime::JsRealm;
@@ -826,47 +827,48 @@ impl ModuleMap {
   pub(crate) fn new_wasm_module_source(
     &self,
     scope: &mut v8::PinScope,
-    loaded_source: &mut ModuleSource,
-  ) -> Result<(), ModuleError> {
-    let name =
-      if let Some(module_url_found) = &mut loaded_source.module_url_found {
-        self.data.borrow_mut().alias(
-          loaded_source.module_url_specified.cheap_copy(),
-          &loaded_source.module_type.clone().into(),
-          module_url_found.cheap_copy(),
-        );
-        module_url_found.cheap_copy()
-      } else {
-        loaded_source.module_url_specified.cheap_copy()
-      };
-    if self.data.borrow().sources.contains_key(&name) {
-      return Ok(());
+    module_reference: &ModuleReference,
+    mut loaded_source: ModuleSource,
+  ) -> Result<ModuleSource, ModuleError> {
+    if let Some(module_url_found) = &mut loaded_source.module_url_found {
+      self.data.borrow_mut().alias(
+        loaded_source.module_url_specified.cheap_copy(),
+        &loaded_source.module_type.clone().into(),
+        module_url_found.cheap_copy(),
+      );
     }
+    let reference_key = ModuleSourceKey::from(module_reference);
+    if self.data.borrow().sources.contains_key(&reference_key) {
+      return Ok(loaded_source);
+    }
+    let loaded_key = ModuleSourceKey::from(&mut loaded_source);
+    if self.data.borrow().sources.contains_key(&loaded_key) {
+      return Ok(loaded_source);
+    }
+    let loaded_key = loaded_key.into_owned_contents();
 
-    let code = loaded_source.code.cheap_copy();
-    let ModuleSourceCode::Bytes(code) = code else {
+    let ModuleSourceCode::Bytes(code) = &loaded_source.code else {
       return Err(ModuleError::Concrete(ModuleConcreteError::WasmNotBytes));
     };
     let Some(wasm_module) =
       v8::WasmModuleObject::compile(scope, code.as_bytes())
     else {
-      return Err(ModuleConcreteError::WasmCompile(name.to_string()).into());
+      return Err(
+        ModuleConcreteError::WasmCompile(loaded_key.name.to_string()).into(),
+      );
     };
     let wasm_module_object: v8::Local<v8::Object> = wasm_module.into();
     let wasm_module_object_global = v8::Global::new(scope, wasm_module_object);
 
-    let entry = Rc::new(wasm_module_object_global);
+    let source = Rc::new(wasm_module_object_global);
     {
       let mut data = self.data.borrow_mut();
-      if loaded_source.module_url_found.is_some() {
-        data.sources.insert(
-          loaded_source.module_url_specified.cheap_copy(),
-          entry.clone(),
-        );
-      }
-      data.sources.insert(name, entry);
+      data
+        .sources
+        .insert(reference_key.into_owned_contents(), source.clone());
+      data.sources.insert(loaded_key, source);
     }
-    Ok(())
+    Ok(loaded_source)
   }
 
   pub(crate) fn new_wasm_module(
@@ -1104,12 +1106,8 @@ impl ModuleMap {
         .expect("ModuleInfo::requests did not contain a matching specifier_key when getting source");
       module_request.reference.clone()
     };
-    if let Some(entry) = module_map
-      .data
-      .borrow()
-      .sources
-      .get(module_reference.specifier.as_str())
-    {
+    let key = ModuleSourceKey::from(&module_reference);
+    if let Some(entry) = module_map.data.borrow().sources.get(&key) {
       Some(v8::Local::new(scope, entry.as_ref()))
     } else {
       let message = v8::String::new(
@@ -1920,12 +1918,11 @@ impl ModuleMap {
                 )?;
               }
               ModuleImportPhase::Source => {
-                // TODO(nayeemrmn): Dedup this resolution and cleanup.
-                let specifier = load.resolve_root().expect("load.resolve_root() should have succeeded already on first iteration of recursion.");
+                let module_reference = load.root_module_reference.as_ref().expect("Root module reference had to have been resolved to get here.");
+                let key = ModuleSourceKey::from(module_reference);
                 let source = {
                   let data = self.data.borrow();
-                  let source =
-                    data.sources.get(specifier.as_str()).unwrap().as_ref();
+                  let source = data.sources.get(&key).unwrap().as_ref();
                   v8::Local::new(scope, source).into()
                 };
                 {
