@@ -28,6 +28,7 @@ use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::extension_set::LoadedSources;
 use crate::modules::ImportAttributesKind;
+use crate::modules::ModuleImportPhase;
 use crate::modules::ModuleMap;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
@@ -701,19 +702,10 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
     .unwrap()
     .to_rust_string_lossy(scope);
 
-  match phase {
-    v8::ModuleImportPhase::kEvaluation => {}
-    v8::ModuleImportPhase::kSource => {
-      let message = format!(
-        "Module source can not be imported for \"{}\"",
-        &specifier_str
-      );
-      let message = v8::String::new(scope, &message).unwrap();
-      let exception = v8::Exception::syntax_error(scope, message);
-      scope.throw_exception(exception);
-      return None;
-    }
-  }
+  let phase = match phase {
+    v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
+    v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+  };
 
   let cped = scope.get_continuation_preserved_embedder_data();
   let referrer_name_str = resource_name
@@ -762,6 +754,7 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
       &specifier_str,
       &referrer_name_str,
       requested_module_type,
+      phase,
       resolver_handle,
       cped_handle,
     ) {

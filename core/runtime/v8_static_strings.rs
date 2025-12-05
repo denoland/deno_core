@@ -26,6 +26,7 @@ v8_static_strings!(
   ERR_MODULE_NOT_FOUND = "ERR_MODULE_NOT_FOUND",
   ERRORS = "errors",
   EVENT_LOOP_TICK = "eventLoopTick",
+  RUN_IMMEDIATE_CALLBACKS = "runImmediateCallbacks",
   FILENAME = "filename",
   INSTANCE = "Instance",
   MAIN = "main",

@@ -325,6 +325,11 @@ pub fn to_v8_error<'s, 'i>(
         "Custom error class must have a builder registered".to_string();
       if tc_scope.has_caught() {
         let e = tc_scope.exception().unwrap();
+        // If the builder threw a bare `null`/`undefined`, propagate the
+        // original message instead of panicking on an opaque "Uncaught null".
+        if e.is_null_or_undefined() {
+          return message.into();
+        }
         let js_error = JsError::from_v8_exception(tc_scope, e);
         msg = format!("{}: {}", msg, js_error.exception_message);
       }
@@ -2307,5 +2312,33 @@ mod tests {
     let to = Url::parse("http://example.com/app/main.js").unwrap();
     let result = relative_specifier_within(&from, &to);
     assert_eq!(result, None);
+  }
+
+  #[cfg(not(miri))]
+  #[test]
+  fn test_to_v8_error_handles_null_builder_exception() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    deno_core::scope!(scope, runtime);
+
+    let throw_null_fn: v8::Local<v8::Function> =
+      JsRuntime::eval(scope, "(function () { throw null; })").unwrap();
+
+    // Override custom error builder so it throws null
+    let exception_state = JsRealm::exception_state_from_scope(scope);
+    exception_state
+      .js_build_custom_error_cb
+      .borrow_mut()
+      .replace(v8::Global::new(scope, throw_null_fn));
+
+    let err = CoreErrorKind::TLA;
+    let expected_message = err.get_message();
+
+    let value = to_v8_error(scope, &err);
+    let value: v8::Local<v8::String> = value
+      .try_into()
+      .expect("should fall back to message string");
+
+    assert_eq!(value.to_rust_string_lossy(scope), expected_message);
   }
 }
