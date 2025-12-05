@@ -1580,7 +1580,7 @@ function equal(a, b) {
     from_v8_test!(runtime, "0n", |scope, result| {
       let bigint = BigInt::from_v8(scope, result).unwrap();
       assert!(!bigint.sign_bit);
-      assert_eq!(bigint.words, vec![0]);
+      assert!(bigint.words.is_empty());
     });
 
     from_v8_test!(runtime, "18446744073709551616n", |scope, result| {
