@@ -328,7 +328,8 @@ impl<'s> FromV8<'s> for BigInt {
   ) -> Result<Self, Self::Error> {
     let bigint = value.try_cast::<v8::BigInt>()?;
 
-    let mut words = Vec::with_capacity(bigint.word_count());
+    let word_count = bigint.word_count();
+    let mut words = vec![0u64; word_count];
     let (sign_bit, _) = bigint.to_words_array(&mut words);
 
     Ok(BigInt { sign_bit, words })
@@ -1514,5 +1515,87 @@ function equal(a, b) {
 
     let from = ToV8::to_v8(TupleSingle(1), scope).unwrap();
     assert_eq!(from.number_value(scope).unwrap(), 1.0);
+  }
+
+  #[test]
+  fn test_bigint() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: false,
+        words: vec![42],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === 42n"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: true,
+        words: vec![42],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === -42n"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: false,
+        words: vec![0],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === 0n"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: false,
+        words: vec![0, 1],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === 18446744073709551616n"
+    );
+
+    from_v8_test!(runtime, "42n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert_eq!(bigint.sign_bit, false);
+      assert_eq!(bigint.words, vec![42]);
+    });
+
+    from_v8_test!(runtime, "-42n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert_eq!(bigint.sign_bit, true);
+      assert_eq!(bigint.words, vec![42]);
+    });
+
+    from_v8_test!(runtime, "0n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert_eq!(bigint.sign_bit, false);
+      assert_eq!(bigint.words, vec![0]);
+    });
+
+    from_v8_test!(runtime, "18446744073709551616n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert_eq!(bigint.sign_bit, false);
+      assert_eq!(bigint.words, vec![0, 1]);
+    });
+
+    from_v8_test!(runtime, "123456789012345678901234567890n", |scope, result| {
+    let bigint = BigInt::from_v8(scope, result).unwrap();
+    let to_v8 = bigint.to_v8(scope).unwrap();
+    let back = BigInt::from_v8(scope, to_v8).unwrap();
+
+    assert_eq!(back.sign_bit, false);
+    assert!(!back.words.is_empty());
+  });
   }
 }
