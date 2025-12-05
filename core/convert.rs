@@ -1589,13 +1589,17 @@ function equal(a, b) {
       assert_eq!(bigint.words, vec![0, 1]);
     });
 
-    from_v8_test!(runtime, "123456789012345678901234567890n", |scope, result| {
-    let bigint = BigInt::from_v8(scope, result).unwrap();
-    let to_v8 = bigint.to_v8(scope).unwrap();
-    let back = BigInt::from_v8(scope, to_v8).unwrap();
+    from_v8_test!(
+      runtime,
+      "123456789012345678901234567890n",
+      |scope, result| {
+        let bigint = BigInt::from_v8(scope, result).unwrap();
+        let to_v8 = bigint.to_v8(scope).unwrap();
+        let back = BigInt::from_v8(scope, to_v8).unwrap();
 
-    assert_eq!(back.sign_bit, false);
-    assert!(!back.words.is_empty());
-  });
+        assert_eq!(back.sign_bit, false);
+        assert!(!back.words.is_empty());
+      }
+    );
   }
 }
