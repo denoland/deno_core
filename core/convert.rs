@@ -1567,25 +1567,25 @@ function equal(a, b) {
 
     from_v8_test!(runtime, "42n", |scope, result| {
       let bigint = BigInt::from_v8(scope, result).unwrap();
-      assert_eq!(bigint.sign_bit, false);
+      assert!(!bigint.sign_bit);
       assert_eq!(bigint.words, vec![42]);
     });
 
     from_v8_test!(runtime, "-42n", |scope, result| {
       let bigint = BigInt::from_v8(scope, result).unwrap();
-      assert_eq!(bigint.sign_bit, true);
+      assert!(bigint.sign_bit);
       assert_eq!(bigint.words, vec![42]);
     });
 
     from_v8_test!(runtime, "0n", |scope, result| {
       let bigint = BigInt::from_v8(scope, result).unwrap();
-      assert_eq!(bigint.sign_bit, false);
+      assert!(!bigint.sign_bit);
       assert_eq!(bigint.words, vec![0]);
     });
 
     from_v8_test!(runtime, "18446744073709551616n", |scope, result| {
       let bigint = BigInt::from_v8(scope, result).unwrap();
-      assert_eq!(bigint.sign_bit, false);
+      assert!(!bigint.sign_bit);
       assert_eq!(bigint.words, vec![0, 1]);
     });
 
@@ -1597,7 +1597,7 @@ function equal(a, b) {
         let to_v8 = bigint.to_v8(scope).unwrap();
         let back = BigInt::from_v8(scope, to_v8).unwrap();
 
-        assert_eq!(back.sign_bit, false);
+        assert!(!back.sign_bit);
         assert!(!back.words.is_empty());
       }
     );
