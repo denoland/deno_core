@@ -44,16 +44,28 @@ pub type SessionProxySender = UnboundedSender<InspectorMsg>;
 // TODO(bartlomieju): remove this
 pub type SessionProxyReceiver = UnboundedReceiver<String>;
 
-/// Encapsulates an UnboundedSender/UnboundedReceiver pair that together form
-/// a duplex channel for sending/receiving messages in V8 session.
+/// Channels for an inspector session
+pub enum InspectorSessionChannels {
+  /// Regular inspector session with bidirectional communication
+  Regular {
+    tx: SessionProxySender,
+    rx: SessionProxyReceiver,
+  },
+  /// Worker inspector session with separate channels for main<->worker communication
+  Worker {
+    /// Main thread sends commands TO worker (synchronous for pause-safe polling)
+    main_to_worker_tx: std::sync::mpsc::Sender<String>,
+    /// Worker sends responses/events TO main thread (async is OK here)
+    worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
+    /// Worker URL for identification
+    worker_url: String,
+  },
+}
+
+/// Encapsulates channels and metadata for creating an inspector session
 pub struct InspectorSessionProxy {
-  pub tx: SessionProxySender,
-  pub rx: SessionProxyReceiver,
+  pub channels: InspectorSessionChannels,
   pub kind: InspectorSessionKind,
-  // When set, this proxy represents a worker and these channels should be registered
-  pub worker_tx: Option<UnboundedSender<String>>,
-  pub worker_rx: Option<UnboundedReceiver<InspectorMsg>>,
-  pub worker_url: Option<String>,
 }
 
 pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
@@ -123,9 +135,41 @@ struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
 
 impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
+    let thread_id = std::thread::current().id();
+    eprintln!(
+      "[PAUSE DEBUG {:?}] run_message_loop_on_pause called - V8 is paused, will pump messages",
+      thread_id
+    );
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.0.flags.borrow_mut().on_pause = true;
-    let _ = self.0.poll_sessions(None);
+
+    // Keep polling while paused to process inspector messages (including worker messages)
+    let mut poll_count = 0;
+    while self.0.flags.borrow().on_pause {
+      poll_count += 1;
+      if poll_count % 100 == 1 {
+        // Only print every 100 iterations to reduce spam
+        eprintln!(
+          "[PAUSE DEBUG {:?}] Polling sessions while paused (iteration {})...",
+          thread_id, poll_count
+        );
+      }
+      // Keep calling poll_sessions repeatedly - it will poll all established sessions
+      // and process any messages that have arrived in the channels
+      let _ = self.0.poll_sessions(None);
+
+      // Manually wake up the inspector to force another poll iteration
+      // This ensures that if new messages arrive in channels, we poll them
+      use deno_core::futures::task::ArcWake;
+      ArcWake::wake_by_ref(&self.0.waker);
+
+      // Small sleep to avoid busy loop
+      std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    eprintln!(
+      "[PAUSE DEBUG {:?}] Exiting run_message_loop_on_pause after {} polls - resuming V8 execution",
+      thread_id, poll_count
+    );
   }
 
   fn quit_message_loop_on_pause(&self) {
@@ -211,79 +255,80 @@ impl JsRuntimeInspectorState {
 
         // Accept new connections.
         let poll_result = sessions.session_rx.poll_next_unpin(cx);
-        if let Poll::Ready(Some(mut session_proxy)) = poll_result {
-          // Check if this is a worker proxy (has worker channels)
-          let is_worker_proxy = session_proxy.worker_tx.is_some()
-            && session_proxy.worker_rx.is_some();
+        if let Poll::Ready(Some(session_proxy)) = poll_result {
+          match session_proxy.channels {
+            InspectorSessionChannels::Worker {
+              main_to_worker_tx: worker_tx,
+              worker_to_main_rx: worker_rx,
+              worker_url,
+            } => {
+              // This is a worker proxy - don't create a normal session
+              // Just extract the channels and register the worker directly
 
-          if is_worker_proxy {
-            // This is a worker proxy - don't create a normal session
-            // Just extract the channels and register the worker directly
-            let worker_tx = session_proxy.worker_tx.take().unwrap();
-            let worker_rx = session_proxy.worker_rx.take().unwrap();
-            let worker_url =
-              session_proxy.worker_url.take().unwrap_or_default();
-
-            eprintln!(
-              "[WORKER DEBUG] Received worker proxy, registering worker with URL: {}",
-              worker_url
-            );
-
-            // Create send function for the worker target session
-            // This sends messages to the worker via the worker_tx channel
-            let worker_tx_clone = worker_tx.clone();
-            let worker_send = Rc::new(Box::new(move |msg: InspectorMsg| {
               eprintln!(
-                "[WORKER DEBUG] worker_send called with message kind: {:?}",
-                msg.kind
+                "[WORKER DEBUG] Received worker proxy, registering worker with URL: {}",
+                worker_url
               );
-              if let Err(e) = worker_tx_clone.unbounded_send(msg.content) {
+
+              // Create send function for the worker target session
+              // This sends messages to the worker via the worker_tx channel
+              let worker_tx_clone = worker_tx.clone();
+              let worker_send = Rc::new(Box::new(move |msg: InspectorMsg| {
                 eprintln!(
-                  "[WORKER DEBUG] Failed to send to worker via worker_send: {}",
-                  e
+                  "[WORKER DEBUG] worker_send called with message kind: {:?}",
+                  msg.kind
                 );
-              }
-            }) as InspectorSessionSend);
+                if let Err(e) = worker_tx_clone.send(msg.content) {
+                  eprintln!(
+                    "[WORKER DEBUG] Failed to send to worker via worker_send: {}",
+                    e
+                  );
+                }
+              })
+                as InspectorSessionSend);
 
-            // Get the next local ID for this worker
-            let worker_id = sessions.next_local_id;
-            sessions.next_local_id += 1;
+              // Get the next local ID for this worker
+              let worker_id = sessions.next_local_id;
+              sessions.next_local_id += 1;
 
-            // Get main session send function
-            // let main_session_send = sessions
-            //   .main_session_id
-            //   .and_then(|main_id| sessions.local.get(&main_id))
-            //   .map(|s| s.state.send.clone());
+              // Get main session send function
+              // let main_session_send = sessions
+              //   .main_session_id
+              //   .and_then(|main_id| sessions.local.get(&main_id))
+              //   .map(|s| s.state.send.clone());
 
-            // if let Some(main_send) = main_session_send {
-            // Register the worker session with the Target domain
-            sessions.register_worker_session(
-              worker_id,
-              worker_send.clone(),
-              worker_url.clone(),
-            );
+              // if let Some(main_send) = main_session_send {
+              // Register the worker session with the Target domain
+              sessions.register_worker_session(
+                worker_id,
+                worker_send.clone(),
+                worker_url.clone(),
+              );
 
-            // Register the worker channels
-            sessions.register_worker_channels(worker_id, worker_tx, worker_rx);
+              // Register the worker channels
+              sessions
+                .register_worker_channels(worker_id, worker_tx, worker_rx);
 
-            continue;
+              continue;
+            }
+            InspectorSessionChannels::Regular { tx, rx } => {
+              // Normal session (not a worker)
+              let session = InspectorSession::new(
+                sessions.v8_inspector.as_ref().unwrap().clone(),
+                self.is_dispatching_message.clone(),
+                Box::new(move |msg| {
+                  let _ = tx.unbounded_send(msg);
+                }),
+                Some(rx),
+                session_proxy.kind,
+                self.sessions.clone(),
+              );
+
+              let prev = sessions.handshake.replace(session);
+              assert!(prev.is_none());
+              continue;
+            }
           }
-
-          // Normal session (not a worker)
-          let session = InspectorSession::new(
-            sessions.v8_inspector.as_ref().unwrap().clone(),
-            self.is_dispatching_message.clone(),
-            Box::new(move |msg| {
-              let _ = session_proxy.tx.unbounded_send(msg);
-            }),
-            Some(session_proxy.rx),
-            session_proxy.kind,
-            self.sessions.clone(),
-          );
-
-          let prev = sessions.handshake.replace(session);
-          assert!(prev.is_none());
-          continue;
         }
 
         // Poll worker message channels - forward messages from workers to main session
@@ -294,7 +339,7 @@ impl JsRuntimeInspectorState {
 
           if let Some(send) = main_session_send {
             let mut has_worker_message = false;
-            let mut execution_context_to_forward: Option<String> = None;
+            let execution_context_to_forward: Option<String> = None;
 
             for target_session in sessions.target_sessions.values() {
               if let Ok(mut worker_rx_ref) =
@@ -429,14 +474,23 @@ impl JsRuntimeInspectorState {
         }
 
         // Poll established sessions.
-        match sessions.established.poll_next_unpin(cx) {
+        let poll_result = sessions.established.poll_next_unpin(cx);
+        match poll_result {
           Poll::Ready(Some(())) => {
+            eprintln!("[POLL DEBUG] Established session future returned Ready");
             continue;
           }
           Poll::Ready(None) => {
+            eprintln!("[POLL DEBUG] Established sessions empty");
             break;
           }
           Poll::Pending => {
+            // Only print occasionally to avoid spam
+            static POLL_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            let count = POLL_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if count % 1000 == 0 {
+              eprintln!("[POLL DEBUG] Established sessions pending (poll #{})", count);
+            }
             break;
           }
         };
@@ -745,8 +799,8 @@ struct TargetSession {
   local_session_id: i32,
   send: Rc<InspectorSessionSend>,
   // Channels for communicating with the worker's V8 inspector
-  // main -> worker: send CDP messages to worker
-  worker_tx: RefCell<Option<UnboundedSender<String>>>,
+  // main -> worker: send CDP messages to worker (synchronous for pause-safe polling)
+  worker_tx: RefCell<Option<std::sync::mpsc::Sender<String>>>,
   // worker -> main: receive CDP messages from worker
   worker_rx: RefCell<Option<UnboundedReceiver<InspectorMsg>>>,
   // Worker URL for DevTools display
@@ -904,7 +958,7 @@ impl SessionContainer {
   pub fn register_worker_channels(
     &mut self,
     local_session_id: i32,
-    worker_tx: UnboundedSender<String>,
+    worker_tx: std::sync::mpsc::Sender<String>,
     worker_rx: UnboundedReceiver<InspectorMsg>,
   ) -> bool {
     // Find the target session for this local session ID
@@ -1108,9 +1162,12 @@ impl v8::inspector::ChannelImpl for InspectorSessionState {
 type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
+  let thread_id = std::thread::current().id();
+  eprintln!("[PUMP DEBUG {:?}] pump_inspector_session_messages started", thread_id);
+
   while let Some(msg) = rx.next().await {
     // Log ALL incoming messages for debugging
-    eprintln!("[INSPECTOR DEBUG] Incoming: {}", &msg[..msg.len().min(200)]);
+    eprintln!("[INSPECTOR DEBUG {:?}] Incoming: {}", thread_id, &msg[..msg.len().min(200)]);
 
     // Parse the incoming message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
@@ -1148,7 +1205,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                   "[WORKER DEBUG] Sending to worker: {}",
                   &cleaned_msg[..cleaned_msg.len().min(100)]
                 );
-                if let Err(e) = worker_tx.unbounded_send(cleaned_msg) {
+                if let Err(e) = worker_tx.send(cleaned_msg) {
                   eprintln!("[WORKER DEBUG] Failed to send to worker: {}", e);
                 }
               } else {
@@ -1248,29 +1305,29 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               );
 
               // Check if this is a Debugger.enable message or step/resume command
-              let (is_debugger_enable, is_step_resume) = if let Ok(msg_parsed) =
-                serde_json::from_str::<serde_json::Value>(&message)
-              {
-                let method = msg_parsed.get("method").and_then(|m| m.as_str());
-                let is_enable = method == Some("Debugger.enable");
-                let is_step = matches!(
-                  method,
-                  Some("Debugger.stepOver")
-                    | Some("Debugger.resume")
-                    | Some("Debugger.stepInto")
-                    | Some("Debugger.stepOut")
-                );
-                (is_enable, is_step)
-              } else {
-                (false, false)
-              };
-
-              if is_step_resume {
-                eprintln!(
-                  "[WORKER DEBUG] >>> Sending step/resume command to worker: {}",
-                  message
-                );
-              }
+              // let (is_debugger_enable, is_step_resume) = if let Ok(msg_parsed) =
+              //   serde_json::from_str::<serde_json::Value>(&message)
+              // {
+              //   let method = msg_parsed.get("method").and_then(|m| m.as_str());
+              //   let is_enable = method == Some("Debugger.enable");
+              //   let is_step = matches!(
+              //     method,
+              //     Some("Debugger.stepOver")
+              //       | Some("Debugger.resume")
+              //       | Some("Debugger.stepInto")
+              //       | Some("Debugger.stepOut")
+              //   );
+              //   (is_enable, is_step)
+              // } else {
+              //   (false, false)
+              // };
+              //
+              // if is_step_resume {
+              //   eprintln!(
+              //     "[WORKER DEBUG] >>> Sending step/resume command to worker: {}",
+              //     message
+              //   );
+              // }
 
               let sessions = session.state.sessions.clone();
               deno_core::unsync::spawn(async move {
@@ -1285,23 +1342,23 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                       "[WORKER DEBUG] Sending to worker via NodeWorker: {}",
                       &message[..message.len().min(100)]
                     );
-                    let _ = worker_tx.unbounded_send(message);
+                    let _ = worker_tx.send(message);
 
                     // If this is Debugger.enable, replay all stored breakpoints to this worker
-                    if is_debugger_enable {
-                      eprintln!(
-                        "[BREAKPOINT] Debugger.enable received for worker, replaying {} stored breakpoints",
-                        sessions.stored_breakpoints.len()
-                      );
-                      for breakpoint_cmd in &sessions.stored_breakpoints {
-                        eprintln!(
-                          "[BREAKPOINT] Replaying breakpoint to worker: {}",
-                          &breakpoint_cmd[..breakpoint_cmd.len().min(100)]
-                        );
-                        let _ =
-                          worker_tx.unbounded_send(breakpoint_cmd.clone());
-                      }
-                    }
+                    // if is_debugger_enable {
+                    //   eprintln!(
+                    //     "[BREAKPOINT] Debugger.enable received for worker, replaying {} stored breakpoints",
+                    //     sessions.stored_breakpoints.len()
+                    //   );
+                    //   for breakpoint_cmd in &sessions.stored_breakpoints {
+                    //     eprintln!(
+                    //       "[BREAKPOINT] Replaying breakpoint to worker: {}",
+                    //       &breakpoint_cmd[..breakpoint_cmd.len().min(100)]
+                    //     );
+                    //     let _ =
+                    //       worker_tx.send(breakpoint_cmd.clone());
+                    //   }
+                    // }
                   }
                 }
               });
@@ -1551,7 +1608,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                       "[WORKER DEBUG] Sending message to worker: {}",
                       &inner_message[..inner_message.len().min(100)]
                     );
-                    if let Err(e) = worker_tx.unbounded_send(inner_message) {
+                    if let Err(e) = worker_tx.send(inner_message) {
                       eprintln!(
                         "[WORKER DEBUG] Failed to send to worker: {}",
                         e
@@ -1596,23 +1653,23 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
         // THIRD: Intercept Debugger.setBreakpointByUrl on main thread to store for replaying to workers
         // This is needed for VSCode which sets breakpoints on main thread before workers exist
-        if method == "Debugger.setBreakpointByUrl" {
-          eprintln!(
-            "[BREAKPOINT] Intercepting Debugger.setBreakpointByUrl on main thread"
-          );
-          // Store this breakpoint command for replaying to new workers
-          let sessions = session.state.sessions.clone();
-          let msg_clone = msg.clone();
-          deno_core::unsync::spawn(async move {
-            let mut sessions = sessions.borrow_mut();
-            sessions.stored_breakpoints.push(msg_clone);
-            eprintln!(
-              "[BREAKPOINT] Stored breakpoint, total: {}",
-              sessions.stored_breakpoints.len()
-            );
-          });
-          // Fall through to dispatch to V8 main session as well
-        }
+        // if method == "Debugger.setBreakpointByUrl" {
+        //   eprintln!(
+        //     "[BREAKPOINT] Intercepting Debugger.setBreakpointByUrl on main thread"
+        //   );
+        //   // Store this breakpoint command for replaying to new workers
+        //   let sessions = session.state.sessions.clone();
+        //   let msg_clone = msg.clone();
+        //   deno_core::unsync::spawn(async move {
+        //     let mut sessions = sessions.borrow_mut();
+        //     sessions.stored_breakpoints.push(msg_clone);
+        //     eprintln!(
+        //       "[BREAKPOINT] Stored breakpoint, total: {}",
+        //       sessions.stored_breakpoints.len()
+        //     );
+        //   });
+        //   // Fall through to dispatch to V8 main session as well
+        // }
       }
     }
 
