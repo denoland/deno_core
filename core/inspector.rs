@@ -232,8 +232,8 @@ impl JsRuntimeInspectorState {
             sessions.local.get(&main_id).map(|s| s.state.send.clone());
 
           if let Some(send) = main_session_send {
-            let has_worker_message = false;
-            let execution_context_to_forward: Option<String> = None;
+            let mut has_worker_message = false;
+            let mut execution_context_to_forward: Option<String> = None;
 
             // for target_session in sessions.target_sessions.values() {}
 
@@ -550,7 +550,7 @@ pub struct SessionContainer {
   next_local_id: i32,
   local: HashMap<i32, Rc<InspectorSession>>,
 
-  // target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
+  target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
   main_session_id: Option<i32>, // The first session that should receive Target events
 
@@ -587,7 +587,7 @@ impl SessionContainer {
       next_local_id: 1,
       local: HashMap::new(),
 
-      // target_sessions: HashMap::new(),
+      target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
       stored_breakpoints: Vec::new(),
@@ -643,7 +643,7 @@ impl SessionContainer {
       next_local_id: 1,
       local: HashMap::new(),
 
-      // target_sessions: HashMap::new(),
+      target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
       stored_breakpoints: Vec::new(),
@@ -867,6 +867,37 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
           if let Some(obj) = cleaned.as_object_mut() {
             obj.remove("sessionId");
           }
+          let cleaned_msg = cleaned.to_string();
+
+          let sessions = session.state.sessions.clone();
+          deno_core::unsync::spawn(async move {
+            let sessions = sessions.borrow();
+            // if let Some(target_session) =
+            //   sessions.target_sessions.get(&target_session_id)
+            // {
+            //   // if let Some(worker_tx) =
+            //   //   target_session.worker_tx.borrow().as_ref()
+            //   // {
+            //   //   eprintln!(
+            //   //     "[WORKER DEBUG] Sending to worker: {}",
+            //   //     &cleaned_msg[..cleaned_msg.len().min(100)]
+            //   //   );
+            //   //   if let Err(e) = worker_tx.unbounded_send(cleaned_msg) {
+            //   //     eprintln!("[WORKER DEBUG] Failed to send to worker: {}", e);
+            //   //   }
+            //   // } else {
+            //   //   eprintln!(
+            //   //     "[WORKER DEBUG] No worker_tx for session: {}",
+            //   //     target_session_id
+            //   //   );
+            //   // }
+            // } else {
+            //   eprintln!(
+            //     "[WORKER DEBUG] Session not found: {}",
+            //     target_session_id
+            //   );
+            // }
+          });
           continue; // Don't process this message locally
         }
       }
@@ -898,34 +929,34 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               // Send any existing workers as NodeWorker.attachedToWorker events
               let sessions = session.state.sessions.clone();
               let send = session.state.send.clone();
-              // deno_core::unsync::spawn(async move {
-              //   let sessions = sessions.borrow();
-              //   for target_session in sessions.target_sessions.values() {
-              //     eprintln!(
-              //       "[WORKER DEBUG] Sending NodeWorker.attachedToWorker for worker: {}",
-              //       target_session.url
-              //     );
-              //
-              //     let attached_event = json!({
-              //       "method": "NodeWorker.attachedToWorker",
-              //       "params": {
-              //         "sessionId": target_session.session_id,
-              //         "workerInfo": {
-              //           "workerId": target_session.target_id,
-              //           "type": "worker",
-              //           "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-              //           "url": target_session.url
-              //         },
-              //         "waitingForDebugger": false
-              //       }
-              //     });
-              //
-              //     send(InspectorMsg {
-              //       kind: InspectorMsgKind::Notification,
-              //       content: attached_event.to_string(),
-              //     });
-              //   }
-              // });
+              deno_core::unsync::spawn(async move {
+                let sessions = sessions.borrow();
+                for target_session in sessions.target_sessions.values() {
+                  eprintln!(
+                    "[WORKER DEBUG] Sending NodeWorker.attachedToWorker for worker: {}",
+                    target_session.url
+                  );
+
+                  let attached_event = json!({
+                    "method": "NodeWorker.attachedToWorker",
+                    "params": {
+                      "sessionId": target_session.session_id,
+                      "workerInfo": {
+                        "workerId": target_session.target_id,
+                        "type": "worker",
+                        "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                        "url": target_session.url
+                      },
+                      "waitingForDebugger": false
+                    }
+                  });
+
+                  send(InspectorMsg {
+                    kind: InspectorMsgKind::Notification,
+                    content: attached_event.to_string(),
+                  });
+                }
+              });
 
               json!({})
             }
@@ -976,38 +1007,38 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               }
 
               let sessions = session.state.sessions.clone();
-              // deno_core::unsync::spawn(async move {
-              //   let sessions = sessions.borrow();
-              //   if let Some(target_session) =
-              //     sessions.target_sessions.get(&session_id)
-              //   {
-              //     // if let Some(worker_tx) =
-              //     //   target_session.worker_tx.borrow().as_ref()
-              //     // {
-              //     //   eprintln!(
-              //     //     "[WORKER DEBUG] Sending to worker via NodeWorker: {}",
-              //     //     &message[..message.len().min(100)]
-              //     //   );
-              //     //   let _ = worker_tx.unbounded_send(message);
-              //     //
-              //     //   // If this is Debugger.enable, replay all stored breakpoints to this worker
-              //     //   if is_debugger_enable {
-              //     //     eprintln!(
-              //     //       "[BREAKPOINT] Debugger.enable received for worker, replaying {} stored breakpoints",
-              //     //       sessions.stored_breakpoints.len()
-              //     //     );
-              //     //     for breakpoint_cmd in &sessions.stored_breakpoints {
-              //     //       eprintln!(
-              //     //         "[BREAKPOINT] Replaying breakpoint to worker: {}",
-              //     //         &breakpoint_cmd[..breakpoint_cmd.len().min(100)]
-              //     //       );
-              //     //       let _ =
-              //     //         worker_tx.unbounded_send(breakpoint_cmd.clone());
-              //     //     }
-              //     //   }
-              //     // }
-              //   }
-              // });
+              deno_core::unsync::spawn(async move {
+                let sessions = sessions.borrow();
+                if let Some(target_session) =
+                  sessions.target_sessions.get(&session_id)
+                {
+                  // if let Some(worker_tx) =
+                  //   target_session.worker_tx.borrow().as_ref()
+                  // {
+                  //   eprintln!(
+                  //     "[WORKER DEBUG] Sending to worker via NodeWorker: {}",
+                  //     &message[..message.len().min(100)]
+                  //   );
+                  //   let _ = worker_tx.unbounded_send(message);
+                  //
+                  //   // If this is Debugger.enable, replay all stored breakpoints to this worker
+                  //   if is_debugger_enable {
+                  //     eprintln!(
+                  //       "[BREAKPOINT] Debugger.enable received for worker, replaying {} stored breakpoints",
+                  //       sessions.stored_breakpoints.len()
+                  //     );
+                  //     for breakpoint_cmd in &sessions.stored_breakpoints {
+                  //       eprintln!(
+                  //         "[BREAKPOINT] Replaying breakpoint to worker: {}",
+                  //         &breakpoint_cmd[..breakpoint_cmd.len().min(100)]
+                  //       );
+                  //       let _ =
+                  //         worker_tx.unbounded_send(breakpoint_cmd.clone());
+                  //     }
+                  //   }
+                  // }
+                }
+              });
 
               json!({})
             }
@@ -1060,35 +1091,35 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 // send attachedToTarget for all existing workers
                 let sessions = session.state.sessions.clone();
                 let send = session.state.send.clone();
-                // deno_core::unsync::spawn(async move {
-                //   let sessions = sessions.borrow();
-                //   // for target_session in sessions.target_sessions.values() {
-                //   //   if !*target_session.attached.borrow() {
-                //   //     *target_session.attached.borrow_mut() = true;
-                //   //
-                //   //     let attached_to_target = json!({
-                //   //       "method": "Target.attachedToTarget",
-                //   //       "params": {
-                //   //         "sessionId": target_session.session_id,
-                //   //         "targetInfo": {
-                //   //           "targetId": target_session.target_id,
-                //   //           "type": "worker",
-                //   //           "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-                //   //           "url": target_session.url,
-                //   //           "attached": false,
-                //   //           "canAccessOpener": true
-                //   //         },
-                //   //         "waitingForDebugger": true
-                //   //       }
-                //   //     });
-                //   //
-                //   //     send(InspectorMsg {
-                //   //       kind: InspectorMsgKind::Notification,
-                //   //       content: attached_to_target.to_string(),
-                //   //     });
-                //   //   }
-                //   // }
-                // });
+                deno_core::unsync::spawn(async move {
+                  let sessions = sessions.borrow();
+                  for target_session in sessions.target_sessions.values() {
+                    if !*target_session.attached.borrow() {
+                      *target_session.attached.borrow_mut() = true;
+
+                      let attached_to_target = json!({
+                        "method": "Target.attachedToTarget",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "targetInfo": {
+                            "targetId": target_session.target_id,
+                            "type": "worker",
+                            "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                            "url": target_session.url,
+                            "attached": false,
+                            "canAccessOpener": true
+                          },
+                          "waitingForDebugger": true
+                        }
+                      });
+
+                      send(InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: attached_to_target.to_string(),
+                      });
+                    }
+                  }
+                });
               }
               json!({})
             }
@@ -1099,48 +1130,48 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 .and_then(|a| a.as_bool())
                 .unwrap_or(false);
 
-              // let sessions = session.state.sessions.clone();
-              // let send = session.state.send.clone();
-              // deno_core::unsync::spawn(async move {
-              //   let mut sessions = sessions.borrow_mut();
-              //   sessions.auto_attach_enabled = auto_attach;
-              //
-              //   if auto_attach {
-              //     // for target_session in sessions.target_sessions.values() {
-              //     //   // Only attach if not already attached (like Node.js does)
-              //     //   if !*target_session.attached.borrow() {
-              //     //     *target_session.attached.borrow_mut() = true;
-              //     //
-              //     //     // Send Target.attachedToTarget (targetCreated was already sent when worker registered)
-              //     //     let attached_to_target = json!({
-              //     //       "method": "Target.attachedToTarget",
-              //     //       "params": {
-              //     //         "sessionId": target_session.session_id,
-              //     //         "targetInfo": {
-              //     //           "targetId": target_session.target_id,
-              //     //           "type": "worker",
-              //     //           "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-              //     //           "url": target_session.url,
-              //     //           "attached": false,
-              //     //           "canAccessOpener": true
-              //     //         },
-              //     //         "waitingForDebugger": true
-              //     //       }
-              //     //     });
-              //     //
-              //     //     eprintln!(
-              //     //       "[WORKER DEBUG] Attaching to worker: {}",
-              //     //       target_session.url
-              //     //     );
-              //     //
-              //     //     send(InspectorMsg {
-              //     //       kind: InspectorMsgKind::Notification,
-              //     //       content: attached_to_target.to_string(),
-              //     //     });
-              //     //   }
-              //     // }
-              //   }
-              // });
+              let sessions = session.state.sessions.clone();
+              let send = session.state.send.clone();
+              deno_core::unsync::spawn(async move {
+                let mut sessions = sessions.borrow_mut();
+                sessions.auto_attach_enabled = auto_attach;
+
+                if auto_attach {
+                  for target_session in sessions.target_sessions.values() {
+                    // Only attach if not already attached (like Node.js does)
+                    if !*target_session.attached.borrow() {
+                      *target_session.attached.borrow_mut() = true;
+
+                      // Send Target.attachedToTarget (targetCreated was already sent when worker registered)
+                      let attached_to_target = json!({
+                        "method": "Target.attachedToTarget",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "targetInfo": {
+                            "targetId": target_session.target_id,
+                            "type": "worker",
+                            "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                            "url": target_session.url,
+                            "attached": false,
+                            "canAccessOpener": true
+                          },
+                          "waitingForDebugger": true
+                        }
+                      });
+
+                      eprintln!(
+                        "[WORKER DEBUG] Attaching to worker: {}",
+                        target_session.url
+                      );
+
+                      send(InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: attached_to_target.to_string(),
+                      });
+                    }
+                  }
+                }
+              });
               json!({})
             }
             "Target.attachToTarget" => {
@@ -1168,59 +1199,59 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               let target_id_clone = target_id.clone();
 
               // Find the target and attach
-              // deno_core::unsync::spawn(async move {
-              //   let sessions = sessions.borrow();
-              //
-              //   // Look for target by target_id (which is the worker-N id)
-              //   for target_session in sessions.target_sessions.values() {
-              //     if target_session.target_id == target_id_clone {
-              //       eprintln!(
-              //         "[WORKER DEBUG] Found target session: {}",
-              //         target_session.session_id
-              //       );
-              //
-              //       // Mark as attached
-              //       *target_session.attached.borrow_mut() = true;
-              //
-              //       // Send attachedToTarget event
-              //       let attached_event = json!({
-              //         "method": "Target.attachedToTarget",
-              //         "params": {
-              //           "sessionId": target_session.session_id,
-              //           "targetInfo": {
-              //             "targetId": target_session.target_id,
-              //             "type": "worker",
-              //             "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
-              //             "url": target_session.url,
-              //             "attached": true,
-              //             "canAccessOpener": true
-              //           },
-              //           "waitingForDebugger": false
-              //         }
-              //       });
-              //
-              //       send(InspectorMsg {
-              //         kind: InspectorMsgKind::Notification,
-              //         content: attached_event.to_string(),
-              //       });
-              //
-              //       break;
-              //     }
-              //   }
-              // });
+              deno_core::unsync::spawn(async move {
+                let sessions = sessions.borrow();
+
+                // Look for target by target_id (which is the worker-N id)
+                for target_session in sessions.target_sessions.values() {
+                  if target_session.target_id == target_id_clone {
+                    eprintln!(
+                      "[WORKER DEBUG] Found target session: {}",
+                      target_session.session_id
+                    );
+
+                    // Mark as attached
+                    *target_session.attached.borrow_mut() = true;
+
+                    // Send attachedToTarget event
+                    let attached_event = json!({
+                      "method": "Target.attachedToTarget",
+                      "params": {
+                        "sessionId": target_session.session_id,
+                        "targetInfo": {
+                          "targetId": target_session.target_id,
+                          "type": "worker",
+                          "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                          "url": target_session.url,
+                          "attached": true,
+                          "canAccessOpener": true
+                        },
+                        "waitingForDebugger": false
+                      }
+                    });
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: attached_event.to_string(),
+                    });
+
+                    break;
+                  }
+                }
+              });
 
               // Return the sessionId for this target
-              // let sessions = session.state.sessions.borrow();
-              let result = json!({});
+              let sessions = session.state.sessions.borrow();
+              let mut result = json!({});
 
-              // for target_session in sessions.target_sessions.values() {
-              //   if target_session.target_id == target_id {
-              //     result = json!({
-              //       "sessionId": target_session.session_id
-              //     });
-              //     break;
-              //   }
-              // }
+              for target_session in sessions.target_sessions.values() {
+                if target_session.target_id == target_id {
+                  result = json!({
+                    "sessionId": target_session.session_id
+                  });
+                  break;
+                }
+              }
 
               result
             }
