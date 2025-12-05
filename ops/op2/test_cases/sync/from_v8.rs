@@ -18,7 +18,6 @@ impl<'a> FromV8Trait<'a> for Foo {
 }
 
 #[op2]
-#[from_v8]
-pub fn op_from_v8_arg(#[from_v8] foo: Foo) {
+pub fn op_from_v8_arg(foo: Foo) {
   let _ = foo;
 }

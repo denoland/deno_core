@@ -765,10 +765,6 @@ pub enum BufferSource {
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
-  /// #[to_v8], for types that impl `ToV8`
-  ToV8,
-  /// #[from_v8] for types that impl `FromV8`
-  FromV8,
   /// #[webidl], for types that impl `WebIdlConverter`
   WebIDL(WebIDLArgs),
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
@@ -801,8 +797,6 @@ pub enum AttributeModifier {
 impl AttributeModifier {
   fn name(&self) -> &'static str {
     match self {
-      AttributeModifier::ToV8 => "to_v8",
-      AttributeModifier::FromV8 => "from_v8",
       AttributeModifier::Bigint => "bigint",
       AttributeModifier::Number => "number",
       AttributeModifier::Buffer(..) => "buffer",
@@ -1255,8 +1249,6 @@ fn parse_attribute(
     "this" => Some(AttributeModifier::This),
     "cppgc" => Some(AttributeModifier::CppGcResource),
     "proto" => Some(AttributeModifier::CppGcProto),
-    "to_v8" => Some(AttributeModifier::ToV8),
-    "from_v8" => Some(AttributeModifier::FromV8),
     "varargs" => Some(AttributeModifier::VarArgs),
 
     "validate" => {
@@ -1379,7 +1371,15 @@ fn parse_type_path(
         std?::str?::str => Ok(CBare(TString(Strings::RefStr))),
         std?::borrow?::Cow<'_, str> | std?::borrow?::Cow<str> => Ok(CBare(TString(Strings::CowStr))),
         std?::borrow?::Cow<'_, [u8]> | std?::borrow?::Cow<[u8]> => Ok(CBare(TString(Strings::CowByte))),
-        std?::vec?::Vec<::$ty> => Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(ty)?)))),
+        std?::vec?::Vec<::$ty> => {
+          if let Some(AttributeModifier::Buffer(_, _)) = attrs.primary {
+            Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(ty)?))))
+          } else if let Some(_) = attrs.primary {
+            Err(ArgError::InvalidAttributeType("buffer", stringify_token(tp)))
+          } else {
+            Ok(CUnknown(Type::Path(tp.clone())))
+          }
+        },
         std?::boxed?::Box<[$ty]> => {
           if let Type::Path(tp) = ty {
             Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&tp.path)?))))
@@ -1614,26 +1614,10 @@ pub(crate) fn parse_type(
         return parse_cppgc(position, ty, false);
       }
       AttributeModifier::CppGcProto => return parse_cppgc(position, ty, true),
-      AttributeModifier::FromV8 if position == Position::RetVal => {
-        return Err(ArgError::InvalidAttributePosition(
-          primary.name(),
-          "argument",
-        ));
-      }
-      AttributeModifier::ToV8 if position == Position::Arg => {
-        return Err(ArgError::InvalidAttributePosition(
-          primary.name(),
-          "return value",
-        ));
-      }
       AttributeModifier::Serde
-      | AttributeModifier::FromV8
-      | AttributeModifier::ToV8
       | AttributeModifier::WebIDL(_) => {
         let make_arg: Box<dyn Fn(String) -> Arg> = match &primary {
           AttributeModifier::Serde => Box::new(Arg::SerdeV8),
-          AttributeModifier::FromV8 => Box::new(Arg::FromV8),
-          AttributeModifier::ToV8 => Box::new(Arg::ToV8),
           AttributeModifier::WebIDL(args) => Box::new(move |s| {
             Arg::WebIDL(s, args.options.clone(), args.default.clone())
           }),
@@ -1760,7 +1744,10 @@ pub(crate) fn parse_type(
       if of.elems.is_empty() {
         Ok(Arg::Void)
       } else {
-        Err(ArgError::InvalidType(stringify_token(ty), "for tuple"))
+        match position {
+          Position::Arg => Ok(Arg::FromV8(stringify_token(ty))),
+          Position::RetVal => Ok(Arg::ToV8(stringify_token(ty))),
+        }
       }
     }
     Type::Reference(of) => {
@@ -2214,14 +2201,6 @@ mod tests {
     fn f(#[badattr] a: u32) {}
   );
   expect_fail!(
-    op_with_missing_global,
-    ArgError(
-      "g".into(),
-      MissingAttribute("global", "v8::Global<v8::String>".into())
-    ),
-    fn f(g: v8::Global<v8::String>) {}
-  );
-  expect_fail!(
     op_duplicate_js_runtime_state,
     InvalidMultipleJsRuntimeState,
     fn f(s1: &JsRuntimeState, s2: &mut JsRuntimeState) {}
@@ -2292,29 +2271,5 @@ mod tests {
     op_with_bad_serde_str,
     ArgError("s".into(), InvalidAttributeType("serde", "&str".into())),
     fn f(#[serde] s: &str) {}
-  );
-
-  expect_fail!(
-    op_with_bad_from_v8_string,
-    ArgError("s".into(), InvalidAttributeType("from_v8", "String".into())),
-    fn f(#[from_v8] s: String) {}
-  );
-
-  expect_fail!(
-    op_with_to_v8_arg,
-    ArgError(
-      "s".into(),
-      InvalidAttributePosition("to_v8", "return value")
-    ),
-    fn f(#[to_v8] s: Foo) {}
-  );
-
-  expect_fail!(
-    op_with_from_v8_ret,
-    RetError(super::RetError::InvalidType(InvalidAttributePosition(
-      "from_v8", "argument"
-    ))),
-    #[from_v8]
-    fn f() -> Foo {}
   );
 }

@@ -2392,8 +2392,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  pub fn op_smi_to_from_v8(#[from_v8] value: Smi<i32>) -> Smi<i32> {
+  pub fn op_smi_to_from_v8(value: Smi<i32>) -> Smi<i32> {
     value
   }
 
@@ -2412,8 +2411,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  pub fn op_number_to_from_v8(#[from_v8] value: Number<f64>) -> Number<f64> {
+  pub fn op_number_to_from_v8(value: Number<f64>) -> Number<f64> {
     value
   }
 
@@ -2471,8 +2469,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  fn op_bool_to_from_v8(#[from_v8] value: Bool) -> Bool {
+  fn op_bool_to_from_v8(value: Bool) -> Bool {
     value
   }
 

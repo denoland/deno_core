@@ -6,6 +6,8 @@ use deno_error::JsErrorBox;
 use deno_error::JsErrorClass;
 use std::convert::Infallible;
 use std::mem::MaybeUninit;
+use std::ops::{Deref, DerefMut};
+use smallvec::SmallVec;
 use v8::{Local, PinScope, Value};
 
 /// A conversion from a rust value to a v8 value.
@@ -354,6 +356,115 @@ impl<'s> ToV8<'s> for &'static str {
     scope: &mut v8::PinScope<'s, 'i>,
   ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     Ok(v8::String::new(scope, self).unwrap().into()) // TODO
+  }
+}
+
+const USIZE2X: usize = size_of::<usize>() * 2;
+pub struct ByteString(SmallVec<[u8; USIZE2X]>);
+
+impl Deref for ByteString {
+  type Target = SmallVec<[u8; USIZE2X]>;
+
+  fn deref(&self) -> &Self::Target {
+    &self.0
+  }
+}
+
+impl DerefMut for ByteString {
+  fn deref_mut(&mut self) -> &mut Self::Target {
+    &mut self.0
+  }
+}
+
+impl AsRef<[u8]> for ByteString {
+  fn as_ref(&self) -> &[u8] {
+    &self.0
+  }
+}
+
+impl AsMut<[u8]> for ByteString {
+  fn as_mut(&mut self) -> &mut [u8] {
+    &mut self.0
+  }
+}
+
+impl<'a> ToV8<'a> for ByteString {
+  type Error = Infallible;
+
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'a, 'i>,
+  ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
+    let v =
+      v8::String::new_from_one_byte(scope, self.as_ref(), v8::NewStringType::Normal)
+        .unwrap();
+    Ok(v.into())
+  }
+}
+
+#[derive(Debug, thiserror::Error, deno_error::JsError)]
+#[class(type)]
+pub enum ByteStringError {
+  #[error("Invalid type, expected: string but got: {0}")]
+  ExpectedString(&'static str),
+  #[error("Invalid type, expected: latin1")]
+  ExpectedLatin1,
+}
+
+impl<'a> FromV8<'a> for ByteString {
+  type Error = ByteStringError;
+
+  fn from_v8<'i>(
+    scope: &mut v8::PinScope<'a, 'i>,
+    value: v8::Local<'a, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    let v8str = v8::Local::<v8::String>::try_from(value)
+      .map_err(|_| ByteStringError::ExpectedString(value.type_repr()))?;
+    if !v8str.contains_only_onebyte() {
+      return Err(ByteStringError::ExpectedLatin1);
+    }
+    let len = v8str.length();
+    let mut buffer = SmallVec::with_capacity(len);
+    #[allow(clippy::uninit_vec)]
+    // SAFETY: we set length == capacity (see previous line),
+    // before immediately writing into that buffer and sanity check with an assert
+    unsafe {
+      buffer.set_len(len);
+      v8str.write_one_byte_v2(scope, 0, &mut buffer, v8::WriteFlags::empty());
+    }
+    Ok(Self(buffer))
+  }
+}
+
+impl From<Vec<u8>> for ByteString {
+  fn from(vec: Vec<u8>) -> Self {
+    ByteString(SmallVec::from_vec(vec))
+  }
+}
+
+#[allow(clippy::from_over_into)]
+impl Into<Vec<u8>> for ByteString {
+  fn into(self) -> Vec<u8> {
+    self.0.into_vec()
+  }
+}
+
+impl From<&[u8]> for ByteString {
+  fn from(s: &[u8]) -> Self {
+    ByteString(SmallVec::from_slice(s))
+  }
+}
+
+impl From<&str> for ByteString {
+  fn from(s: &str) -> Self {
+    let v: Vec<u8> = s.into();
+    ByteString::from(v)
+  }
+}
+
+impl From<String> for ByteString {
+  fn from(s: String) -> Self {
+    ByteString::from(s.into_bytes())
   }
 }
 
