@@ -419,125 +419,25 @@ impl JsRuntimeInspectorState {
                         }
                       }
 
-                      // Send messages to main session based on flatten mode
-                      // flatten=true: Chrome DevTools with all contexts in one session
-                      // flatten=false: Standard Target domain with separate sessions
+                      // Send both Target.receivedMessageFromTarget (for Chrome)
+                      // and NodeWorker.receivedMessageFromWorker (for VSCode)
 
-                      // Check flatten mode
-                      let flatten = sessions.flatten;
-
-                      // SPECIAL CASE: Runtime.executionContextCreated - send DIRECTLY to main session
-                      // with a unique context ID so it appears in Chrome DevTools execution context dropdown
-                      if is_execution_context_created {
-                        eprintln!("[WORKER DEBUG] Sending executionContextCreated DIRECTLY to main session");
-
-                        // Create a synthetic execution context for the main session
-                        // Use a unique ID based on worker's next_worker_context_id
-                        let unique_context_id = sessions.next_worker_context_id;
-
-                        if let Ok(parsed) =
-                          serde_json::from_str::<serde_json::Value>(&msg.content)
-                        {
-                          if let Some(params) = parsed.get("params") {
-                            if let Some(context) = params.get("context") {
-                              // Create a new execution context event with unique ID
-                              let worker_context = json!({
-                                "method": "Runtime.executionContextCreated",
-                                "params": {
-                                  "context": {
-                                    "id": unique_context_id,
-                                    "origin": context.get("origin").and_then(|o| o.as_str()).unwrap_or(""),
-                                    "name": format!("Worker [{}]", target_session.local_session_id),
-                                    "uniqueId": format!("worker-{}-{}", target_session.local_session_id, unique_context_id),
-                                    "auxData": {
-                                      "isDefault": false,
-                                      "type": "worker",
-                                      "frameId": format!("worker-frame-{}", target_session.local_session_id)
-                                    }
-                                  }
-                                }
-                              });
-
-                              // Send directly to main session (no wrapping!)
-                              send(InspectorMsg {
-                                kind: InspectorMsgKind::Notification,
-                                content: worker_context.to_string(),
-                              });
-                              eprintln!("[WORKER DEBUG] Sent Runtime.executionContextCreated directly with id={}", unique_context_id);
-                            }
-                          }
+                      // For Chrome DevTools
+                      let wrapped_target = json!({
+                        "method": "Target.receivedMessageFromTarget",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "message": msg.content.clone(),
+                          "targetId": target_session.target_id
                         }
+                      });
 
-                        // Also send wrapped in Target.receivedMessageFromTarget for the target session
-                        let wrapped_target = json!({
-                          "method": "Target.receivedMessageFromTarget",
-                          "params": {
-                            "sessionId": target_session.session_id,
-                            "message": msg.content.clone(),
-                            "targetId": target_session.target_id
-                          }
-                        });
-                        send(InspectorMsg {
-                          kind: InspectorMsgKind::Notification,
-                          content: wrapped_target.to_string(),
-                        });
-                      } else if flatten {
-                        // flatten=true: Send directly to main session with sessionId field
-                        // This makes all worker contexts appear in the main session
-                        if let Ok(mut parsed) =
-                          serde_json::from_str::<serde_json::Value>(&msg.content)
-                        {
-                          // Add sessionId as a top-level field
-                          if let Some(obj) = parsed.as_object_mut() {
-                            obj.insert(
-                              "sessionId".to_string(),
-                              json!(target_session.session_id),
-                            );
-                          }
+                      send(InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: wrapped_target.to_string(),
+                      });
 
-                          send(InspectorMsg {
-                            kind: msg.kind,
-                            content: parsed.to_string(),
-                          });
-                        } else {
-                          // Parse failed - send wrapped in Target.receivedMessageFromTarget as fallback
-                          eprintln!(
-                            "[WORKER DEBUG] Failed to parse worker message for flatten mode, using fallback: {}",
-                            &msg.content[..msg.content.len().min(100)]
-                          );
-                          let wrapped_target = json!({
-                            "method": "Target.receivedMessageFromTarget",
-                            "params": {
-                              "sessionId": target_session.session_id,
-                              "message": msg.content.clone(),
-                              "targetId": target_session.target_id
-                            }
-                          });
-
-                          send(InspectorMsg {
-                            kind: InspectorMsgKind::Notification,
-                            content: wrapped_target.to_string(),
-                          });
-                        }
-                      } else {
-                        // flatten=false: Wrap in Target.receivedMessageFromTarget
-                        // This keeps worker contexts in separate sessions
-                        let wrapped_target = json!({
-                          "method": "Target.receivedMessageFromTarget",
-                          "params": {
-                            "sessionId": target_session.session_id,
-                            "message": msg.content.clone(),
-                            "targetId": target_session.target_id
-                          }
-                        });
-
-                        send(InspectorMsg {
-                          kind: InspectorMsgKind::Notification,
-                          content: wrapped_target.to_string(),
-                        });
-                      }
-
-                      // Always send NodeWorker.receivedMessageFromWorker for VSCode
+                      // For VSCode
                       let wrapped_nodeworker = json!({
                         "method": "NodeWorker.receivedMessageFromWorker",
                         "params": {
@@ -915,7 +815,6 @@ pub struct SessionContainer {
   next_target_session_id: i32,
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
-  flatten: bool, // If true, worker events are sent directly to main session (not wrapped in Target.receivedMessageFromTarget)
   main_session_id: Option<i32>, // The first session that should receive Target events
 
   // Store breakpoint commands set on main thread to replay to new workers (for VSCode)
@@ -958,7 +857,6 @@ impl SessionContainer {
       next_target_session_id: 1,
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
-      flatten: true, // Default to true so all execution contexts appear in main session (like Node.js and VSCode)
       main_session_id: None,
       stored_breakpoints: Vec::new(),
       next_worker_context_id: 1000, // Start from 1000 to avoid conflicts with main context
@@ -1016,7 +914,6 @@ impl SessionContainer {
       next_target_session_id: 1,
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
-      flatten: true, // Default to true so all execution contexts appear in main session
       main_session_id: None,
       stored_breakpoints: Vec::new(),
       next_worker_context_id: 1000,
@@ -1312,9 +1209,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
     // Parse the incoming message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
       // FIRST: Check if this message has a top-level sessionId field
-      // This handles both flatten modes:
-      // - flatten=true: DevTools sends messages with sessionId at top level
-      // - flatten=false: DevTools wraps in Target.sendMessageToTarget (handled later)
+      // This is how DevTools routes messages to worker sessions after Target.attachedToTarget
       if let Some(target_session_id_str) =
         parsed.get("sessionId").and_then(|s| s.as_str())
       {
@@ -1322,7 +1217,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
           // This message is intended for a worker session, not the main session
           let target_session_id = target_session_id_str.to_owned();
           eprintln!(
-            "[WORKER DEBUG] Routing message to worker session (flatten=true): {}",
+            "[WORKER DEBUG] Routing message to session: {}",
             target_session_id
           );
 
@@ -1572,23 +1467,11 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 .and_then(|a| a.as_bool())
                 .unwrap_or(false);
 
-              let flatten = params
-                .as_ref()
-                .and_then(|p| p.get("flatten"))
-                .and_then(|f| f.as_bool())
-                .unwrap_or(false);
-
-              eprintln!(
-                "[WORKER DEBUG] Target.setAutoAttach: autoAttach={}, flatten={}",
-                auto_attach, flatten
-              );
-
               let sessions = session.state.sessions.clone();
               let send = session.state.send.clone();
               deno_core::unsync::spawn(async move {
                 let mut sessions = sessions.borrow_mut();
                 sessions.auto_attach_enabled = auto_attach;
-                sessions.flatten = flatten;
 
                 if auto_attach {
                   for target_session in sessions.target_sessions.values() {
