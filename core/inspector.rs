@@ -129,6 +129,9 @@ struct JsRuntimeInspectorState {
   waker: Arc<InspectorWaker>,
   sessions: Rc<RefCell<SessionContainer>>,
   is_dispatching_message: Rc<RefCell<bool>>,
+  // Thread-safe queue for NodeWorker messages that need to be sent to workers
+  // Using Mutex instead of RefCell so it can be accessed from pump without borrowing sessions
+  pending_worker_messages: Arc<parking_lot::Mutex<Vec<(String, String)>>>,
 }
 
 struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
@@ -147,8 +150,8 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
     let mut poll_count = 0;
     while self.0.flags.borrow().on_pause {
       poll_count += 1;
-      if poll_count % 100 == 1 {
-        // Only print every 100 iterations to reduce spam
+      if poll_count % 1000 == 1 {
+        // Only print every 1000 iterations to reduce spam
         eprintln!(
           "[PAUSE DEBUG {:?}] Polling sessions while paused (iteration {})...",
           thread_id, poll_count
@@ -163,8 +166,10 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
       use deno_core::futures::task::ArcWake;
       ArcWake::wake_by_ref(&self.0.waker);
 
-      // Small sleep to avoid busy loop
-      std::thread::sleep(std::time::Duration::from_millis(10));
+      // CRITICAL FIX: Use a VERY short sleep (1ms) to ensure responsive message processing
+      // When a worker is paused and user clicks "continue", the resume command must be
+      // processed immediately. A 10ms sleep causes noticeable delays in worker resume.
+      std::thread::sleep(std::time::Duration::from_millis(1));
     }
     eprintln!(
       "[PAUSE DEBUG {:?}] Exiting run_message_loop_on_pause after {} polls - resuming V8 execution",
@@ -322,6 +327,7 @@ impl JsRuntimeInspectorState {
                 Some(rx),
                 session_proxy.kind,
                 self.sessions.clone(),
+                self.pending_worker_messages.clone(),
               );
 
               let prev = sessions.handshake.replace(session);
@@ -501,6 +507,30 @@ impl JsRuntimeInspectorState {
         flags.on_pause || flags.waiting_for_session
       };
 
+      // Process any queued NodeWorker messages after polling completes
+      // Drain from the thread-safe Mutex queue (doesn't require borrowing sessions)
+      let pending_messages: Vec<(String, String)> = {
+        let mut queue = self.pending_worker_messages.lock();
+        queue.drain(..).collect()
+      };
+
+      for (session_id, message) in pending_messages {
+        if let Some(target_session) = sessions.target_sessions.get(&session_id) {
+          if let Some(worker_tx) = target_session.worker_tx.borrow().as_ref() {
+            eprintln!(
+              "[WORKER DEBUG] Sending queued message to worker {} (SYNC): {}",
+              &session_id,
+              &message[..message.len().min(100)]
+            );
+            let _ = worker_tx.send(message);
+          } else {
+            eprintln!("[WORKER DEBUG] No worker_tx for session {}", session_id);
+          }
+        } else {
+          eprintln!("[WORKER DEBUG] No target session found for {}", session_id);
+        }
+      }
+
       let new_state = self.waker.update(|w| {
         match w.poll_state {
           PollState::Woken => {
@@ -576,6 +606,7 @@ impl JsRuntimeInspector {
         RefCell::new(SessionContainer::temporary_placeholder()),
       ),
       is_dispatching_message: Default::default(),
+      pending_worker_messages: Arc::new(parking_lot::Mutex::new(Vec::new())),
     });
     let client = Box::new(JsRuntimeInspectorClient(state.clone()));
     let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
@@ -737,6 +768,7 @@ impl JsRuntimeInspector {
         None,
         kind,
         sessions.clone(),
+        inspector.state.pending_worker_messages.clone(),
       );
 
       let session_id = {
@@ -1072,6 +1104,9 @@ struct InspectorSessionState {
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
   sessions: Rc<RefCell<SessionContainer>>,
+  // Thread-safe queue for NodeWorker messages that need to be sent to workers
+  // Using Arc<Mutex<>> so it can be accessed from pump without borrowing sessions
+  pending_worker_messages: Arc<parking_lot::Mutex<Vec<(String, String)>>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -1091,6 +1126,7 @@ impl InspectorSession {
     rx: Option<SessionProxyReceiver>,
     kind: InspectorSessionKind,
     sessions: Rc<RefCell<SessionContainer>>,
+    pending_worker_messages: Arc<parking_lot::Mutex<Vec<(String, String)>>>,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
@@ -1098,6 +1134,7 @@ impl InspectorSession {
       rx: Rc::new(RefCell::new(rx)),
       kind,
       sessions,
+      pending_worker_messages,
     };
 
     let v8_session = v8_inspector.connect(
@@ -1329,39 +1366,16 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               //   );
               // }
 
-              let sessions = session.state.sessions.clone();
-              deno_core::unsync::spawn(async move {
-                let sessions = sessions.borrow();
-                if let Some(target_session) =
-                  sessions.target_sessions.get(&session_id)
-                {
-                  if let Some(worker_tx) =
-                    target_session.worker_tx.borrow().as_ref()
-                  {
-                    eprintln!(
-                      "[WORKER DEBUG] Sending to worker via NodeWorker: {}",
-                      &message[..message.len().min(100)]
-                    );
-                    let _ = worker_tx.send(message);
-
-                    // If this is Debugger.enable, replay all stored breakpoints to this worker
-                    // if is_debugger_enable {
-                    //   eprintln!(
-                    //     "[BREAKPOINT] Debugger.enable received for worker, replaying {} stored breakpoints",
-                    //     sessions.stored_breakpoints.len()
-                    //   );
-                    //   for breakpoint_cmd in &sessions.stored_breakpoints {
-                    //     eprintln!(
-                    //       "[BREAKPOINT] Replaying breakpoint to worker: {}",
-                    //       &breakpoint_cmd[..breakpoint_cmd.len().min(100)]
-                    //     );
-                    //     let _ =
-                    //       worker_tx.send(breakpoint_cmd.clone());
-                    //   }
-                    // }
-                  }
-                }
-              });
+              // CRITICAL FIX: Queue the message using thread-safe Mutex!
+              // This avoids the RefCell borrow conflict when poll_sessions has sessions borrowed.
+              // The message will be processed in poll_sessions on the next iteration.
+              // This works even when V8 is paused because run_message_loop_on_pause polls continuously.
+              eprintln!(
+                "[WORKER DEBUG] Queuing message for worker {} using Mutex: {}",
+                &session_id,
+                &message[..message.len().min(100)]
+              );
+              session.state.pending_worker_messages.lock().push((session_id, message));
 
               json!({})
             }
