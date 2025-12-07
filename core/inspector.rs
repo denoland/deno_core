@@ -141,21 +141,14 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.0.flags.borrow_mut().on_pause = true;
 
-    // Keep polling while paused to process inspector messages (including worker messages)
+    // Keep polling while paused to process inspector messages (including worker messages).
+    // poll_sessions() already handles blocking efficiently:
+    // - When on_pause is true, it sets should_block = true
+    // - When there's nothing to poll, it parks the thread (PollState::Parked)
+    // - When new messages arrive, InspectorWaker::wake_by_ref unparks the thread
+    // This is more efficient than sleep() - we wake up immediately when messages arrive.
     while self.0.flags.borrow().on_pause {
-      // Keep calling poll_sessions repeatedly - it will poll all established sessions
-      // and process any messages that have arrived in the channels
       let _ = self.0.poll_sessions(None);
-
-      // Manually wake up the inspector to force another poll iteration
-      // This ensures that if new messages arrive in channels, we poll them
-      use deno_core::futures::task::ArcWake;
-      ArcWake::wake_by_ref(&self.0.waker);
-
-      // Use a VERY short sleep (1ms) to ensure responsive message processing
-      // When a worker is paused and user clicks "continue", the resume command must be
-      // processed immediately. A 10ms sleep causes noticeable delays in worker resume.
-      std::thread::sleep(std::time::Duration::from_millis(1));
     }
   }
 
@@ -459,17 +452,12 @@ impl JsRuntimeInspector {
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
     is_main_runtime: bool,
+    worker_id: Option<u32>,
   ) -> Rc<Self> {
     let (new_session_tx, new_session_rx) =
       mpsc::unbounded::<InspectorSessionProxy>();
 
     let waker = InspectorWaker::new(scope.thread_safe_handle());
-    let random_str = std::time::SystemTime::now()
-      .duration_since(std::time::UNIX_EPOCH)
-      .unwrap()
-      .as_nanos()
-      .to_string();
-
     let state = Rc::new(JsRuntimeInspectorState {
       waker,
       flags: Default::default(),
@@ -492,11 +480,10 @@ impl JsRuntimeInspector {
       SessionContainer::new(v8_inspector.clone(), new_session_rx);
 
     // Tell the inspector about the main realm.
-    // let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
     let str = if is_main_runtime {
-      format!("main realm")
+      "main realm".to_string()
     } else {
-      format!("worker [{}]", random_str)
+      format!("worker [{}]", worker_id.unwrap_or(0))
     };
     let b = str.as_bytes();
 

@@ -1058,6 +1058,7 @@ impl JsRuntime {
           scope,
           context,
           options.is_main,
+          None,
         ))
       } else {
         None
@@ -1876,6 +1877,7 @@ impl JsRuntime {
       scope,
       context,
       self.is_main_runtime,
+      None,
     ));
   }
 
