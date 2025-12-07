@@ -152,7 +152,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
       use deno_core::futures::task::ArcWake;
       ArcWake::wake_by_ref(&self.0.waker);
 
-      // CRITICAL FIX: Use a VERY short sleep (1ms) to ensure responsive message processing
+      // Use a VERY short sleep (1ms) to ensure responsive message processing
       // When a worker is paused and user clicks "continue", the resume command must be
       // processed immediately. A 10ms sleep causes noticeable delays in worker resume.
       std::thread::sleep(std::time::Duration::from_millis(1));
@@ -493,7 +493,11 @@ impl JsRuntimeInspector {
 
     // Tell the inspector about the main realm.
     // let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
-    let str = format!("deno-{}", random_str);
+    let str = if is_main_runtime {
+      format!("main realm")
+    } else {
+      format!("worker [{}]", random_str)
+    };
     let b = str.as_bytes();
 
     let context_name = v8::inspector::StringView::from(b);
@@ -1163,6 +1167,35 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   while let Some(msg) = rx.next().await {
     // Parse the incoming message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
+      // FIRST: Check if this message has a top-level sessionId field (CDP "flattened" mode)
+      // Chrome DevTools sends commands like: {"id": 123, "method": "Debugger.resume", "sessionId": "1"}
+      // These should be routed to the worker session, not dispatched to main's V8
+      if let Some(target_session_id_str) =
+        parsed.get("sessionId").and_then(|s| s.as_str())
+      {
+        if !target_session_id_str.is_empty() {
+          // This message is intended for a worker session
+          let target_session_id = target_session_id_str.to_owned();
+
+          // Remove the sessionId field before sending to worker's V8 inspector
+          // V8 inspector doesn't understand this CDP Target domain concept
+          let mut cleaned = parsed.clone();
+          if let Some(obj) = cleaned.as_object_mut() {
+            obj.remove("sessionId");
+          }
+          let cleaned_msg = cleaned.to_string();
+
+          // Queue the message for the worker using thread-safe Mutex
+          session
+            .state
+            .pending_worker_messages
+            .lock()
+            .push((target_session_id, cleaned_msg));
+
+          continue; // Don't process this message locally
+        }
+      }
+
       if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
         // Check if this is a NodeWorker or Target domain message (for the main session)
         if method.starts_with("NodeWorker.") {
@@ -1216,10 +1249,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 .map(|s| s.to_owned())
                 .unwrap_or_default();
 
-              // CRITICAL: Queue the message using thread-safe Mutex!
-              // This avoids the RefCell borrow conflict when poll_sessions has sessions borrowed.
-              // The message will be processed in poll_sessions on the next iteration.
-              // This works even when V8 is paused because run_message_loop_on_pause polls continuously.
               session
                 .state
                 .pending_worker_messages
@@ -1463,42 +1492,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               json!({})
             }
             "Target.sendMessageToTarget" => {
-              // eprintln!(
-              //   "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
-              //   session_id, message
-              // );
-
-              // Route the message to the worker
-              // let sessions = session.state.sessions.clone();
-              // let message_str = message.to_string();
-              // deno_core::unsync::spawn(async move {
-              //   let sessions = sessions.borrow();
-              //
-              //   if let Some(target_session) =
-              //     sessions.target_sessions.get(&session_id)
-              //   {
-              //     if let Some(worker_tx) =
-              //       target_session.worker_tx.borrow().as_ref()
-              //     {
-              //       worker_tx.send(message_str).unwrap();
-              //     } else {
-              //       // eprintln!(
-              //       //   "[WORKER DEBUG] Warning: No worker channel, using local session (won't work for real workers)"
-              //       // );
-              //       let local_session = sessions
-              //         .local
-              //         .get(&target_session.local_session_id)
-              //         .unwrap();
-              //       local_session.dispatch_message(message.to_string());
-              //     }
-              //   } else {
-              //     // eprintln!(
-              //     //   "[WORKER DEBUG] Session not found: {}",
-              //     //   session_id
-              //     // );
-              //   }
-              // });
-              //
               session
                 .state
                 .pending_worker_messages
