@@ -813,8 +813,8 @@ impl SessionContainer {
     worker_send: Rc<InspectorSessionSend>,
     worker_url: String,
   ) {
-    let target_id = format!("worker-{}", local_session_id);
-    let session_id = format!("session-{}", self.next_target_session_id);
+    let target_id = format!("{}", local_session_id);
+    let session_id = format!("{}", self.next_target_session_id);
     self.next_target_session_id += 1;
 
     // Extract just the filename for display (like Node.js does)
@@ -832,113 +832,125 @@ impl SessionContainer {
       .target_sessions
       .insert(session_id.clone(), target_session.clone());
 
+    eprintln!(
+      "Registered worker session: {} with session_id {} and local_session_id {}",
+      worker_url, session_id, local_session_id
+    );
+
     // Send Target.targetCreated to the main session immediately (like Node.js does)
     // This notifies DevTools that a worker target exists
-    if let Some(main_id) = self.main_session_id {
-      if let Some(main_session) = self.local.get(&main_id) {
-        let send = main_session.state.send.clone();
-
-        // For Chrome DevTools
-        let created_event = json!({
-          "method": "Target.targetCreated",
-          "params": {
-            "targetInfo": {
-              "targetId": target_id,
-              "type": "worker",
-              "title": format!("[worker {}] WorkerThread", local_session_id),
-              "url": worker_url,
-              "attached": false,
-              "canAccessOpener": true
-            }
-          }
-        });
-
-        send(InspectorMsg {
-          kind: InspectorMsgKind::Notification,
-          content: created_event.to_string(),
-        });
-
-        // If auto-attach OR discover-targets is enabled, immediately attach to the worker and send execution context
-        // This is critical for Chrome DevTools to show the worker's execution context
-        // Chrome uses setDiscoverTargets, while other debuggers may use setAutoAttach
-        if self.auto_attach_enabled || self.discover_targets_enabled {
-          *target_session.attached.borrow_mut() = true;
-
-          // Send Target.attachedToTarget
-          let attached_to_target = json!({
-            "method": "Target.attachedToTarget",
-            "params": {
-              "sessionId": session_id,
-              "targetInfo": {
-                "targetId": target_id,
-                "type": "worker",
-                "title": format!("[worker {}] WorkerThread", local_session_id),
-                "url": worker_url,
-                "attached": true,
-                "canAccessOpener": true
-              },
-              "waitingForDebugger": true
-            }
-          });
-
-          send(InspectorMsg {
-            kind: InspectorMsgKind::Notification,
-            content: attached_to_target.to_string(),
-          });
-
-          // Note: The worker's real execution context will be forwarded when the worker
-          // sends Runtime.executionContextCreated through its inspector channel.
-          // We don't send a synthetic one here to avoid duplicates.
-          // 2) Runtime.* events must arrive via Target.receivedMessageFromTarget.
-          let runtime_event = json!({
-            "method": "Runtime.executionContextCreated",
-            "params": {
-              "context": {
-                "id": local_session_id,
-                "origin": "",
-                "name": format!("Worker {}", local_session_id),
-                "uniqueId": format!("worker-{}", local_session_id),
-                "auxData": {
-                  "isDefault": true,
-                  "type": "worker"
-                }
-              }
-            }
-          });
-
-          let wrapped = json!({
-            "method": "Target.receivedMessageFromTarget",
-            "params": {
-              "sessionId": format!("session-{}", self.next_target_session_id - 1),
-              "targetId": format!("worker-{}", local_session_id),
-              "message": runtime_event.to_string()
-            }
-          });
-
-          eprintln!("LOOOOL");
-
-          send(InspectorMsg {
-            kind: InspectorMsgKind::Notification,
-            content: wrapped.to_string(),
-          });
-
-          // For VSCode
-          let wrapped_nodeworker = json!({
-            "method": "NodeWorker.receivedMessageFromWorker",
-            "params": {
-              "sessionId": target_session.session_id,
-              "message": runtime_event.to_string(),
-              "workerId": target_session.target_id
-            }
-          });
-
-          send(InspectorMsg {
-            kind: InspectorMsgKind::Notification,
-            content: wrapped_nodeworker.to_string(),
-          });
-        }
-      }
-    }
+    // if let Some(main_id) = self.main_session_id {
+    //   if let Some(main_session) = self.local.get(&main_id) {
+    //     let send = main_session.state.send.clone();
+    //
+    //     // For Chrome DevTools
+    //     let created_event = json!({
+    //       "method": "Target.targetCreated",
+    //       "params": {
+    //         "targetInfo": {
+    //           "targetId": target_id,
+    //           "type": "worker",
+    //           "title": format!("[deno_worker {}] WorkerThread", local_session_id),
+    //           "url": worker_url,
+    //           "attached": false,
+    //           "canAccessOpener": true
+    //         }
+    //       }
+    //     });
+    //
+    //     send(InspectorMsg {
+    //       kind: InspectorMsgKind::Notification,
+    //       content: created_event.to_string(),
+    //     });
+    //
+    //     eprintln!(
+    //       "self auto_attach_enabled: {} and discover_targets_enabled: {}",
+    //       self.auto_attach_enabled, self.discover_targets_enabled
+    //     );
+    //
+    //     // If auto-attach OR discover-targets is enabled, immediately attach to the worker and send execution context
+    //     // This is critical for Chrome DevTools to show the worker's execution context
+    //     // Chrome uses setDiscoverTargets, while other debuggers may use setAutoAttach
+    //     eprintln!("session {} session_local {}", session_id, local_session_id);
+    //     if self.auto_attach_enabled || self.discover_targets_enabled {
+    //       // if (1 + 1) == 2 {
+    //       *target_session.attached.borrow_mut() = true;
+    //
+    //       // Send Target.attachedToTarget
+    //       let attached_to_target = json!({
+    //         "method": "Target.attachedToTarget",
+    //         "params": {
+    //           "sessionId": session_id,
+    //           "targetInfo": {
+    //             "targetId": target_id,
+    //             "type": "worker",
+    //             "title": format!("[deno_worker {}] WorkerThread", local_session_id),
+    //             "url": worker_url,
+    //             "attached": true,
+    //             "canAccessOpener": true
+    //           },
+    //           "waitingForDebugger": true
+    //         }
+    //       });
+    //
+    //       send(InspectorMsg {
+    //         kind: InspectorMsgKind::Notification,
+    //         content: attached_to_target.to_string(),
+    //       });
+    //
+    //       // Note: The worker's real execution context will be forwarded when the worker
+    //       // sends Runtime.executionContextCreated through its inspector channel.
+    //       // We don't send a synthetic one here to avoid duplicates.
+    //       // 2) Runtime.* events must arrive via Target.receivedMessageFromTarget.
+    //       let runtime_event = json!({
+    //         "method": "Runtime.executionContextCreated",
+    //         "params": {
+    //           "context": {
+    //             "id": local_session_id,
+    //             "origin": "",
+    //             "name":  local_session_id,
+    //             "uniqueId":  local_session_id,
+    //             "auxData": {
+    //               "isDefault": true,
+    //               "type": "worker"
+    //             }
+    //           }
+    //         }
+    //       });
+    //
+    //       let wrapped = json!({
+    //         "method": "Target.receivedMessageFromTarget",
+    //         "params": {
+    //           "sessionId": format!("session-{}", self.next_target_session_id - 1),
+    //           "targetId": format!("deno worker-{}", local_session_id),
+    //           "message": runtime_event.to_string()
+    //         }
+    //       });
+    //
+    //       eprintln!("LOOOOL");
+    //
+    //       send(InspectorMsg {
+    //         kind: InspectorMsgKind::Notification,
+    //         content: wrapped.to_string(),
+    //       });
+    //
+    //       // For VSCode
+    //       let wrapped_nodeworker = json!({
+    //         "method": "NodeWorker.receivedMessageFromWorker",
+    //         "params": {
+    //           "sessionId": target_session.session_id,
+    //           "message": runtime_event.to_string(),
+    //           "workerId": target_session.target_id
+    //         }
+    //       });
+    //
+    //       send(InspectorMsg {
+    //         kind: InspectorMsgKind::Notification,
+    //         content: wrapped_nodeworker.to_string(),
+    //       });
+    //     }
+    //   }
+    // }
   }
 
   /// Register the communication channels for a worker's V8 inspector
@@ -1151,42 +1163,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   while let Some(msg) = rx.next().await {
     // Parse the incoming message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
-      // FIRST: Check if this message has a top-level sessionId field
-      // This is how DevTools routes messages to worker sessions after Target.attachedToTarget
-      if let Some(target_session_id_str) =
-        parsed.get("sessionId").and_then(|s| s.as_str())
-      {
-        if !target_session_id_str.is_empty() {
-          // This message is intended for a worker session, not the main session
-          let target_session_id = target_session_id_str.to_owned();
-
-          // Remove the sessionId field before sending to worker's V8 inspector
-          // V8 inspector doesn't understand this CDP Target domain concept
-          let mut cleaned = parsed.clone();
-          if let Some(obj) = cleaned.as_object_mut() {
-            obj.remove("sessionId");
-          }
-          let cleaned_msg = cleaned.to_string();
-
-          let sessions = session.state.sessions.clone();
-          deno_core::unsync::spawn(async move {
-            let sessions = sessions.borrow();
-            if let Some(target_session) =
-              sessions.target_sessions.get(&target_session_id)
-            {
-              if let Some(worker_tx) =
-                target_session.worker_tx.borrow().as_ref()
-              {
-                worker_tx.send(cleaned_msg).unwrap();
-              }
-            }
-          });
-          continue; // Don't process this message locally
-        }
-      }
-
-      // SECOND: Check if this is a NodeWorker or Target domain message (for the main session)
       if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
+        // Check if this is a NodeWorker or Target domain message (for the main session)
         if method.starts_with("NodeWorker.") {
           let id = parsed.get("id").and_then(|i| i.as_i64()).map(|i| i as i32);
           let params = parsed.get("params").cloned();
@@ -1206,7 +1184,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                       "workerInfo": {
                         "workerId": target_session.target_id,
                         "type": "worker",
-                        "title": format!("[worker {}] WorkerThread", target_session.local_session_id),
+                        "title": format!("[deno_worker {}] WorkerThread", target_session.local_session_id),
                         "url": target_session.url
                       },
                       "waitingForDebugger": false
@@ -1271,233 +1249,305 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
           continue; // Don't process this message locally
         }
 
-        // if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
-        //   if method.starts_with("Target.") {
-        //     eprintln!("[WORKER DEBUG] Intercepted Target message: {}", method);
-        //     let id =
-        //       parsed.get("id").and_then(|i| i.as_i64()).map(|i| i as i32);
-        //     let params = parsed.get("params").cloned();
-        //     let session_id = params
-        //       .as_ref()
-        //       .and_then(|p| p.get("sessionId"))
-        //       .and_then(|s| s.as_str())
-        //       .map(|s| s.to_owned())
-        //       .unwrap_or_default();
-        //
-        //     let message = params
-        //       .as_ref()
-        //       .and_then(|p| p.get("message"))
-        //       .and_then(|m| m.as_str())
-        //       .map(|s| s.to_owned())
-        //       .unwrap_or_default();
-        //
-        //     // Handle Target domain messages inline to avoid deadlock
-        //     let result: serde_json::Value = match method {
-        //       "Target.setDiscoverTargets" => {
-        //         let discover = params
-        //           .as_ref()
-        //           .and_then(|p| p.get("discover"))
-        //           .and_then(|d| d.as_bool())
-        //           .unwrap_or(false);
-        //
-        //         if discover {
-        //           // Send targetCreated AND attachedToTarget events for existing workers
-        //           // (like Node.js --experimental-worker-inspection)
-        //           let sessions = session.state.sessions.clone();
-        //           let send = session.state.send.clone();
-        //           deno_core::unsync::spawn(async move {
-        //             let sessions = sessions.borrow();
-        //             eprintln!(
-        //               "[WORKER DEBUG] Target.setDiscoverTargets: discover=true, target_sessions.len()={}",
-        //               sessions.target_sessions.len()
-        //             );
-        //
-        //             for target_session in sessions.target_sessions.values() {
-        //               eprintln!(
-        //                 "[WORKER DEBUG] Sending Target.targetCreated for {}",
-        //                 target_session.target_id
-        //               );
-        //               // Send targetCreated event
-        //               let target_created = json!({
-        //                 "method": "Target.targetCreated",
-        //                 "params": {
-        //                   "targetInfo": {
-        //                     "targetId": target_session.target_id,
-        //                     "type": "worker",
-        //                     "title": format!("Worker {}", target_session.local_session_id),
-        //                     "url": "",
-        //                     "attached": true,
-        //                     "canAccessOpener": false
-        //                   }
-        //                 }
-        //               });
-        //
-        //               send(InspectorMsg {
-        //                 kind: InspectorMsgKind::Notification,
-        //                 content: target_created.to_string(),
-        //               });
-        //
-        //               eprintln!(
-        //                 "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
-        //                 target_session.target_id
-        //               );
-        //               // Send attachedToTarget event immediately after
-        //               let attached_to_target = json!({
-        //                 "method": "Target.attachedToTarget",
-        //                 "params": {
-        //                   "sessionId": target_session.session_id,
-        //                   "targetInfo": {
-        //                     "targetId": target_session.target_id,
-        //                     "type": "worker",
-        //                     "title": format!("Worker {}", target_session.local_session_id),
-        //                     "url": "",
-        //                     "attached": true,
-        //                     "canAccessOpener": false
-        //                   },
-        //                   "waitingForDebugger": false
-        //                 }
-        //               });
-        //
-        //               send(InspectorMsg {
-        //                 kind: InspectorMsgKind::Notification,
-        //                 content: attached_to_target.to_string(),
-        //               });
-        //             }
-        //           });
-        //         }
-        //         json!({})
-        //       }
-        //       "Target.setAutoAttach" => {
-        //         let auto_attach = params
-        //           .as_ref()
-        //           .and_then(|p| p.get("autoAttach"))
-        //           .and_then(|a| a.as_bool())
-        //           .unwrap_or(false);
-        //
-        //         let sessions = session.state.sessions.clone();
-        //         let send = session.state.send.clone();
-        //         deno_core::unsync::spawn(async move {
-        //           let mut sessions = sessions.borrow_mut();
-        //           sessions.auto_attach_enabled = auto_attach;
-        //           eprintln!(
-        //             "[WORKER DEBUG] Target.setAutoAttach: autoAttach={}, sending attachedToTarget for {} workers",
-        //             auto_attach,
-        //             sessions.target_sessions.len()
-        //           );
-        //
-        //           // Send Target.attachedToTarget for all existing workers
-        //           if auto_attach {
-        //             for target_session in sessions.target_sessions.values() {
-        //               eprintln!(
-        //                 "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
-        //                 target_session.target_id
-        //               );
-        //               let event = json!({
-        //                 "method": "Target.attachedToTarget",
-        //                 "params": {
-        //                   "sessionId": target_session.session_id,
-        //                   "targetInfo": {
-        //                     "targetId": target_session.target_id,
-        //                     "type": "worker",
-        //                     "title": format!("Worker {}", target_session.local_session_id),
-        //                     "url": "",
-        //                     "attached": true,
-        //                     "canAccessOpener": false
-        //                   },
-        //                   "waitingForDebugger": false
-        //                 }
-        //               });
-        //
-        //               send(InspectorMsg {
-        //                 kind: InspectorMsgKind::Notification,
-        //                 content: event.to_string(),
-        //               });
-        //             }
-        //           }
-        //         });
-        //         json!({})
-        //       }
-        //       "Target.sendMessageToTarget" => {
-        //         eprintln!(
-        //           "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
-        //           session_id, message
-        //         );
-        //
-        //         // Route the message to the worker
-        //         let sessions = session.state.sessions.clone();
-        //         let message_str = message.to_string();
-        //         deno_core::unsync::spawn(async move {
-        //           let sessions = sessions.borrow();
-        //
-        //           if let Some(target_session) =
-        //             sessions.target_sessions.get(&session_id)
-        //           {
-        //             if let Some(worker_tx) =
-        //               target_session.worker_tx.borrow().as_ref()
-        //             {
-        //               worker_tx.send(message_str).unwrap();
-        //             } else {
-        //               eprintln!(
-        //                 "[WORKER DEBUG] Warning: No worker channel, using local session (won't work for real workers)"
-        //               );
-        //               let local_session = sessions
-        //                 .local
-        //                 .get(&target_session.local_session_id)
-        //                 .unwrap();
-        //               local_session.dispatch_message(message.to_string());
-        //             }
-        //           } else {
-        //             eprintln!(
-        //               "[WORKER DEBUG] Session not found: {}",
-        //               session_id
-        //             );
-        //           }
-        //         });
-        //
-        //         json!({})
-        //       }
-        //       _ => {
-        //         eprintln!("[WORKER DEBUG] Unhandled Target method: {}", method);
-        //         json!({})
-        //       }
-        //     };
-        //
-        //     // Send response if this was a request (has id)
-        //     if let Some(id) = id {
-        //       let response = json!({
-        //         "id": id,
-        //         "result": result
-        //       });
-        //
-        //       // let response = match result {
-        //       //   Ok(result_value) => {
-        //       //     json!({
-        //       //       "id": id,
-        //       //       "result": result_value
-        //       //     })
-        //       //   }
-        //       //   Err(error) => {
-        //       //     json!({
-        //       //       "id": id,
-        //       //       "error": {
-        //       //         "code": -32000,
-        //       //         "message": error
-        //       //       }
-        //       //     })
-        //       //   }
-        //       // };
-        //
-        //       let response_msg = InspectorMsg {
-        //         kind: InspectorMsgKind::Message(id),
-        //         content: response.to_string(),
-        //       };
-        //
-        //       (session.state.send)(response_msg);
-        //     }
-        //
-        //     continue; // Don't dispatch to V8
-        //   }
-        // }
+        if method.starts_with("Target.") {
+          // eprintln!("[WORKER DEBUG] Intercepted Target message: {}", method);
+          let id = parsed.get("id").and_then(|i| i.as_i64()).map(|i| i as i32);
+          let params = parsed.get("params").cloned();
+          let session_id = params
+            .as_ref()
+            .and_then(|p| p.get("sessionId"))
+            .and_then(|s| s.as_str())
+            .map(|s| s.to_owned())
+            .unwrap_or_default();
+
+          let message = params
+            .as_ref()
+            .and_then(|p| p.get("message"))
+            .and_then(|m| m.as_str())
+            .map(|s| s.to_owned())
+            .unwrap_or_default();
+
+          // Handle Target domain messages inline to avoid deadlock
+          let result: serde_json::Value = match method {
+            "Target.setDiscoverTargets" => {
+              let discover = params
+                .as_ref()
+                .and_then(|p| p.get("discover"))
+                .and_then(|d| d.as_bool())
+                .unwrap_or(false);
+
+              if discover {
+                // Send targetCreated AND attachedToTarget events for existing workers
+                // (like Node.js --experimental-worker-inspection)
+                let sessions = session.state.sessions.clone();
+                let send = session.state.send.clone();
+                deno_core::unsync::spawn(async move {
+                  let sessions = sessions.borrow();
+                  // eprintln!(
+                  //   "[WORKER DEBUG] Target.setDiscoverTargets: discover=true, target_sessions.len()={}",
+                  //   sessions.target_sessions.len()
+                  // );
+
+                  for target_session in sessions.target_sessions.values() {
+                    // eprintln!(
+                    //   "[WORKER DEBUG] Sending Target.targetCreated for {}",
+                    //   target_session.target_id
+                    // );
+                    // Send targetCreated event
+                    let target_created = json!({
+                      "method": "Target.targetCreated",
+                      "params": {
+                        "targetInfo": {
+                          "targetId": target_session.target_id,
+                          "type": "worker",
+                          "title":  target_session.local_session_id,
+                          "url": target_session.url,
+                          "attached": true,
+                          "canAccessOpener": false
+                        }
+                      }
+                    });
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: target_created.to_string(),
+                    });
+
+                    // eprintln!(
+                    //   "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
+                    //   target_session.target_id
+                    // );
+                    // Send attachedToTarget event immediately after
+                    let attached_to_target = json!({
+                      "method": "Target.attachedToTarget",
+                      "params": {
+                        "sessionId": target_session.session_id,
+                        "targetInfo": {
+                          "targetId": target_session.target_id,
+                          "type": "worker",
+                          "title": target_session.local_session_id,
+                          "url": target_session.url,
+                          "attached": true,
+                          "canAccessOpener": false
+                        },
+                        "waitingForDebugger": false
+                      }
+                    });
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: attached_to_target.to_string(),
+                    });
+
+                    let local_session_id = target_session.local_session_id;
+
+                    let runtime_event = json!({
+                      "method": "Runtime.executionContextCreated",
+                      "params": {
+                        "context": {
+                          "id": local_session_id,
+                          "origin": "",
+                          "name":  local_session_id,
+                          "uniqueId":  local_session_id,
+                          "auxData": {
+                            "isDefault": true,
+                            "type": "worker"
+                          }
+                        }
+                      }
+                    });
+
+                    let wrapped = json!({
+                      "method": "Target.receivedMessageFromTarget",
+                      "params": {
+                        // "sessionId": format!("session-{}", self.next_target_session_id - 1),
+                        "sessionId":  local_session_id,
+                        "targetId": target_session.target_id,
+                        "message": runtime_event.to_string()
+                      }
+                    });
+
+                    eprintln!("auto runtime");
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: wrapped.to_string(),
+                    });
+                  }
+                });
+              }
+              json!({})
+            }
+            "Target.setAutoAttach" => {
+              let auto_attach = params
+                .as_ref()
+                .and_then(|p| p.get("autoAttach"))
+                .and_then(|a| a.as_bool())
+                .unwrap_or(false);
+
+              let sessions = session.state.sessions.clone();
+              let send = session.state.send.clone();
+              deno_core::unsync::spawn(async move {
+                let mut sessions = sessions.borrow_mut();
+                sessions.auto_attach_enabled = auto_attach;
+                // eprintln!(
+                //   "[WORKER DEBUG] Target.setAutoAttach: autoAttach={}, sending attachedToTarget for {} workers",
+                //   auto_attach,
+                //   sessions.target_sessions.len()
+                // );
+
+                // Send Target.attachedToTarget for all existing workers
+                if auto_attach {
+                  for target_session in sessions.target_sessions.values() {
+                    // eprintln!(
+                    //   "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
+                    //   target_session.target_id
+                    // );
+                    let event = json!({
+                      "method": "Target.attachedToTarget",
+                      "params": {
+                        "sessionId": target_session.session_id,
+                        "targetInfo": {
+                          "targetId": target_session.target_id,
+                          "type": "worker",
+                          "title": target_session.local_session_id,
+                          "url": target_session.url,
+                          "attached": true,
+                          "canAccessOpener": false
+                        },
+                        "waitingForDebugger": false
+                      }
+                    });
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: event.to_string(),
+                    });
+
+                    let local_session_id = target_session.local_session_id;
+
+                    let runtime_event = json!({
+                      "method": "Runtime.executionContextCreated",
+                      "params": {
+                        "context": {
+                          "id": local_session_id,
+                          "origin": "",
+                          "name":  local_session_id,
+                          "uniqueId":  local_session_id,
+                          "auxData": {
+                            "isDefault": true,
+                            "type": "worker"
+                          }
+                        }
+                      }
+                    });
+
+                    let wrapped = json!({
+                      "method": "Target.receivedMessageFromTarget",
+                      "params": {
+                        "sessionId": local_session_id,
+                        "targetId": target_session.target_id,
+                        "message": runtime_event.to_string()
+                      }
+                    });
+
+                    eprintln!("auto runtime");
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: wrapped.to_string(),
+                    });
+                  }
+                }
+              });
+              json!({})
+            }
+            "Target.sendMessageToTarget" => {
+              // eprintln!(
+              //   "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
+              //   session_id, message
+              // );
+
+              // Route the message to the worker
+              // let sessions = session.state.sessions.clone();
+              // let message_str = message.to_string();
+              // deno_core::unsync::spawn(async move {
+              //   let sessions = sessions.borrow();
+              //
+              //   if let Some(target_session) =
+              //     sessions.target_sessions.get(&session_id)
+              //   {
+              //     if let Some(worker_tx) =
+              //       target_session.worker_tx.borrow().as_ref()
+              //     {
+              //       worker_tx.send(message_str).unwrap();
+              //     } else {
+              //       // eprintln!(
+              //       //   "[WORKER DEBUG] Warning: No worker channel, using local session (won't work for real workers)"
+              //       // );
+              //       let local_session = sessions
+              //         .local
+              //         .get(&target_session.local_session_id)
+              //         .unwrap();
+              //       local_session.dispatch_message(message.to_string());
+              //     }
+              //   } else {
+              //     // eprintln!(
+              //     //   "[WORKER DEBUG] Session not found: {}",
+              //     //   session_id
+              //     // );
+              //   }
+              // });
+              //
+              session
+                .state
+                .pending_worker_messages
+                .lock()
+                .push((session_id, message));
+
+              json!({})
+            }
+            _ => {
+              // eprintln!("[WORKER DEBUG] Unhandled Target method: {}", method);
+              json!({})
+            }
+          };
+
+          // Send response if this was a request (has id)
+          if let Some(id) = id {
+            let response = json!({
+              "id": id,
+              "result": result
+            });
+
+            // let response = match result {
+            //   Ok(result_value) => {
+            //     json!({
+            //       "id": id,
+            //       "result": result_value
+            //     })
+            //   }
+            //   Err(error) => {
+            //     json!({
+            //       "id": id,
+            //       "error": {
+            //         "code": -32000,
+            //         "message": error
+            //       }
+            //     })
+            //   }
+            // };
+
+            let response_msg = InspectorMsg {
+              kind: InspectorMsgKind::Message(id),
+              content: response.to_string(),
+            };
+
+            (session.state.send)(response_msg);
+          }
+
+          continue; // Don't dispatch to V8
+        }
       }
     }
 
