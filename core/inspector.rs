@@ -140,16 +140,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.0.flags.borrow_mut().on_pause = true;
-
-    // Keep polling while paused to process inspector messages (including worker messages).
-    // poll_sessions() already handles blocking efficiently:
-    // - When on_pause is true, it sets should_block = true
-    // - When there's nothing to poll, it parks the thread (PollState::Parked)
-    // - When new messages arrive, InspectorWaker::wake_by_ref unparks the thread
-    // This is more efficient than sleep() - we wake up immediately when messages arrive.
-    while self.0.flags.borrow().on_pause {
-      let _ = self.0.poll_sessions(None);
-    }
+    let _ = self.0.poll_sessions(None);
   }
 
   fn quit_message_loop_on_pause(&self) {
