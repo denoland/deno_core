@@ -131,7 +131,7 @@ struct JsRuntimeInspectorState {
   is_dispatching_message: Rc<RefCell<bool>>,
   // Thread-safe queue for NodeWorker messages that need to be sent to workers
   // Using Mutex instead of RefCell so it can be accessed from pump without borrowing sessions
-  pending_worker_messages: Arc<parking_lot::Mutex<Vec<(String, String)>>>,
+  pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
@@ -309,62 +309,7 @@ impl JsRuntimeInspectorState {
               {
                 if let Some(worker_rx) = worker_rx_ref.as_mut() {
                   match worker_rx.poll_next_unpin(cx) {
-                    Poll::Ready(Some(mut msg)) => {
-                      // Check if this is a response to a stepOver/resume command
-                      let is_step_response =
-                        msg.content.contains("Debugger.stepOver")
-                          || msg.content.contains("Debugger.resume")
-                          || msg.content.contains("Debugger.stepInto")
-                          || msg.content.contains("Debugger.stepOut");
-
-                      let is_paused =
-                        msg.content.contains("\"method\":\"Debugger.paused\"");
-                      let is_resumed =
-                        msg.content.contains("\"method\":\"Debugger.resumed\"");
-                      let is_execution_context_created = msg.content.contains(
-                        "\"method\":\"Runtime.executionContextCreated\"",
-                      );
-
-                      // If this is Runtime.executionContextCreated from a worker,
-                      // send it DIRECTLY to main session so it appears in the context dropdown
-                      if is_execution_context_created {
-                        let worker_local_id = target_session.local_session_id;
-
-                        // Parse and modify the execution context
-                        if let Ok(mut parsed) =
-                          serde_json::from_str::<serde_json::Value>(
-                            &msg.content,
-                          )
-                        {
-                          if let Some(params) = parsed.get_mut("params") {
-                            if let Some(context) = params.get_mut("context") {
-                              // Set a descriptive name
-                              let worker_name =
-                                format!("Worker [{}]", worker_local_id);
-                              context["name"] = json!(worker_name);
-
-                              // Mark as non-default worker context
-                              if let Some(aux_data) = context.get_mut("auxData")
-                              {
-                                aux_data["isDefault"] = json!(false);
-                                aux_data["type"] = json!("worker");
-                              }
-
-                              // Send DIRECTLY to main session (so it appears in dropdown)
-                              let direct_msg = parsed.to_string();
-                              send(InspectorMsg {
-                                kind: InspectorMsgKind::Notification,
-                                content: direct_msg,
-                              });
-
-                              // Also update msg.content for the wrapped version below
-                              msg.content = parsed.to_string();
-                            }
-                          }
-                        }
-                        // Continue to also send wrapped version below
-                      }
-
+                    Poll::Ready(Some(msg)) => {
                       // Send both Target.receivedMessageFromTarget (for Chrome)
                       // and NodeWorker.receivedMessageFromWorker (for VSCode)
 
@@ -462,7 +407,7 @@ impl JsRuntimeInspectorState {
       let new_state = self.waker.update(|w| {
         match w.poll_state {
           PollState::Woken => {
-            // The inspector was woken while the session handler was bei
+            // The inspector was woken while the session handler was being
             // polled, so we poll it another time.
             w.poll_state = PollState::Polling;
           }
@@ -534,7 +479,7 @@ impl JsRuntimeInspector {
         RefCell::new(SessionContainer::temporary_placeholder()),
       ),
       is_dispatching_message: Default::default(),
-      pending_worker_messages: Arc::new(parking_lot::Mutex::new(Vec::new())),
+      pending_worker_messages: Arc::new(Mutex::new(Vec::new())),
     });
     let client = Box::new(JsRuntimeInspectorClient(state.clone()));
     let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
@@ -742,6 +687,7 @@ pub struct SessionContainer {
   // Target domain support for worker debugging
   next_target_session_id: i32,
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
+  // auto_attach_enabled: bool,
   auto_attach_enabled: bool,
   discover_targets_enabled: bool, // Chrome DevTools uses this instead of auto_attach
   main_session_id: Option<i32>, // The first session that should receive Target events
@@ -943,10 +889,54 @@ impl SessionContainer {
           // Note: The worker's real execution context will be forwarded when the worker
           // sends Runtime.executionContextCreated through its inspector channel.
           // We don't send a synthetic one here to avoid duplicates.
-        }
+          // 2) Runtime.* events must arrive via Target.receivedMessageFromTarget.
+          let runtime_event = json!({
+            "method": "Runtime.executionContextCreated",
+            "params": {
+              "context": {
+                "id": local_session_id,
+                "origin": "",
+                "name": format!("Worker {}", local_session_id),
+                "uniqueId": format!("worker-{}", local_session_id),
+                "auxData": {
+                  "isDefault": true,
+                  "type": "worker"
+                }
+              }
+            }
+          });
 
-        // Note: NodeWorker.attachedToWorker will be sent later in register_worker_channels
-        // when the worker's inspector is fully ready
+          let wrapped = json!({
+            "method": "Target.receivedMessageFromTarget",
+            "params": {
+              "sessionId": format!("session-{}", self.next_target_session_id - 1),
+              "targetId": format!("worker-{}", local_session_id),
+              "message": runtime_event.to_string()
+            }
+          });
+
+          eprintln!("LOOOOL");
+
+          send(InspectorMsg {
+            kind: InspectorMsgKind::Notification,
+            content: wrapped.to_string(),
+          });
+
+          // For VSCode
+          let wrapped_nodeworker = json!({
+            "method": "NodeWorker.receivedMessageFromWorker",
+            "params": {
+              "sessionId": target_session.session_id,
+              "message": runtime_event.to_string(),
+              "workerId": target_session.target_id
+            }
+          });
+
+          send(InspectorMsg {
+            kind: InspectorMsgKind::Notification,
+            content: wrapped_nodeworker.to_string(),
+          });
+        }
       }
     }
   }
@@ -1064,7 +1054,7 @@ struct InspectorSessionState {
   sessions: Rc<RefCell<SessionContainer>>,
   // Thread-safe queue for NodeWorker messages that need to be sent to workers
   // Using Arc<Mutex<>> so it can be accessed from pump without borrowing sessions
-  pending_worker_messages: Arc<parking_lot::Mutex<Vec<(String, String)>>>,
+  pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -1084,7 +1074,7 @@ impl InspectorSession {
     rx: Option<SessionProxyReceiver>,
     kind: InspectorSessionKind,
     sessions: Rc<RefCell<SessionContainer>>,
-    pending_worker_messages: Arc<parking_lot::Mutex<Vec<(String, String)>>>,
+    pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
@@ -1280,6 +1270,234 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
           continue; // Don't process this message locally
         }
+
+        // if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
+        //   if method.starts_with("Target.") {
+        //     eprintln!("[WORKER DEBUG] Intercepted Target message: {}", method);
+        //     let id =
+        //       parsed.get("id").and_then(|i| i.as_i64()).map(|i| i as i32);
+        //     let params = parsed.get("params").cloned();
+        //     let session_id = params
+        //       .as_ref()
+        //       .and_then(|p| p.get("sessionId"))
+        //       .and_then(|s| s.as_str())
+        //       .map(|s| s.to_owned())
+        //       .unwrap_or_default();
+        //
+        //     let message = params
+        //       .as_ref()
+        //       .and_then(|p| p.get("message"))
+        //       .and_then(|m| m.as_str())
+        //       .map(|s| s.to_owned())
+        //       .unwrap_or_default();
+        //
+        //     // Handle Target domain messages inline to avoid deadlock
+        //     let result: serde_json::Value = match method {
+        //       "Target.setDiscoverTargets" => {
+        //         let discover = params
+        //           .as_ref()
+        //           .and_then(|p| p.get("discover"))
+        //           .and_then(|d| d.as_bool())
+        //           .unwrap_or(false);
+        //
+        //         if discover {
+        //           // Send targetCreated AND attachedToTarget events for existing workers
+        //           // (like Node.js --experimental-worker-inspection)
+        //           let sessions = session.state.sessions.clone();
+        //           let send = session.state.send.clone();
+        //           deno_core::unsync::spawn(async move {
+        //             let sessions = sessions.borrow();
+        //             eprintln!(
+        //               "[WORKER DEBUG] Target.setDiscoverTargets: discover=true, target_sessions.len()={}",
+        //               sessions.target_sessions.len()
+        //             );
+        //
+        //             for target_session in sessions.target_sessions.values() {
+        //               eprintln!(
+        //                 "[WORKER DEBUG] Sending Target.targetCreated for {}",
+        //                 target_session.target_id
+        //               );
+        //               // Send targetCreated event
+        //               let target_created = json!({
+        //                 "method": "Target.targetCreated",
+        //                 "params": {
+        //                   "targetInfo": {
+        //                     "targetId": target_session.target_id,
+        //                     "type": "worker",
+        //                     "title": format!("Worker {}", target_session.local_session_id),
+        //                     "url": "",
+        //                     "attached": true,
+        //                     "canAccessOpener": false
+        //                   }
+        //                 }
+        //               });
+        //
+        //               send(InspectorMsg {
+        //                 kind: InspectorMsgKind::Notification,
+        //                 content: target_created.to_string(),
+        //               });
+        //
+        //               eprintln!(
+        //                 "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
+        //                 target_session.target_id
+        //               );
+        //               // Send attachedToTarget event immediately after
+        //               let attached_to_target = json!({
+        //                 "method": "Target.attachedToTarget",
+        //                 "params": {
+        //                   "sessionId": target_session.session_id,
+        //                   "targetInfo": {
+        //                     "targetId": target_session.target_id,
+        //                     "type": "worker",
+        //                     "title": format!("Worker {}", target_session.local_session_id),
+        //                     "url": "",
+        //                     "attached": true,
+        //                     "canAccessOpener": false
+        //                   },
+        //                   "waitingForDebugger": false
+        //                 }
+        //               });
+        //
+        //               send(InspectorMsg {
+        //                 kind: InspectorMsgKind::Notification,
+        //                 content: attached_to_target.to_string(),
+        //               });
+        //             }
+        //           });
+        //         }
+        //         json!({})
+        //       }
+        //       "Target.setAutoAttach" => {
+        //         let auto_attach = params
+        //           .as_ref()
+        //           .and_then(|p| p.get("autoAttach"))
+        //           .and_then(|a| a.as_bool())
+        //           .unwrap_or(false);
+        //
+        //         let sessions = session.state.sessions.clone();
+        //         let send = session.state.send.clone();
+        //         deno_core::unsync::spawn(async move {
+        //           let mut sessions = sessions.borrow_mut();
+        //           sessions.auto_attach_enabled = auto_attach;
+        //           eprintln!(
+        //             "[WORKER DEBUG] Target.setAutoAttach: autoAttach={}, sending attachedToTarget for {} workers",
+        //             auto_attach,
+        //             sessions.target_sessions.len()
+        //           );
+        //
+        //           // Send Target.attachedToTarget for all existing workers
+        //           if auto_attach {
+        //             for target_session in sessions.target_sessions.values() {
+        //               eprintln!(
+        //                 "[WORKER DEBUG] Sending Target.attachedToTarget for {}",
+        //                 target_session.target_id
+        //               );
+        //               let event = json!({
+        //                 "method": "Target.attachedToTarget",
+        //                 "params": {
+        //                   "sessionId": target_session.session_id,
+        //                   "targetInfo": {
+        //                     "targetId": target_session.target_id,
+        //                     "type": "worker",
+        //                     "title": format!("Worker {}", target_session.local_session_id),
+        //                     "url": "",
+        //                     "attached": true,
+        //                     "canAccessOpener": false
+        //                   },
+        //                   "waitingForDebugger": false
+        //                 }
+        //               });
+        //
+        //               send(InspectorMsg {
+        //                 kind: InspectorMsgKind::Notification,
+        //                 content: event.to_string(),
+        //               });
+        //             }
+        //           }
+        //         });
+        //         json!({})
+        //       }
+        //       "Target.sendMessageToTarget" => {
+        //         eprintln!(
+        //           "[WORKER DEBUG] Target.sendMessageToTarget: sessionId={}, message={}",
+        //           session_id, message
+        //         );
+        //
+        //         // Route the message to the worker
+        //         let sessions = session.state.sessions.clone();
+        //         let message_str = message.to_string();
+        //         deno_core::unsync::spawn(async move {
+        //           let sessions = sessions.borrow();
+        //
+        //           if let Some(target_session) =
+        //             sessions.target_sessions.get(&session_id)
+        //           {
+        //             if let Some(worker_tx) =
+        //               target_session.worker_tx.borrow().as_ref()
+        //             {
+        //               worker_tx.send(message_str).unwrap();
+        //             } else {
+        //               eprintln!(
+        //                 "[WORKER DEBUG] Warning: No worker channel, using local session (won't work for real workers)"
+        //               );
+        //               let local_session = sessions
+        //                 .local
+        //                 .get(&target_session.local_session_id)
+        //                 .unwrap();
+        //               local_session.dispatch_message(message.to_string());
+        //             }
+        //           } else {
+        //             eprintln!(
+        //               "[WORKER DEBUG] Session not found: {}",
+        //               session_id
+        //             );
+        //           }
+        //         });
+        //
+        //         json!({})
+        //       }
+        //       _ => {
+        //         eprintln!("[WORKER DEBUG] Unhandled Target method: {}", method);
+        //         json!({})
+        //       }
+        //     };
+        //
+        //     // Send response if this was a request (has id)
+        //     if let Some(id) = id {
+        //       let response = json!({
+        //         "id": id,
+        //         "result": result
+        //       });
+        //
+        //       // let response = match result {
+        //       //   Ok(result_value) => {
+        //       //     json!({
+        //       //       "id": id,
+        //       //       "result": result_value
+        //       //     })
+        //       //   }
+        //       //   Err(error) => {
+        //       //     json!({
+        //       //       "id": id,
+        //       //       "error": {
+        //       //         "code": -32000,
+        //       //         "message": error
+        //       //       }
+        //       //     })
+        //       //   }
+        //       // };
+        //
+        //       let response_msg = InspectorMsg {
+        //         kind: InspectorMsgKind::Message(id),
+        //         content: response.to_string(),
+        //       };
+        //
+        //       (session.state.send)(response_msg);
+        //     }
+        //
+        //     continue; // Don't dispatch to V8
+        //   }
+        // }
       }
     }
 
