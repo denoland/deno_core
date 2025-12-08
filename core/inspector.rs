@@ -15,7 +15,6 @@ use crate::futures::task;
 use crate::serde_json::json;
 
 use parking_lot::Mutex;
-use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -133,9 +132,6 @@ struct JsRuntimeInspectorState {
   // Thread-safe queue for NodeWorker messages that need to be sent to workers
   // Using Mutex instead of RefCell so it can be accessed from pump without borrowing sessions
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
-  // VSCode uses NodeWorker.enable instead of Target.setAutoAttach
-  // Using Rc<Cell<bool>> to allow access without borrowing sessions
-  nodeworker_enabled: Rc<Cell<bool>>,
 }
 
 struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
@@ -250,82 +246,6 @@ impl JsRuntimeInspectorState {
                 worker_to_main_rx,
               );
 
-              // If auto_attach or nodeworker is enabled, send events to notify debugger of new worker
-              // This is critical for VSCode/Chrome when workers are created AFTER the debugger connects
-              let auto_attach_enabled = sessions.auto_attach_enabled;
-              // Using Rc<Cell<bool>> to check nodeworker_enabled without borrowing sessions
-              let nodeworker_enabled = self.nodeworker_enabled.get();
-
-              if (auto_attach_enabled || nodeworker_enabled) && sessions.main_session_id.is_some() {
-                let main_id = sessions.main_session_id.unwrap();
-                if let Some(main_session) = sessions.local.get(&main_id) {
-                  let send = main_session.state.send.clone();
-
-                  // Find the newly created target session
-                  if let Some(target_session) = sessions.target_sessions.values()
-                    .find(|ts| ts.local_session_id == worker_id)
-                  {
-                    let target_id = target_session.target_id.clone();
-                    let session_id = target_session.session_id.clone();
-                    let url = target_session.url.clone();
-
-                    // Extract filename from URL for a meaningful title
-                    let worker_title = url
-                      .rsplit('/')
-                      .next()
-                      .unwrap_or("worker")
-                      .to_string();
-
-                    eprintln!("[INSPECTOR] New worker registered: id={}, sending events (auto_attach={}, nodeworker={})",
-                      worker_id, auto_attach_enabled, nodeworker_enabled);
-
-                    // Send Target.attachedToTarget for Chrome DevTools
-                    if auto_attach_enabled {
-                      let event = json!({
-                        "method": "Target.attachedToTarget",
-                        "params": {
-                          "sessionId": session_id,
-                          "targetInfo": {
-                            "targetId": target_id,
-                            "type": "node_worker",
-                            "title": worker_title,
-                            "url": url,
-                            "attached": true,
-                            "canAccessOpener": true
-                          },
-                          "waitingForDebugger": false
-                        }
-                      });
-                      send(InspectorMsg {
-                        kind: InspectorMsgKind::Notification,
-                        content: event.to_string(),
-                      });
-                    }
-
-                    // Send NodeWorker.attachedToWorker for VSCode
-                    if nodeworker_enabled {
-                      let attached_event = json!({
-                        "method": "NodeWorker.attachedToWorker",
-                        "params": {
-                          "sessionId": session_id,
-                          "workerInfo": {
-                            "workerId": target_id,
-                            "type": "worker",
-                            "title": format!("[deno_worker {}] WorkerThread", worker_id),
-                            "url": url
-                          },
-                          "waitingForDebugger": false
-                        }
-                      });
-                      send(InspectorMsg {
-                        kind: InspectorMsgKind::Notification,
-                        content: attached_event.to_string(),
-                      });
-                    }
-                  }
-                }
-              }
-
               continue;
             }
             InspectorSessionChannels::Regular { tx, rx } => {
@@ -340,7 +260,6 @@ impl JsRuntimeInspectorState {
                 session_proxy.kind,
                 self.sessions.clone(),
                 self.pending_worker_messages.clone(),
-                self.nodeworker_enabled.clone(),
               );
 
               let prev = sessions.handshake.replace(session);
@@ -538,7 +457,6 @@ impl JsRuntimeInspector {
       ),
       is_dispatching_message: Default::default(),
       pending_worker_messages: Arc::new(Mutex::new(Vec::new())),
-      nodeworker_enabled: Rc::new(Cell::new(false)),
     });
     let client = Box::new(JsRuntimeInspectorClient(state.clone()));
     let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
@@ -706,7 +624,6 @@ impl JsRuntimeInspector {
         kind,
         sessions.clone(),
         inspector.state.pending_worker_messages.clone(),
-        inspector.state.nodeworker_enabled.clone(),
       );
 
       let session_id = {
@@ -753,7 +670,6 @@ pub struct SessionContainer {
   next_target_session_id: i32,
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
-  // nodeworker_enabled is stored in JsRuntimeInspectorState as Rc<Cell<bool>> to avoid borrow conflicts
   main_session_id: Option<i32>, // The first session that should receive Target events
   // Track next execution context ID for workers (start from high number to avoid conflicts)
   next_worker_context_id: i32,
@@ -995,9 +911,6 @@ struct InspectorSessionState {
   // Thread-safe queue for NodeWorker messages that need to be sent to workers
   // Using Arc<Mutex<>> so it can be accessed from pump without borrowing sessions
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
-  // VSCode uses NodeWorker.enable instead of Target.setAutoAttach
-  // Using Rc<Cell<bool>> to allow access without borrowing sessions
-  nodeworker_enabled: Rc<Cell<bool>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -1018,7 +931,6 @@ impl InspectorSession {
     kind: InspectorSessionKind,
     sessions: Rc<RefCell<SessionContainer>>,
     pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
-    nodeworker_enabled: Rc<Cell<bool>>,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
@@ -1027,7 +939,6 @@ impl InspectorSession {
       kind,
       sessions,
       pending_worker_messages,
-      nodeworker_enabled,
     };
 
     let v8_session = v8_inspector.connect(
@@ -1122,30 +1033,11 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
       if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
         let params = parsed.get("params").cloned();
 
-        eprintln!("[INSPECTOR] Method received: {}", method);
-
         match method {
           "NodeWorker.enable" => {
-            eprintln!("[INSPECTOR] NodeWorker.enable received - enabling nodeworker mode and sending attachedToWorker events for existing workers");
-            // Set nodeworker_enabled BEFORE iterating, so newly registered workers will trigger events
-            // Using Rc<Cell<bool>> to avoid borrowing sessions (which may already be borrowed by poll_sessions)
-            session.state.nodeworker_enabled.set(true);
             let sessions = session.state.sessions.clone();
             let send = session.state.send.clone();
-            let message_id = parsed.get("id").and_then(|id| id.as_i64());
             deno_core::unsync::spawn(async move {
-              // Send response first
-              if let Some(id) = message_id {
-                let response = json!({
-                  "id": id,
-                  "result": {}
-                });
-                send(InspectorMsg {
-                  kind: InspectorMsgKind::Message(id as i32),
-                  content: response.to_string(),
-                });
-              }
-
               let sessions = sessions.borrow();
               for target_session in sessions.target_sessions.values() {
                 let attached_event = json!({
@@ -1171,7 +1063,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
           }
           "NodeWorker.sendMessageToWorker" => {
             // VSCode uses this to send messages to workers
-            eprintln!("[INSPECTOR] NodeWorker.sendMessageToWorker received");
             let message = params
               .as_ref()
               .and_then(|p| p.get("message"))
@@ -1179,7 +1070,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .map(|s| s.to_owned())
               .unwrap_or_default();
 
-            let target_session_id = params
+            let session_id = params
               .as_ref()
               .and_then(|p| p.get("sessionId"))
               .and_then(|s| s.as_str())
@@ -1190,44 +1081,25 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .state
               .pending_worker_messages
               .lock()
-              .push((target_session_id, message));
-
-            // Send response
-            if let Some(id) = parsed.get("id").and_then(|id| id.as_i64()) {
-              let response = json!({
-                "id": id,
-                "result": {}
-              });
-              (session.state.send)(InspectorMsg {
-                kind: InspectorMsgKind::Message(id as i32),
-                content: response.to_string(),
-              });
-            }
+              .push((session_id, message));
           }
           "Target.setDiscoverTargets" => {
+            let _session_id = params
+              .as_ref()
+              .and_then(|p| p.get("sessionId"))
+              .and_then(|s| s.as_str())
+              .map(|s| s.to_owned())
+              .unwrap_or_default();
             let discover = params
               .as_ref()
               .and_then(|p| p.get("discover"))
               .and_then(|d| d.as_bool())
               .unwrap_or(false);
-            let message_id = parsed.get("id").and_then(|id| id.as_i64());
 
-            let sessions = session.state.sessions.clone();
-            let send = session.state.send.clone();
-            deno_core::unsync::spawn(async move {
-              // Send response first
-              if let Some(id) = message_id {
-                let response = json!({
-                  "id": id,
-                  "result": {}
-                });
-                send(InspectorMsg {
-                  kind: InspectorMsgKind::Message(id as i32),
-                  content: response.to_string(),
-                });
-              }
-
-              if discover {
+            if discover {
+              let sessions = session.state.sessions.clone();
+              let send = session.state.send.clone();
+              deno_core::unsync::spawn(async move {
                 let sessions = sessions.borrow();
 
                 for target_session in sessions.target_sessions.values() {
@@ -1261,8 +1133,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
                   eprintln!("[INSPECTOR] Target.setDiscoverTargets: sent targetCreated for worker targetId={}", target_session.target_id);
                 }
-              }
-            });
+              });
+            }
           }
           "Target.setAutoAttach" => {
             let auto_attach = params
@@ -1270,23 +1142,16 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .and_then(|p| p.get("autoAttach"))
               .and_then(|a| a.as_bool())
               .unwrap_or(false);
-            let message_id = parsed.get("id").and_then(|id| id.as_i64());
+            let _session_id = params
+              .as_ref()
+              .and_then(|p| p.get("sessionId"))
+              .and_then(|s| s.as_str())
+              .map(|s| s.to_owned())
+              .unwrap_or_default();
 
             let sessions = session.state.sessions.clone();
             let send = session.state.send.clone();
             deno_core::unsync::spawn(async move {
-              // Send response first
-              if let Some(id) = message_id {
-                let response = json!({
-                  "id": id,
-                  "result": {}
-                });
-                send(InspectorMsg {
-                  kind: InspectorMsgKind::Message(id as i32),
-                  content: response.to_string(),
-                });
-              }
-
               let mut sessions = sessions.borrow_mut();
               sessions.auto_attach_enabled = auto_attach;
               // Send Target.attachedToTarget for all existing workers
@@ -1320,27 +1185,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     content: event.to_string(),
                   });
 
-                  // Also send NodeWorker.attachedToWorker for VSCode compatibility
-                  let nodeworker_event = json!({
-                    "method": "NodeWorker.attachedToWorker",
-                    "params": {
-                      "sessionId": target_session.session_id,
-                      "workerInfo": {
-                        "workerId": target_session.target_id,
-                        "type": "worker",
-                        "title": format!("[deno_worker {}] WorkerThread", target_session.local_session_id),
-                        "url": target_session.url
-                      },
-                      "waitingForDebugger": false
-                    }
-                  });
-
-                  send(InspectorMsg {
-                    kind: InspectorMsgKind::Notification,
-                    content: nodeworker_event.to_string(),
-                  });
-
-                  eprintln!("[INSPECTOR] Target.setAutoAttach: sent attachedToTarget AND NodeWorker.attachedToWorker for worker sessionId={}", target_session.session_id);
+                  eprintln!("[INSPECTOR] Target.setAutoAttach: sent attachedToTarget for worker sessionId={}", target_session.session_id);
                 }
               }
             });
@@ -1404,7 +1249,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
             });
           }
           "Target.sendMessageToTarget" => {
-            let target_session_id = params
+            let session_id = params
               .as_ref()
               .and_then(|p| p.get("sessionId"))
               .and_then(|s| s.as_str())
@@ -1421,19 +1266,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .state
               .pending_worker_messages
               .lock()
-              .push((target_session_id, message));
-
-            // Send response
-            if let Some(id) = parsed.get("id").and_then(|id| id.as_i64()) {
-              let response = json!({
-                "id": id,
-                "result": {}
-              });
-              (session.state.send)(InspectorMsg {
-                kind: InspectorMsgKind::Message(id as i32),
-                content: response.to_string(),
-              });
-            }
+              .push((session_id, message));
           }
           _ => {
             // Unknown CDP method - dispatch to V8 for standard handling
