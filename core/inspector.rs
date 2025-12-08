@@ -707,16 +707,13 @@ struct TargetSession {
 }
 
 impl TargetSession {
-  /// Get a display title for the worker, extracting filename from URL
+  /// Get a display title for the worker using Node.js style naming
+  /// e.g., "worker [1]", "worker [2]"
   fn title(&self) -> String {
-    // Extract just the filename from the URL for a cleaner display
-    // e.g., "file:///path/to/worker.js" -> "worker.js"
-    self
-      .url
-      .rsplit('/')
-      .next()
-      .map(|s| s.to_string())
-      .unwrap_or_else(|| format!("[Worker {}]", self.target_id))
+    // Use Node.js style "worker [N]" format for consistency
+    // The local_session_id is unique and sequential (starts at 2 for first worker)
+    // Subtract 1 to make it 1-indexed for display
+    format!("worker [{}]", self.local_session_id - 1)
   }
 }
 
