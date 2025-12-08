@@ -702,6 +702,22 @@ struct TargetSession {
   main_to_worker_tx: RefCell<Option<std::sync::mpsc::Sender<String>>>,
   worker_to_main_rx: RefCell<Option<UnboundedReceiver<InspectorMsg>>>,
   url: String,
+  /// Track if we've already sent attachedToTarget for this session
+  attached: Cell<bool>,
+}
+
+impl TargetSession {
+  /// Get a display title for the worker, extracting filename from URL
+  fn title(&self) -> String {
+    // Extract just the filename from the URL for a cleaner display
+    // e.g., "file:///path/to/worker.js" -> "worker.js"
+    self
+      .url
+      .rsplit('/')
+      .next()
+      .map(|s| s.to_string())
+      .unwrap_or_else(|| format!("[Worker {}]", self.target_id))
+  }
 }
 
 impl SessionContainer {
@@ -796,10 +812,10 @@ impl SessionContainer {
     local_session_id: i32,
     worker_url: String,
   ) {
-    // let target_id = format!("{}", local_session_id);
-    let target_id = format!("{}", self.next_local_id);
-    let session_id = format!("{}", self.next_local_id);
-    // self.next_target_session_id += 1;
+    // Use the local_session_id passed to us, not next_local_id
+    // The caller already assigned a unique ID before calling this
+    let target_id = format!("{}", local_session_id);
+    let session_id = format!("{}", local_session_id);
 
     // Extract just the filename for display (like Node.js does)
     let target_session = Rc::new(TargetSession {
@@ -809,6 +825,7 @@ impl SessionContainer {
       main_to_worker_tx: RefCell::new(None),
       worker_to_main_rx: RefCell::new(None),
       url: worker_url.clone(),
+      attached: Cell::new(false),
     });
     self
       .target_sessions
@@ -1081,7 +1098,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     "workerInfo": {
                       "workerId": target_session.target_id,
                       "type": "node_worker",
-                      "title": format!("[Worker {}]", target_session.target_id),
+                      "title": target_session.title(),
                       "url": target_session.url
                     },
                     "waitingForDebugger": false
@@ -1139,7 +1156,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                       "targetInfo": {
                         "targetId": target_session.target_id,
                         "type": "node_worker",
-                        "title": format!("[Worker {}]", target_session.target_id),
+                        "title": target_session.title(),
                         "url": target_session.url,
                         "attached": false,
                         "canAccessOpener": true
@@ -1172,9 +1189,15 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
             deno_core::unsync::spawn(async move {
               let mut sessions = sessions.borrow_mut();
               sessions.auto_attach_enabled = auto_attach;
-              // Send Target.attachedToTarget for all existing workers
+              // Send Target.attachedToTarget for all existing workers that haven't been attached yet
               if auto_attach {
                 for target_session in sessions.target_sessions.values() {
+                  // Skip if already attached to prevent duplicates
+                  if target_session.attached.get() {
+                    continue;
+                  }
+                  target_session.attached.set(true);
+
                   let event = json!({
                     "method": "Target.attachedToTarget",
                     "params": {
@@ -1182,8 +1205,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                       "targetInfo": {
                         "targetId": target_session.target_id,
                         "type": "node_worker",
-                        // "title": worker_title,
-                        "title": format!("[Worker {}]", target_session.target_id),
+                        "title": target_session.title(),
                         "url": target_session.url,
                         "attached": true,
                         "canAccessOpener": true
