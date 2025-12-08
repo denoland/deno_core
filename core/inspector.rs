@@ -686,7 +686,7 @@ pub struct SessionContainer {
   local: HashMap<i32, Rc<InspectorSession>>,
 
   // Target domain support for worker debugging
-  next_target_session_id: i32,
+  // next_target_session_id: i32,
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
   main_session_id: Option<i32>, // The first session that should receive Target events
@@ -717,7 +717,7 @@ impl SessionContainer {
       next_local_id: 1,
       local: HashMap::new(),
 
-      next_target_session_id: 1,
+      // next_target_session_id: 1,
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
@@ -773,7 +773,7 @@ impl SessionContainer {
       next_local_id: 1,
       local: HashMap::new(),
 
-      next_target_session_id: 1,
+      // next_target_session_id: 1,
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
@@ -790,15 +790,16 @@ impl SessionContainer {
     session.dispatch_message(message);
   }
 
-  /// Register a worker session and send Target.targetCreated event
+  /// Register a worker session
   fn register_worker_session(
     &mut self,
     local_session_id: i32,
     worker_url: String,
   ) {
-    let target_id = format!("{}", local_session_id);
-    let session_id = format!("{}", self.next_target_session_id);
-    self.next_target_session_id += 1;
+    // let target_id = format!("{}", local_session_id);
+    let target_id = format!("{}", self.next_local_id);
+    let session_id = format!("{}", self.next_local_id);
+    // self.next_target_session_id += 1;
 
     // Extract just the filename for display (like Node.js does)
     let target_session = Rc::new(TargetSession {
@@ -1079,8 +1080,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     "sessionId": target_session.session_id,
                     "workerInfo": {
                       "workerId": target_session.target_id,
-                      "type": "worker",
-                      "title": format!("[deno_worker {}] WorkerThread", target_session.local_session_id),
+                      "type": "node_worker",
+                      "title": format!("[Worker {}]", target_session.target_id),
                       "url": target_session.url
                     },
                     "waitingForDebugger": false
@@ -1117,12 +1118,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .push((session_id, message));
           }
           "Target.setDiscoverTargets" => {
-            let _session_id = params
-              .as_ref()
-              .and_then(|p| p.get("sessionId"))
-              .and_then(|s| s.as_str())
-              .map(|s| s.to_owned())
-              .unwrap_or_default();
             let discover = params
               .as_ref()
               .and_then(|p| p.get("discover"))
@@ -1136,14 +1131,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 let sessions = sessions.borrow();
 
                 for target_session in sessions.target_sessions.values() {
-                  // Extract filename from URL for a meaningful title
-                  let worker_title = target_session
-                    .url
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or("worker")
-                    .to_string();
-
                   // Use node_worker type (like Node.js PR #56759)
                   // This prevents Chrome from trying unsupported web worker domains
                   let target_created = json!({
@@ -1152,7 +1139,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                       "targetInfo": {
                         "targetId": target_session.target_id,
                         "type": "node_worker",
-                        "title": worker_title,
+                        "title": format!("[Worker {}]", target_session.target_id),
                         "url": target_session.url,
                         "attached": false,
                         "canAccessOpener": true
@@ -1179,12 +1166,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .and_then(|p| p.get("autoAttach"))
               .and_then(|a| a.as_bool())
               .unwrap_or(false);
-            let _session_id = params
-              .as_ref()
-              .and_then(|p| p.get("sessionId"))
-              .and_then(|s| s.as_str())
-              .map(|s| s.to_owned())
-              .unwrap_or_default();
 
             let sessions = session.state.sessions.clone();
             let send = session.state.send.clone();
@@ -1194,14 +1175,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               // Send Target.attachedToTarget for all existing workers
               if auto_attach {
                 for target_session in sessions.target_sessions.values() {
-                  // Extract filename from URL for a meaningful title
-                  let worker_title = target_session
-                    .url
-                    .rsplit('/')
-                    .next()
-                    .unwrap_or("worker")
-                    .to_string();
-
                   let event = json!({
                     "method": "Target.attachedToTarget",
                     "params": {
@@ -1209,7 +1182,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                       "targetInfo": {
                         "targetId": target_session.target_id,
                         "type": "node_worker",
-                        "title": worker_title,
+                        // "title": worker_title,
+                        "title": format!("[Worker {}]", target_session.target_id),
                         "url": target_session.url,
                         "attached": true,
                         "canAccessOpener": true
@@ -1227,69 +1201,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     "[INSPECTOR] Target.setAutoAttach: sent attachedToTarget for worker sessionId={}",
                     target_session.session_id
                   );
-                }
-              }
-            });
-          }
-          "Target.attachToTarget" => {
-            // DevTools wants to explicitly attach to a worker target
-            // In flattened mode (flatten: true), commands will have sessionId at top level
-            let target_id = params
-              .as_ref()
-              .and_then(|p| p.get("targetId"))
-              .and_then(|t| t.as_str())
-              .map(|s| s.to_owned())
-              .unwrap_or_default();
-            let flatten = params
-              .as_ref()
-              .and_then(|p| p.get("flatten"))
-              .and_then(|f| f.as_bool())
-              .unwrap_or(false);
-            let message_id = parsed.get("id").and_then(|id| id.as_i64());
-
-            eprintln!(
-              "[INSPECTOR] Target.attachToTarget targetId={} flatten={}",
-              target_id, flatten
-            );
-
-            let sessions = session.state.sessions.clone();
-            let send = session.state.send.clone();
-            deno_core::unsync::spawn(async move {
-              let sessions = sessions.borrow();
-              // Find the target session by target_id
-              let target_session = sessions
-                .target_sessions
-                .values()
-                .find(|s| s.target_id == target_id);
-
-              if let Some(target_session) = target_session {
-                // Send response with sessionId
-                if let Some(id) = message_id {
-                  let response = json!({
-                    "id": id,
-                    "result": {
-                      "sessionId": target_session.session_id
-                    }
-                  });
-                  send(InspectorMsg {
-                    kind: InspectorMsgKind::Message(id as i32),
-                    content: response.to_string(),
-                  });
-                }
-              } else {
-                // Target not found
-                if let Some(id) = message_id {
-                  let response = json!({
-                    "id": id,
-                    "error": {
-                      "code": -32000,
-                      "message": format!("Target not found: {}", target_id)
-                    }
-                  });
-                  send(InspectorMsg {
-                    kind: InspectorMsgKind::Message(id as i32),
-                    content: response.to_string(),
-                  });
                 }
               }
             });
