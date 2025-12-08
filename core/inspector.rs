@@ -1131,30 +1131,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     content: target_created.to_string(),
                   });
 
-                  // Send Target.attachedToTarget in flattened mode
-                  // DevTools will use sessionId to route commands to this worker
-                  let attached_to_target = json!({
-                    "method": "Target.attachedToTarget",
-                    "params": {
-                      "sessionId": target_session.session_id,
-                      "targetInfo": {
-                        "targetId": target_session.target_id,
-                        "type": "node_worker",
-                        "title": worker_title,
-                        "url": target_session.url,
-                        "attached": true,
-                        "canAccessOpener": true
-                      },
-                      "waitingForDebugger": false
-                    }
-                  });
-
-                  send(InspectorMsg {
-                    kind: InspectorMsgKind::Notification,
-                    content: attached_to_target.to_string(),
-                  });
-
-                  eprintln!("[INSPECTOR] Target.setDiscoverTargets: sent targetCreated and attachedToTarget for worker sessionId={}", target_session.session_id);
+                  eprintln!("[INSPECTOR] Target.setDiscoverTargets: sent targetCreated for worker targetId={}", target_session.target_id);
                 }
               });
             }
