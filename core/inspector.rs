@@ -15,6 +15,7 @@ use crate::futures::task;
 use crate::serde_json::json;
 
 use parking_lot::Mutex;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -132,6 +133,9 @@ struct JsRuntimeInspectorState {
   // Thread-safe queue for NodeWorker messages that need to be sent to workers
   // Using Mutex instead of RefCell so it can be accessed from pump without borrowing sessions
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
+  // Track whether NodeWorker.enable has been called (enables VSCode-style worker debugging)
+  // Using Rc<Cell<bool>> to avoid RefCell borrow conflicts with sessions
+  nodeworker_enabled: Rc<Cell<bool>>,
 }
 
 struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
@@ -260,6 +264,7 @@ impl JsRuntimeInspectorState {
                 session_proxy.kind,
                 self.sessions.clone(),
                 self.pending_worker_messages.clone(),
+                self.nodeworker_enabled.clone(),
               );
 
               let prev = sessions.handshake.replace(session);
@@ -288,40 +293,52 @@ impl JsRuntimeInspectorState {
                   match worker_to_main_rx.poll_next_unpin(cx) {
                     Poll::Ready(Some(msg)) => {
                       // CDP Flattened Session Mode: Add sessionId at top level
-                      // In flattened mode, responses include sessionId at the top level
-                      // This is the modern CDP approach (vs deprecated Target.receivedMessageFromTarget)
-                      if let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
-                        if let Some(obj) = parsed.as_object_mut() {
-                          obj.insert("sessionId".to_string(), json!(target_session.session_id));
-                          let flattened_msg = parsed.to_string();
+                      // Only enable this when NodeWorker.enable has been called (Chrome DevTools)
+                      // VSCode doesn't use flattened mode, so we skip this for VSCode
+                      if !self.nodeworker_enabled.get() {
+                        if let Ok(mut parsed) =
+                          serde_json::from_str::<serde_json::Value>(
+                            &msg.content,
+                          )
+                        {
+                          if let Some(obj) = parsed.as_object_mut() {
+                            obj.insert(
+                              "sessionId".to_string(),
+                              json!(target_session.session_id),
+                            );
+                            let flattened_msg = parsed.to_string();
 
-                          // Send the flattened response with sessionId at top level
-                          send(InspectorMsg {
-                            kind: msg.kind.clone(),
-                            content: flattened_msg.clone(),
-                          });
+                            // Send the flattened response with sessionId at top level
+                            send(InspectorMsg {
+                              kind: msg.kind.clone(),
+                              content: flattened_msg.clone(),
+                            });
 
-                          eprintln!("[INSPECTOR] Worker response (flattened): sessionId={}", target_session.session_id);
+                            eprintln!(
+                              "[INSPECTOR] Worker response (flattened): sessionId={}",
+                              target_session.session_id
+                            );
+                          }
+                        } else {
+                          // Fallback: send as-is if not valid JSON
+                          send(msg.clone());
                         }
                       } else {
-                        // Fallback: send as-is if not valid JSON
-                        send(msg.clone());
+                        // Also send via NodeWorker for VSCode compatibility
+                        let wrapped_nodeworker = json!({
+                          "method": "NodeWorker.receivedMessageFromWorker",
+                          "params": {
+                            "sessionId": target_session.session_id,
+                            "message": msg.content,
+                            "workerId": target_session.target_id
+                          }
+                        });
+
+                        send(InspectorMsg {
+                          kind: InspectorMsgKind::Notification,
+                          content: wrapped_nodeworker.to_string(),
+                        });
                       }
-
-                      // Also send via NodeWorker for VSCode compatibility
-                      let wrapped_nodeworker = json!({
-                        "method": "NodeWorker.receivedMessageFromWorker",
-                        "params": {
-                          "sessionId": target_session.session_id,
-                          "message": msg.content,
-                          "workerId": target_session.target_id
-                        }
-                      });
-
-                      send(InspectorMsg {
-                        kind: InspectorMsgKind::Notification,
-                        content: wrapped_nodeworker.to_string(),
-                      });
 
                       has_worker_message = true;
                     }
@@ -457,6 +474,7 @@ impl JsRuntimeInspector {
       ),
       is_dispatching_message: Default::default(),
       pending_worker_messages: Arc::new(Mutex::new(Vec::new())),
+      nodeworker_enabled: Rc::new(Cell::new(false)),
     });
     let client = Box::new(JsRuntimeInspectorClient(state.clone()));
     let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
@@ -624,6 +642,7 @@ impl JsRuntimeInspector {
         kind,
         sessions.clone(),
         inspector.state.pending_worker_messages.clone(),
+        inspector.state.nodeworker_enabled.clone(),
       );
 
       let session_id = {
@@ -911,6 +930,9 @@ struct InspectorSessionState {
   // Thread-safe queue for NodeWorker messages that need to be sent to workers
   // Using Arc<Mutex<>> so it can be accessed from pump without borrowing sessions
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
+  // Track whether NodeWorker.enable has been called (enables VSCode-style worker debugging)
+  // Using Rc<Cell<bool>> to avoid RefCell borrow conflicts with sessions
+  nodeworker_enabled: Rc<Cell<bool>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -931,6 +953,7 @@ impl InspectorSession {
     kind: InspectorSessionKind,
     sessions: Rc<RefCell<SessionContainer>>,
     pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
+    nodeworker_enabled: Rc<Cell<bool>>,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
@@ -939,6 +962,7 @@ impl InspectorSession {
       kind,
       sessions,
       pending_worker_messages,
+      nodeworker_enabled,
     };
 
     let v8_session = v8_inspector.connect(
@@ -1009,8 +1033,13 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
       // CDP Flattened Session Mode: Check for top-level sessionId
       // In flattened mode, commands targeting workers have sessionId at the top level
-      if let Some(top_level_session_id) = parsed.get("sessionId").and_then(|s| s.as_str()) {
-        eprintln!("[INSPECTOR] Flattened mode: message with sessionId={}", top_level_session_id);
+      if let Some(top_level_session_id) =
+        parsed.get("sessionId").and_then(|s| s.as_str())
+      {
+        eprintln!(
+          "[INSPECTOR] Flattened mode: message with sessionId={}",
+          top_level_session_id
+        );
 
         // Route this message to the worker identified by sessionId
         // Strip the sessionId and forward the rest of the message to the worker
@@ -1035,6 +1064,10 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
         match method {
           "NodeWorker.enable" => {
+            // Set nodeworker_enabled flag to enable VSCode-style worker debugging
+            // Uses Cell to avoid RefCell borrow conflicts
+            session.state.nodeworker_enabled.set(true);
+
             let sessions = session.state.sessions.clone();
             let send = session.state.send.clone();
             deno_core::unsync::spawn(async move {
@@ -1104,7 +1137,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
                 for target_session in sessions.target_sessions.values() {
                   // Extract filename from URL for a meaningful title
-                  let worker_title = target_session.url
+                  let worker_title = target_session
+                    .url
                     .rsplit('/')
                     .next()
                     .unwrap_or("worker")
@@ -1131,7 +1165,10 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     content: target_created.to_string(),
                   });
 
-                  eprintln!("[INSPECTOR] Target.setDiscoverTargets: sent targetCreated for worker targetId={}", target_session.target_id);
+                  eprintln!(
+                    "[INSPECTOR] Target.setDiscoverTargets: sent targetCreated for worker targetId={}",
+                    target_session.target_id
+                  );
                 }
               });
             }
@@ -1158,7 +1195,8 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               if auto_attach {
                 for target_session in sessions.target_sessions.values() {
                   // Extract filename from URL for a meaningful title
-                  let worker_title = target_session.url
+                  let worker_title = target_session
+                    .url
                     .rsplit('/')
                     .next()
                     .unwrap_or("worker")
@@ -1185,7 +1223,10 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     content: event.to_string(),
                   });
 
-                  eprintln!("[INSPECTOR] Target.setAutoAttach: sent attachedToTarget for worker sessionId={}", target_session.session_id);
+                  eprintln!(
+                    "[INSPECTOR] Target.setAutoAttach: sent attachedToTarget for worker sessionId={}",
+                    target_session.session_id
+                  );
                 }
               }
             });
@@ -1206,14 +1247,19 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .unwrap_or(false);
             let message_id = parsed.get("id").and_then(|id| id.as_i64());
 
-            eprintln!("[INSPECTOR] Target.attachToTarget targetId={} flatten={}", target_id, flatten);
+            eprintln!(
+              "[INSPECTOR] Target.attachToTarget targetId={} flatten={}",
+              target_id, flatten
+            );
 
             let sessions = session.state.sessions.clone();
             let send = session.state.send.clone();
             deno_core::unsync::spawn(async move {
               let sessions = sessions.borrow();
               // Find the target session by target_id
-              let target_session = sessions.target_sessions.values()
+              let target_session = sessions
+                .target_sessions
+                .values()
                 .find(|s| s.target_id == target_id);
 
               if let Some(target_session) = target_session {
