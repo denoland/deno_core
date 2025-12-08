@@ -27,13 +27,13 @@ use std::task::Context;
 use std::task::Poll;
 use std::thread;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum InspectorMsgKind {
   Notification,
   Message(i32),
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct InspectorMsg {
   pub kind: InspectorMsgKind,
   pub content: String,
@@ -287,22 +287,28 @@ impl JsRuntimeInspectorState {
                 {
                   match worker_to_main_rx.poll_next_unpin(cx) {
                     Poll::Ready(Some(msg)) => {
-                      // For Chrome DevTools
-                      let wrapped_target = json!({
-                        "method": "Target.receivedMessageFromTarget",
-                        "params": {
-                          "sessionId": target_session.session_id,
-                          "message": msg.content.clone(),
-                          "targetId": target_session.target_id
+                      // CDP Flattened Session Mode: Add sessionId at top level
+                      // In flattened mode, responses include sessionId at the top level
+                      // This is the modern CDP approach (vs deprecated Target.receivedMessageFromTarget)
+                      if let Ok(mut parsed) = serde_json::from_str::<serde_json::Value>(&msg.content) {
+                        if let Some(obj) = parsed.as_object_mut() {
+                          obj.insert("sessionId".to_string(), json!(target_session.session_id));
+                          let flattened_msg = parsed.to_string();
+
+                          // Send the flattened response with sessionId at top level
+                          send(InspectorMsg {
+                            kind: msg.kind.clone(),
+                            content: flattened_msg.clone(),
+                          });
+
+                          eprintln!("[INSPECTOR] Worker response (flattened): sessionId={}", target_session.session_id);
                         }
-                      });
+                      } else {
+                        // Fallback: send as-is if not valid JSON
+                        send(msg.clone());
+                      }
 
-                      send(InspectorMsg {
-                        kind: InspectorMsgKind::Notification,
-                        content: wrapped_target.to_string(),
-                      });
-
-                      // For VSCode
+                      // Also send via NodeWorker for VSCode compatibility
                       let wrapped_nodeworker = json!({
                         "method": "NodeWorker.receivedMessageFromWorker",
                         "params": {
@@ -473,11 +479,13 @@ impl JsRuntimeInspector {
     let context_name = v8::inspector::StringView::from(b);
     // NOTE(bartlomieju): this is what Node.js does and it turns out some
     // debuggers (like VSCode) rely on this information to disconnect after
-    // program completes
+    // program completes.
+    // The auxData structure should match {isDefault: boolean, type: 'default'|'isolated'|'worker'}
+    // For Chrome DevTools to properly show workers in the execution context dropdown.
     let aux_data = if is_main_runtime {
-      r#"{"isDefault": true}"#
+      r#"{"isDefault": true, "type": "default"}"#
     } else {
-      r#"{"isDefault": false}"#
+      r#"{"isDefault": false, "type": "worker"}"#
     };
     let aux_data_view = v8::inspector::StringView::from(aux_data.as_bytes());
     v8_inspector.context_created(
@@ -999,8 +1007,32 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   while let Some(msg) = rx.next().await {
     // Parse the incoming message
     if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
+      // CDP Flattened Session Mode: Check for top-level sessionId
+      // In flattened mode, commands targeting workers have sessionId at the top level
+      if let Some(top_level_session_id) = parsed.get("sessionId").and_then(|s| s.as_str()) {
+        eprintln!("[INSPECTOR] Flattened mode: message with sessionId={}", top_level_session_id);
+
+        // Route this message to the worker identified by sessionId
+        // Strip the sessionId and forward the rest of the message to the worker
+        let mut worker_msg = parsed.clone();
+        if let Some(obj) = worker_msg.as_object_mut() {
+          obj.remove("sessionId");
+        }
+        let forwarded_msg = worker_msg.to_string();
+
+        session
+          .state
+          .pending_worker_messages
+          .lock()
+          .push((top_level_session_id.to_string(), forwarded_msg));
+
+        // Don't dispatch to main V8 - continue to next message
+        continue;
+      }
+
       if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
         let params = parsed.get("params").cloned();
+
         match method {
           "NodeWorker.enable" => {
             let sessions = session.state.sessions.clone();
@@ -1052,7 +1084,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .push((session_id, message));
           }
           "Target.setDiscoverTargets" => {
-            let session_id = params
+            let _session_id = params
               .as_ref()
               .and_then(|p| p.get("sessionId"))
               .and_then(|s| s.as_str())
@@ -1071,16 +1103,25 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 let sessions = sessions.borrow();
 
                 for target_session in sessions.target_sessions.values() {
+                  // Extract filename from URL for a meaningful title
+                  let worker_title = target_session.url
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("worker")
+                    .to_string();
+
+                  // Use node_worker type (like Node.js PR #56759)
+                  // This prevents Chrome from trying unsupported web worker domains
                   let target_created = json!({
                     "method": "Target.targetCreated",
                     "params": {
                       "targetInfo": {
                         "targetId": target_session.target_id,
-                        "type": "worker",
-                        "title":  target_session.local_session_id,
+                        "type": "node_worker",
+                        "title": worker_title,
                         "url": target_session.url,
                         "attached": false,
-                        "canAccessOpener": false
+                        "canAccessOpener": true
                       }
                     }
                   });
@@ -1090,17 +1131,19 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     content: target_created.to_string(),
                   });
 
+                  // Send Target.attachedToTarget in flattened mode
+                  // DevTools will use sessionId to route commands to this worker
                   let attached_to_target = json!({
                     "method": "Target.attachedToTarget",
                     "params": {
                       "sessionId": target_session.session_id,
                       "targetInfo": {
                         "targetId": target_session.target_id,
-                        "type": "worker",
-                        "title": target_session.local_session_id,
+                        "type": "node_worker",
+                        "title": worker_title,
                         "url": target_session.url,
-                        "attached": false,
-                        "canAccessOpener": false
+                        "attached": true,
+                        "canAccessOpener": true
                       },
                       "waitingForDebugger": false
                     }
@@ -1111,37 +1154,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     content: attached_to_target.to_string(),
                   });
 
-                  let local_session_id = target_session.local_session_id;
-
-                  let runtime_event = json!({
-                    "method": "Runtime.executionContextCreated",
-                    "params": {
-                      "context": {
-                        "id": local_session_id,
-                        "origin": "",
-                        "name":  local_session_id,
-                        "uniqueId":  local_session_id,
-                        "auxData": {
-                          "isDefault": true,
-                          "type": "worker"
-                        }
-                      }
-                    }
-                  });
-
-                  let wrapped = json!({
-                    "method": "Target.receivedMessageFromTarget",
-                    "params": {
-                      "sessionId":  local_session_id,
-                      "targetId": target_session.target_id,
-                      "message": runtime_event.to_string()
-                    }
-                  });
-
-                  send(InspectorMsg {
-                    kind: InspectorMsgKind::Notification,
-                    content: wrapped.to_string(),
-                  });
+                  eprintln!("[INSPECTOR] Target.setDiscoverTargets: sent targetCreated and attachedToTarget for worker sessionId={}", target_session.session_id);
                 }
               });
             }
@@ -1152,7 +1165,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .and_then(|p| p.get("autoAttach"))
               .and_then(|a| a.as_bool())
               .unwrap_or(false);
-            let session_id = params
+            let _session_id = params
               .as_ref()
               .and_then(|p| p.get("sessionId"))
               .and_then(|s| s.as_str())
@@ -1167,17 +1180,24 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               // Send Target.attachedToTarget for all existing workers
               if auto_attach {
                 for target_session in sessions.target_sessions.values() {
+                  // Extract filename from URL for a meaningful title
+                  let worker_title = target_session.url
+                    .rsplit('/')
+                    .next()
+                    .unwrap_or("worker")
+                    .to_string();
+
                   let event = json!({
                     "method": "Target.attachedToTarget",
                     "params": {
                       "sessionId": target_session.session_id,
                       "targetInfo": {
                         "targetId": target_session.target_id,
-                        "type": "worker",
-                        "title": target_session.local_session_id,
+                        "type": "node_worker",
+                        "title": worker_title,
                         "url": target_session.url,
-                        "attached": false,
-                        "canAccessOpener": false
+                        "attached": true,
+                        "canAccessOpener": true
                       },
                       "waitingForDebugger": false
                     }
@@ -1188,36 +1208,64 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     content: event.to_string(),
                   });
 
-                  let local_session_id = target_session.local_session_id;
+                  eprintln!("[INSPECTOR] Target.setAutoAttach: sent attachedToTarget for worker sessionId={}", target_session.session_id);
+                }
+              }
+            });
+          }
+          "Target.attachToTarget" => {
+            // DevTools wants to explicitly attach to a worker target
+            // In flattened mode (flatten: true), commands will have sessionId at top level
+            let target_id = params
+              .as_ref()
+              .and_then(|p| p.get("targetId"))
+              .and_then(|t| t.as_str())
+              .map(|s| s.to_owned())
+              .unwrap_or_default();
+            let flatten = params
+              .as_ref()
+              .and_then(|p| p.get("flatten"))
+              .and_then(|f| f.as_bool())
+              .unwrap_or(false);
+            let message_id = parsed.get("id").and_then(|id| id.as_i64());
 
-                  let runtime_event = json!({
-                    "method": "Runtime.executionContextCreated",
-                    "params": {
-                      "context": {
-                        "id": local_session_id,
-                        "origin": "",
-                        "name":  local_session_id,
-                        "uniqueId":  local_session_id,
-                        "auxData": {
-                          "isDefault": true,
-                          "type": "worker"
-                        }
-                      }
+            eprintln!("[INSPECTOR] Target.attachToTarget targetId={} flatten={}", target_id, flatten);
+
+            let sessions = session.state.sessions.clone();
+            let send = session.state.send.clone();
+            deno_core::unsync::spawn(async move {
+              let sessions = sessions.borrow();
+              // Find the target session by target_id
+              let target_session = sessions.target_sessions.values()
+                .find(|s| s.target_id == target_id);
+
+              if let Some(target_session) = target_session {
+                // Send response with sessionId
+                if let Some(id) = message_id {
+                  let response = json!({
+                    "id": id,
+                    "result": {
+                      "sessionId": target_session.session_id
                     }
                   });
-
-                  let wrapped = json!({
-                    "method": "Target.receivedMessageFromTarget",
-                    "params": {
-                      "sessionId": local_session_id,
-                      "targetId": target_session.target_id,
-                      "message": runtime_event.to_string()
-                    }
-                  });
-
                   send(InspectorMsg {
-                    kind: InspectorMsgKind::Notification,
-                    content: wrapped.to_string(),
+                    kind: InspectorMsgKind::Message(id as i32),
+                    content: response.to_string(),
+                  });
+                }
+              } else {
+                // Target not found
+                if let Some(id) = message_id {
+                  let response = json!({
+                    "id": id,
+                    "error": {
+                      "code": -32000,
+                      "message": format!("Target not found: {}", target_id)
+                    }
+                  });
+                  send(InspectorMsg {
+                    kind: InspectorMsgKind::Message(id as i32),
+                    content: response.to_string(),
                   });
                 }
               }
@@ -1244,14 +1292,15 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               .push((session_id, message));
           }
           _ => {
-            eprintln!("Unknown method: {}", msg);
+            // Unknown CDP method - dispatch to V8 for standard handling
+            session.dispatch_message(msg);
           }
         };
       }
+    } else {
+      // Not a valid JSON message or no method - dispatch to V8
+      session.dispatch_message(msg);
     }
-
-    // Normal message - dispatch to V8
-    session.dispatch_message(msg);
   }
 }
 
