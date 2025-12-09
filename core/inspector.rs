@@ -28,13 +28,13 @@ use std::task::Context;
 use std::task::Poll;
 use std::thread;
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub enum InspectorMsgKind {
   Notification,
   Message(i32),
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct InspectorMsg {
   pub kind: InspectorMsgKind,
   pub content: String,
@@ -338,13 +338,13 @@ impl JsRuntimeInspectorState {
 
                             // Send the flattened response with sessionId at top level
                             send(InspectorMsg {
-                              kind: msg.kind.clone(),
+                              kind: msg.kind,
                               content: flattened_msg.clone(),
                             });
                           }
                         } else {
                           // Fallback: send as-is if not valid JSON
-                          send(msg.clone());
+                          send(msg);
                         }
                       } else {
                         // Also send via NodeWorker for VSCode compatibility
