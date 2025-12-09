@@ -40,6 +40,16 @@ pub struct InspectorMsg {
   pub content: String,
 }
 
+impl InspectorMsg {
+  /// Create a notification message from a JSON value
+  pub fn notification(content: serde_json::Value) -> Self {
+    Self {
+      kind: InspectorMsgKind::Notification,
+      content: content.to_string(),
+    }
+  }
+}
+
 // TODO(bartlomieju): remove this
 pub type SessionProxySender = UnboundedSender<InspectorMsg>;
 // TODO(bartlomieju): remove this
@@ -1038,6 +1048,30 @@ impl InspectorSession {
       .v8_session
       .schedule_pause_on_next_statement(reason, detail);
   }
+
+  /// Queue a message to be sent to a worker
+  fn queue_worker_message(&self, session_id: &str, message: String) {
+    self
+      .state
+      .pending_worker_messages
+      .lock()
+      .push((session_id.to_string(), message));
+  }
+
+  /// Notify all registered workers via a callback
+  fn notify_workers<F>(&self, mut f: F)
+  where
+    F: FnMut(&TargetSession, &dyn Fn(InspectorMsg)) + 'static,
+  {
+    let sessions = self.state.sessions.clone();
+    let send = self.state.send.clone();
+    deno_core::unsync::spawn(async move {
+      let sessions = sessions.borrow();
+      for ts in sessions.target_sessions.values() {
+        f(ts, &|msg| send(msg));
+      }
+    });
+  }
 }
 
 impl InspectorSessionState {
@@ -1073,202 +1107,128 @@ impl v8::inspector::ChannelImpl for InspectorSessionState {
   fn flush_protocol_notifications(&self) {}
 }
 type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
+/// Helper to extract a string param from CDP params
+fn get_str_param(params: &Option<serde_json::Value>, key: &str) -> String {
+  params
+    .as_ref()
+    .and_then(|p| p.get(key))
+    .and_then(|v| v.as_str())
+    .unwrap_or_default()
+    .to_owned()
+}
+
+/// Helper to extract a bool param from CDP params
+fn get_bool_param(params: &Option<serde_json::Value>, key: &str) -> bool {
+  params
+    .as_ref()
+    .and_then(|p| p.get(key))
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+}
+
+impl TargetSession {
+  /// Build target info JSON for CDP events
+  fn target_info(&self, attached: bool) -> serde_json::Value {
+    json!({
+      "targetId": self.target_id,
+      "type": "node_worker",
+      "title": self.title(),
+      "url": self.url,
+      "attached": attached,
+      "canAccessOpener": true
+    })
+  }
+
+  /// Build worker info JSON for NodeWorker events
+  fn worker_info(&self) -> serde_json::Value {
+    json!({
+      "workerId": self.target_id,
+      "type": "node_worker",
+      "title": self.title(),
+      "url": self.url
+    })
+  }
+}
+
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
 
   while let Some(msg) = rx.next().await {
-    // Parse the incoming message
-    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) {
-      // CDP Flattened Session Mode: Check for top-level sessionId
-      // In flattened mode, commands targeting workers have sessionId at the top level
-      if let Some(top_level_session_id) =
-        parsed.get("sessionId").and_then(|s| s.as_str())
-      {
-        // Route this message to the worker identified by sessionId
-        // Strip the sessionId and forward the rest of the message to the worker
-        let mut worker_msg = parsed.clone();
-        if let Some(obj) = worker_msg.as_object_mut() {
-          obj.remove("sessionId");
-        }
-        let forwarded_msg = worker_msg.to_string();
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) else {
+      session.dispatch_message(msg);
+      continue;
+    };
 
-        session
-          .state
-          .pending_worker_messages
-          .lock()
-          .push((top_level_session_id.to_string(), forwarded_msg));
+    // CDP Flattened Session Mode: route messages with top-level sessionId to workers
+    if let Some(session_id) = parsed.get("sessionId").and_then(|s| s.as_str()) {
+      let mut worker_msg = parsed.clone();
+      worker_msg.as_object_mut().unwrap().remove("sessionId");
+      session.queue_worker_message(session_id, worker_msg.to_string());
+      continue;
+    }
 
-        // Don't dispatch to main V8 - continue to next message
-        continue;
+    let Some(method) = parsed.get("method").and_then(|m| m.as_str()) else {
+      session.dispatch_message(msg);
+      continue;
+    };
+
+    let params = parsed.get("params").cloned();
+
+    match method {
+      "NodeWorker.enable" => {
+        session.state.nodeworker_enabled.set(true);
+        session.notify_workers(|ts, send| {
+          send(InspectorMsg::notification(json!({
+            "method": "NodeWorker.attachedToWorker",
+            "params": {
+              "sessionId": ts.session_id,
+              "workerInfo": ts.worker_info(),
+              "waitingForDebugger": false
+            }
+          })));
+        });
       }
-
-      if let Some(method) = parsed.get("method").and_then(|m| m.as_str()) {
-        let params = parsed.get("params").cloned();
-
-        match method {
-          "NodeWorker.enable" => {
-            // Set nodeworker_enabled flag to enable VSCode-style worker debugging
-            // Uses Cell to avoid RefCell borrow conflicts
-            session.state.nodeworker_enabled.set(true);
-
-            let sessions = session.state.sessions.clone();
-            let send = session.state.send.clone();
-            deno_core::unsync::spawn(async move {
-              let sessions = sessions.borrow();
-              for target_session in sessions.target_sessions.values() {
-                let attached_event = json!({
-                  "method": "NodeWorker.attachedToWorker",
-                  "params": {
-                    "sessionId": target_session.session_id,
-                    "workerInfo": {
-                      "workerId": target_session.target_id,
-                      "type": "node_worker",
-                      "title": target_session.title(),
-                      "url": target_session.url
-                    },
-                    "waitingForDebugger": false
-                  }
-                });
-
-                send(InspectorMsg {
-                  kind: InspectorMsgKind::Notification,
-                  content: attached_event.to_string(),
-                });
+      "NodeWorker.sendMessageToWorker" | "Target.sendMessageToTarget" => {
+        session.queue_worker_message(
+          &get_str_param(&params, "sessionId"),
+          get_str_param(&params, "message"),
+        );
+      }
+      "Target.setDiscoverTargets" => {
+        if get_bool_param(&params, "discover") {
+          session.notify_workers(|ts, send| {
+            send(InspectorMsg::notification(json!({
+              "method": "Target.targetCreated",
+              "params": { "targetInfo": ts.target_info(false) }
+            })));
+          });
+        }
+      }
+      "Target.setAutoAttach" => {
+        let auto_attach = get_bool_param(&params, "autoAttach");
+        let sessions = session.state.sessions.clone();
+        let send = session.state.send.clone();
+        deno_core::unsync::spawn(async move {
+          let mut sessions = sessions.borrow_mut();
+          sessions.auto_attach_enabled = auto_attach;
+          if auto_attach {
+            for ts in sessions.target_sessions.values() {
+              if ts.attached.replace(true) {
+                continue; // Skip if already attached
               }
-            });
-          }
-          "NodeWorker.sendMessageToWorker" => {
-            // VSCode uses this to send messages to workers
-            let message = params
-              .as_ref()
-              .and_then(|p| p.get("message"))
-              .and_then(|m| m.as_str())
-              .map(|s| s.to_owned())
-              .unwrap_or_default();
-
-            let session_id = params
-              .as_ref()
-              .and_then(|p| p.get("sessionId"))
-              .and_then(|s| s.as_str())
-              .map(|s| s.to_owned())
-              .unwrap_or_default();
-
-            session
-              .state
-              .pending_worker_messages
-              .lock()
-              .push((session_id, message));
-          }
-          "Target.setDiscoverTargets" => {
-            let discover = params
-              .as_ref()
-              .and_then(|p| p.get("discover"))
-              .and_then(|d| d.as_bool())
-              .unwrap_or(false);
-
-            if discover {
-              let sessions = session.state.sessions.clone();
-              let send = session.state.send.clone();
-              deno_core::unsync::spawn(async move {
-                let sessions = sessions.borrow();
-
-                for target_session in sessions.target_sessions.values() {
-                  let target_created = json!({
-                    "method": "Target.targetCreated",
-                    "params": {
-                      "targetInfo": {
-                        "targetId": target_session.target_id,
-                        "type": "node_worker",
-                        "title": target_session.title(),
-                        "url": target_session.url,
-                        "attached": false,
-                        "canAccessOpener": true
-                      }
-                    }
-                  });
-
-                  send(InspectorMsg {
-                    kind: InspectorMsgKind::Notification,
-                    content: target_created.to_string(),
-                  });
+              send(InspectorMsg::notification(json!({
+                "method": "Target.attachedToTarget",
+                "params": {
+                  "sessionId": ts.session_id,
+                  "targetInfo": ts.target_info(true),
+                  "waitingForDebugger": false
                 }
-              });
+              })));
             }
           }
-          "Target.setAutoAttach" => {
-            let auto_attach = params
-              .as_ref()
-              .and_then(|p| p.get("autoAttach"))
-              .and_then(|a| a.as_bool())
-              .unwrap_or(false);
-
-            let sessions = session.state.sessions.clone();
-            let send = session.state.send.clone();
-            deno_core::unsync::spawn(async move {
-              let mut sessions = sessions.borrow_mut();
-              sessions.auto_attach_enabled = auto_attach;
-              // Send Target.attachedToTarget for all existing workers that haven't been attached yet
-              if auto_attach {
-                for target_session in sessions.target_sessions.values() {
-                  // Skip if already attached to prevent duplicates
-                  if target_session.attached.get() {
-                    continue;
-                  }
-                  target_session.attached.set(true);
-
-                  let event = json!({
-                    "method": "Target.attachedToTarget",
-                    "params": {
-                      "sessionId": target_session.session_id,
-                      "targetInfo": {
-                        "targetId": target_session.target_id,
-                        "type": "node_worker",
-                        "title": target_session.title(),
-                        "url": target_session.url,
-                        "attached": true,
-                        "canAccessOpener": true
-                      },
-                      "waitingForDebugger": false
-                    }
-                  });
-
-                  send(InspectorMsg {
-                    kind: InspectorMsgKind::Notification,
-                    content: event.to_string(),
-                  });
-                }
-              }
-            });
-          }
-          "Target.sendMessageToTarget" => {
-            let session_id = params
-              .as_ref()
-              .and_then(|p| p.get("sessionId"))
-              .and_then(|s| s.as_str())
-              .map(|s| s.to_owned())
-              .unwrap_or_default();
-            let message = params
-              .as_ref()
-              .and_then(|p| p.get("message"))
-              .and_then(|m| m.as_str())
-              .map(|s| s.to_owned())
-              .unwrap_or_default();
-
-            session
-              .state
-              .pending_worker_messages
-              .lock()
-              .push((session_id, message));
-          }
-          _ => {
-            // Unknown CDP method - dispatch to V8 for standard handling
-            session.dispatch_message(msg);
-          }
-        };
+        });
       }
-    } else {
-      // Not a valid JSON message or no method - dispatch to V8
-      session.dispatch_message(msg);
+      _ => session.dispatch_message(msg),
     }
   }
 }
