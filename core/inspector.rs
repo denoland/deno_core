@@ -315,59 +315,55 @@ impl JsRuntimeInspectorState {
             for target_session in sessions.target_sessions.values() {
               if let Ok(mut worker_to_main_rx_ref) =
                 target_session.worker_to_main_rx.try_borrow_mut()
+                && let Some(worker_to_main_rx) = worker_to_main_rx_ref.as_mut()
               {
-                if let Some(worker_to_main_rx) = worker_to_main_rx_ref.as_mut()
-                {
-                  match worker_to_main_rx.poll_next_unpin(cx) {
-                    Poll::Ready(Some(msg)) => {
-                      // CDP Flattened Session Mode: Add sessionId at top level
-                      // Only enable this when NodeWorker.enable has been called (Chrome DevTools)
-                      // VSCode doesn't use flattened mode, so we skip this for VSCode
-                      if !self.nodeworker_enabled.get() {
-                        if let Ok(mut parsed) =
-                          serde_json::from_str::<serde_json::Value>(
-                            &msg.content,
-                          )
-                        {
-                          if let Some(obj) = parsed.as_object_mut() {
-                            obj.insert(
-                              "sessionId".to_string(),
-                              json!(target_session.session_id),
-                            );
-                            let flattened_msg = parsed.to_string();
+                match worker_to_main_rx.poll_next_unpin(cx) {
+                  Poll::Ready(Some(msg)) => {
+                    // CDP Flattened Session Mode: Add sessionId at top level
+                    // Only enable this when NodeWorker.enable has been called (Chrome DevTools)
+                    // VSCode doesn't use flattened mode, so we skip this for VSCode
+                    if !self.nodeworker_enabled.get() {
+                      if let Ok(mut parsed) =
+                        serde_json::from_str::<serde_json::Value>(&msg.content)
+                      {
+                        if let Some(obj) = parsed.as_object_mut() {
+                          obj.insert(
+                            "sessionId".to_string(),
+                            json!(target_session.session_id),
+                          );
+                          let flattened_msg = parsed.to_string();
 
-                            // Send the flattened response with sessionId at top level
-                            send(InspectorMsg {
-                              kind: msg.kind,
-                              content: flattened_msg.clone(),
-                            });
-                          }
-                        } else {
-                          // Fallback: send as-is if not valid JSON
-                          send(msg);
+                          // Send the flattened response with sessionId at top level
+                          send(InspectorMsg {
+                            kind: msg.kind,
+                            content: flattened_msg.clone(),
+                          });
                         }
                       } else {
-                        // Also send via NodeWorker for VSCode compatibility
-                        let wrapped_nodeworker = json!({
-                          "method": "NodeWorker.receivedMessageFromWorker",
-                          "params": {
-                            "sessionId": target_session.session_id,
-                            "message": msg.content,
-                            "workerId": target_session.target_id
-                          }
-                        });
-
-                        send(InspectorMsg {
-                          kind: InspectorMsgKind::Notification,
-                          content: wrapped_nodeworker.to_string(),
-                        });
+                        // Fallback: send as-is if not valid JSON
+                        send(msg);
                       }
+                    } else {
+                      // Also send via NodeWorker for VSCode compatibility
+                      let wrapped_nodeworker = json!({
+                        "method": "NodeWorker.receivedMessageFromWorker",
+                        "params": {
+                          "sessionId": target_session.session_id,
+                          "message": msg.content,
+                          "workerId": target_session.target_id
+                        }
+                      });
 
-                      has_worker_message = true;
+                      send(InspectorMsg {
+                        kind: InspectorMsgKind::Notification,
+                        content: wrapped_nodeworker.to_string(),
+                      });
                     }
-                    Poll::Ready(None) => {}
-                    Poll::Pending => {}
+
+                    has_worker_message = true;
                   }
+                  Poll::Ready(None) => {}
+                  Poll::Pending => {}
                 }
               }
             }
@@ -389,8 +385,7 @@ impl JsRuntimeInspectorState {
         }
 
         // Poll established sessions.
-        let poll_result = sessions.established.poll_next_unpin(cx);
-        match poll_result {
+        match sessions.established.poll_next_unpin(cx) {
           Poll::Ready(Some(())) => {
             continue;
           }
@@ -417,12 +412,10 @@ impl JsRuntimeInspectorState {
 
       for (session_id, message) in pending_messages {
         if let Some(target_session) = sessions.target_sessions.get(&session_id)
-        {
-          if let Some(main_to_worker_tx) =
+          && let Some(main_to_worker_tx) =
             target_session.main_to_worker_tx.borrow().as_ref()
-          {
-            let _ = main_to_worker_tx.unbounded_send(message);
-          }
+        {
+          let _ = main_to_worker_tx.unbounded_send(message);
         }
       }
 
@@ -751,7 +744,6 @@ impl SessionContainer {
       next_local_id: 1,
       local: HashMap::new(),
 
-      // next_target_session_id: 1,
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
@@ -807,7 +799,6 @@ impl SessionContainer {
       next_local_id: 1,
       local: HashMap::new(),
 
-      // next_target_session_id: 1,
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
@@ -979,6 +970,7 @@ struct InspectorSession {
 impl InspectorSession {
   const CONTEXT_GROUP_ID: i32 = 1;
 
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     v8_inspector: Rc<v8::inspector::V8Inspector>,
     is_dispatching_message: Rc<RefCell<bool>>,
