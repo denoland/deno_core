@@ -326,8 +326,8 @@ impl JsRuntimeInspectorState {
               match target_session.poll_from_worker(cx) {
                 Poll::Ready(Some(msg)) => {
                   // CDP Flattened Session Mode: Add sessionId at top level
-                  // Only enable this when NodeWorker.enable has been called (Chrome DevTools)
-                  // VSCode doesn't use flattened mode, so we skip this for VSCode
+                  // Used by Chrome DevTools (when NodeWorker.enable has NOT been called)
+                  // VSCode uses NodeWorker.receivedMessageFromWorker instead
                   if !self.nodeworker_enabled.get() {
                     if let Ok(mut parsed) =
                       serde_json::from_str::<serde_json::Value>(&msg.content)
@@ -350,7 +350,6 @@ impl JsRuntimeInspectorState {
                       send(msg);
                     }
                   } else {
-                    // Also send via NodeWorker for VSCode compatibility
                     let wrapped_nodeworker = json!({
                       "method": "NodeWorker.receivedMessageFromWorker",
                       "params": {
