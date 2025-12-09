@@ -182,6 +182,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.0.flags.borrow_mut().on_pause = true;
+
     let _ = self.0.poll_sessions(None);
   }
 
@@ -320,7 +321,6 @@ impl JsRuntimeInspectorState {
 
           if let Some(send) = main_session_send {
             let mut has_worker_message = false;
-            let execution_context_to_forward: Option<String> = None;
 
             for target_session in sessions.target_sessions.values() {
               match target_session.poll_from_worker(cx) {
@@ -371,16 +371,6 @@ impl JsRuntimeInspectorState {
                 Poll::Ready(None) => {}
                 Poll::Pending => {}
               }
-            }
-
-            // Send execution context after loop to avoid borrow issues
-            if let Some(context_msg) = execution_context_to_forward {
-              send(InspectorMsg {
-                kind: InspectorMsgKind::Notification,
-                content: context_msg,
-              });
-              // Increment counter for next worker
-              sessions.next_worker_context_id += 1;
             }
 
             if has_worker_message {
@@ -738,24 +728,17 @@ impl TargetSession {
 
   /// Send a message to the worker (main → worker direction)
   fn send_to_worker(&self, message: String) {
-    let _ = self
-      .main_worker_channels
-      .borrow()
-      .as_ref()
-      .unwrap()
-      .main_to_worker_tx
-      .unbounded_send(message);
+    if let Some(channels) = self.main_worker_channels.borrow().as_ref() {
+      let _ = channels.main_to_worker_tx.unbounded_send(message);
+    }
   }
 
   /// Poll for messages from the worker (worker → main direction)
   fn poll_from_worker(&self, cx: &mut Context) -> Poll<Option<InspectorMsg>> {
-    self
-      .main_worker_channels
-      .borrow_mut()
-      .as_mut()
-      .unwrap()
-      .worker_to_main_rx
-      .poll_next_unpin(cx)
+    match self.main_worker_channels.borrow_mut().as_mut() {
+      Some(channels) => channels.worker_to_main_rx.poll_next_unpin(cx),
+      None => Poll::Pending,
+    }
   }
 }
 
