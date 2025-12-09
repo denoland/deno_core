@@ -696,8 +696,6 @@ pub struct SessionContainer {
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
   main_session_id: Option<i32>, // The first session that should receive Target events
-  // Track next execution context ID for workers (start from high number to avoid conflicts)
-  next_worker_context_id: i32,
 }
 
 struct MainWorkerChannels {
@@ -758,7 +756,6 @@ impl SessionContainer {
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
-      next_worker_context_id: 1000, // Start from 1000 to avoid conflicts with main context
     }
   }
 
@@ -813,7 +810,6 @@ impl SessionContainer {
       target_sessions: HashMap::new(),
       auto_attach_enabled: false,
       main_session_id: None,
-      next_worker_context_id: 1000,
     }
   }
 
