@@ -1136,8 +1136,10 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
     // CDP Flattened Session Mode: route messages with top-level sessionId to workers
     if let Some(session_id) = parsed.get("sessionId").and_then(|s| s.as_str()) {
       let mut worker_msg = parsed.clone();
-      worker_msg.as_object_mut().unwrap().remove("sessionId");
-      session.queue_worker_message(session_id, worker_msg.to_string());
+      if let Some(obj) = worker_msg.as_object_mut() {
+        obj.remove("sessionId");
+        session.queue_worker_message(session_id, worker_msg.to_string());
+      }
       continue;
     }
 
