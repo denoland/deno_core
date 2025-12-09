@@ -506,14 +506,13 @@ impl JsRuntimeInspector {
       SessionContainer::new(v8_inspector.clone(), new_session_rx);
 
     // Tell the inspector about the main realm.
-    let str = if is_main_runtime {
-      "main realm".to_string()
+    let context_name_bytes = if is_main_runtime {
+      &b"main realm"[..]
     } else {
-      format!("worker [{}]", worker_id.unwrap_or(1))
+      &format!("worker [{}]", worker_id.unwrap_or(1)).into_bytes()
     };
-    let b = str.as_bytes();
 
-    let context_name = v8::inspector::StringView::from(b);
+    let context_name = v8::inspector::StringView::from(context_name_bytes);
     // NOTE(bartlomieju): this is what Node.js does and it turns out some
     // debuggers (like VSCode) rely on this information to disconnect after
     // program completes.
@@ -749,10 +748,7 @@ impl TargetSession {
   }
 
   /// Poll for messages from the worker (worker → main direction)
-  fn poll_from_worker(
-    &self,
-    cx: &mut Context,
-  ) -> Poll<Option<InspectorMsg>> {
+  fn poll_from_worker(&self, cx: &mut Context) -> Poll<Option<InspectorMsg>> {
     self
       .main_worker_channels
       .borrow_mut()
