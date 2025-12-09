@@ -54,7 +54,7 @@ pub enum InspectorSessionChannels {
   },
   /// Worker inspector session with separate channels for main<->worker communication
   Worker {
-    /// Main thread sends commands TO worker (async channel)
+    /// Main thread sends commands TO worker
     main_to_worker_tx: UnboundedSender<String>,
     /// Worker sends responses/events TO main thread
     worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
@@ -67,6 +67,38 @@ pub enum InspectorSessionChannels {
 pub struct InspectorSessionProxy {
   pub channels: InspectorSessionChannels,
   pub kind: InspectorSessionKind,
+}
+
+/// Creates a pair of inspector session proxies for worker-main communication.
+pub fn create_worker_inspector_session_pair(
+  worker_url: String,
+) -> (InspectorSessionProxy, InspectorSessionProxy) {
+  let (worker_to_main_tx, worker_to_main_rx) =
+    mpsc::unbounded::<InspectorMsg>();
+  let (main_to_worker_tx, main_to_worker_rx) = mpsc::unbounded::<String>();
+
+  let main_side = InspectorSessionProxy {
+    channels: InspectorSessionChannels::Worker {
+      main_to_worker_tx,
+      worker_to_main_rx,
+      worker_url,
+    },
+    kind: InspectorSessionKind::NonBlocking {
+      wait_for_disconnect: false,
+    },
+  };
+
+  let worker_side = InspectorSessionProxy {
+    channels: InspectorSessionChannels::Regular {
+      tx: worker_to_main_tx,
+      rx: main_to_worker_rx,
+    },
+    kind: InspectorSessionKind::NonBlocking {
+      wait_for_disconnect: false,
+    },
+  };
+
+  (main_side, worker_side)
 }
 
 pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
@@ -309,11 +341,6 @@ impl JsRuntimeInspectorState {
                               kind: msg.kind.clone(),
                               content: flattened_msg.clone(),
                             });
-
-                            eprintln!(
-                              "[INSPECTOR] Worker response (flattened): sessionId={}",
-                              target_session.session_id
-                            );
                           }
                         } else {
                           // Fallback: send as-is if not valid JSON
@@ -939,10 +966,8 @@ struct InspectorSessionState {
   kind: InspectorSessionKind,
   sessions: Rc<RefCell<SessionContainer>>,
   // Thread-safe queue for NodeWorker messages that need to be sent to workers
-  // Using Arc<Mutex<>> so it can be accessed from pump without borrowing sessions
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
   // Track whether NodeWorker.enable has been called (enables VSCode-style worker debugging)
-  // Using Rc<Cell<bool>> to avoid RefCell borrow conflicts with sessions
   nodeworker_enabled: Rc<Cell<bool>>,
 }
 
@@ -1047,11 +1072,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
       if let Some(top_level_session_id) =
         parsed.get("sessionId").and_then(|s| s.as_str())
       {
-        eprintln!(
-          "[INSPECTOR] Flattened mode: message with sessionId={}",
-          top_level_session_id
-        );
-
         // Route this message to the worker identified by sessionId
         // Strip the sessionId and forward the rest of the message to the worker
         let mut worker_msg = parsed.clone();
@@ -1141,8 +1161,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 let sessions = sessions.borrow();
 
                 for target_session in sessions.target_sessions.values() {
-                  // Use node_worker type (like Node.js PR #56759)
-                  // This prevents Chrome from trying unsupported web worker domains
                   let target_created = json!({
                     "method": "Target.targetCreated",
                     "params": {
@@ -1161,11 +1179,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     kind: InspectorMsgKind::Notification,
                     content: target_created.to_string(),
                   });
-
-                  eprintln!(
-                    "[INSPECTOR] Target.setDiscoverTargets: sent targetCreated for worker targetId={}",
-                    target_session.target_id
-                  );
                 }
               });
             }
@@ -1211,11 +1224,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                     kind: InspectorMsgKind::Notification,
                     content: event.to_string(),
                   });
-
-                  eprintln!(
-                    "[INSPECTOR] Target.setAutoAttach: sent attachedToTarget for worker sessionId={}",
-                    target_session.session_id
-                  );
                 }
               }
             });
@@ -1277,7 +1285,6 @@ impl LocalInspectorSession {
       .dispatch_message_from_frontend(self.session_id, msg);
   }
 
-  //TODO: use this instead
   pub fn post_message<T: serde::Serialize>(
     &mut self,
     id: i32,
