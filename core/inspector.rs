@@ -313,58 +313,53 @@ impl JsRuntimeInspectorState {
             let execution_context_to_forward: Option<String> = None;
 
             for target_session in sessions.target_sessions.values() {
-              if let Ok(mut worker_to_main_rx_ref) =
-                target_session.worker_to_main_rx.try_borrow_mut()
-                && let Some(worker_to_main_rx) = worker_to_main_rx_ref.as_mut()
-              {
-                match worker_to_main_rx.poll_next_unpin(cx) {
-                  Poll::Ready(Some(msg)) => {
-                    // CDP Flattened Session Mode: Add sessionId at top level
-                    // Only enable this when NodeWorker.enable has been called (Chrome DevTools)
-                    // VSCode doesn't use flattened mode, so we skip this for VSCode
-                    if !self.nodeworker_enabled.get() {
-                      if let Ok(mut parsed) =
-                        serde_json::from_str::<serde_json::Value>(&msg.content)
-                      {
-                        if let Some(obj) = parsed.as_object_mut() {
-                          obj.insert(
-                            "sessionId".to_string(),
-                            json!(target_session.session_id),
-                          );
-                          let flattened_msg = parsed.to_string();
+              match target_session.poll_from_worker(cx) {
+                Poll::Ready(Some(msg)) => {
+                  // CDP Flattened Session Mode: Add sessionId at top level
+                  // Only enable this when NodeWorker.enable has been called (Chrome DevTools)
+                  // VSCode doesn't use flattened mode, so we skip this for VSCode
+                  if !self.nodeworker_enabled.get() {
+                    if let Ok(mut parsed) =
+                      serde_json::from_str::<serde_json::Value>(&msg.content)
+                    {
+                      if let Some(obj) = parsed.as_object_mut() {
+                        obj.insert(
+                          "sessionId".to_string(),
+                          json!(target_session.session_id),
+                        );
+                        let flattened_msg = parsed.to_string();
 
-                          // Send the flattened response with sessionId at top level
-                          send(InspectorMsg {
-                            kind: msg.kind,
-                            content: flattened_msg.clone(),
-                          });
-                        }
-                      } else {
-                        // Fallback: send as-is if not valid JSON
-                        send(msg);
+                        // Send the flattened response with sessionId at top level
+                        send(InspectorMsg {
+                          kind: msg.kind,
+                          content: flattened_msg.clone(),
+                        });
                       }
                     } else {
-                      // Also send via NodeWorker for VSCode compatibility
-                      let wrapped_nodeworker = json!({
-                        "method": "NodeWorker.receivedMessageFromWorker",
-                        "params": {
-                          "sessionId": target_session.session_id,
-                          "message": msg.content,
-                          "workerId": target_session.target_id
-                        }
-                      });
-
-                      send(InspectorMsg {
-                        kind: InspectorMsgKind::Notification,
-                        content: wrapped_nodeworker.to_string(),
-                      });
+                      // Fallback: send as-is if not valid JSON
+                      send(msg);
                     }
+                  } else {
+                    // Also send via NodeWorker for VSCode compatibility
+                    let wrapped_nodeworker = json!({
+                      "method": "NodeWorker.receivedMessageFromWorker",
+                      "params": {
+                        "sessionId": target_session.session_id,
+                        "message": msg.content,
+                        "workerId": target_session.target_id
+                      }
+                    });
 
-                    has_worker_message = true;
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: wrapped_nodeworker.to_string(),
+                    });
                   }
-                  Poll::Ready(None) => {}
-                  Poll::Pending => {}
+
+                  has_worker_message = true;
                 }
+                Poll::Ready(None) => {}
+                Poll::Pending => {}
               }
             }
 
@@ -412,10 +407,8 @@ impl JsRuntimeInspectorState {
 
       for (session_id, message) in pending_messages {
         if let Some(target_session) = sessions.target_sessions.get(&session_id)
-          && let Some(main_to_worker_tx) =
-            target_session.main_to_worker_tx.borrow().as_ref()
         {
-          let _ = main_to_worker_tx.unbounded_send(message);
+          target_session.send_to_worker(message);
         }
       }
 
@@ -708,13 +701,17 @@ pub struct SessionContainer {
   next_worker_context_id: i32,
 }
 
+struct MainWorkerChannels {
+  main_to_worker_tx: UnboundedSender<String>,
+  worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
+}
+
 /// Represents a CDP Target session (e.g., a worker)
 struct TargetSession {
   target_id: String,
   session_id: String,
   local_session_id: i32,
-  main_to_worker_tx: RefCell<Option<UnboundedSender<String>>>,
-  worker_to_main_rx: RefCell<Option<UnboundedReceiver<InspectorMsg>>>,
+  main_worker_channels: RefCell<Option<MainWorkerChannels>>,
   url: String,
   /// Track if we've already sent attachedToTarget for this session
   attached: Cell<bool>,
@@ -728,6 +725,31 @@ impl TargetSession {
     // The local_session_id is unique and sequential (starts at 2 for first worker)
     // Subtract 1 to make it 1-indexed for display
     format!("worker [{}]", self.local_session_id - 1)
+  }
+
+  /// Send a message to the worker (main → worker direction)
+  fn send_to_worker(&self, message: String) {
+    let _ = self
+      .main_worker_channels
+      .borrow()
+      .as_ref()
+      .unwrap()
+      .main_to_worker_tx
+      .unbounded_send(message);
+  }
+
+  /// Poll for messages from the worker (worker → main direction)
+  fn poll_from_worker(
+    &self,
+    cx: &mut Context,
+  ) -> Poll<Option<InspectorMsg>> {
+    self
+      .main_worker_channels
+      .borrow_mut()
+      .as_mut()
+      .unwrap()
+      .worker_to_main_rx
+      .poll_next_unpin(cx)
   }
 }
 
@@ -831,8 +853,7 @@ impl SessionContainer {
       target_id: target_id.clone(),
       session_id: session_id.clone(),
       local_session_id,
-      main_to_worker_tx: RefCell::new(None),
-      worker_to_main_rx: RefCell::new(None),
+      main_worker_channels: RefCell::new(None),
       url: worker_url.clone(),
       attached: Cell::new(false),
     });
@@ -852,10 +873,11 @@ impl SessionContainer {
     // Find the target session for this local session ID
     for target_session in self.target_sessions.values() {
       if target_session.local_session_id == local_session_id {
-        *target_session.main_to_worker_tx.borrow_mut() =
-          Some(main_to_worker_tx);
-        *target_session.worker_to_main_rx.borrow_mut() =
-          Some(worker_to_main_rx);
+        *target_session.main_worker_channels.borrow_mut() =
+          Some(MainWorkerChannels {
+            main_to_worker_tx,
+            worker_to_main_rx,
+          });
         return true;
       }
     }
