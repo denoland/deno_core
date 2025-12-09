@@ -54,9 +54,9 @@ pub enum InspectorSessionChannels {
   },
   /// Worker inspector session with separate channels for main<->worker communication
   Worker {
-    /// Main thread sends commands TO worker (synchronous for pause-safe polling)
-    main_to_worker_tx: std::sync::mpsc::Sender<String>,
-    /// Worker sends responses/events TO main thread (async is OK here)
+    /// Main thread sends commands TO worker (async channel)
+    main_to_worker_tx: UnboundedSender<String>,
+    /// Worker sends responses/events TO main thread
     worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
     /// Worker URL for identification
     worker_url: String,
@@ -130,11 +130,7 @@ struct JsRuntimeInspectorState {
   waker: Arc<InspectorWaker>,
   sessions: Rc<RefCell<SessionContainer>>,
   is_dispatching_message: Rc<RefCell<bool>>,
-  // Thread-safe queue for NodeWorker messages that need to be sent to workers
-  // Using Mutex instead of RefCell so it can be accessed from pump without borrowing sessions
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
-  // Track whether NodeWorker.enable has been called (enables VSCode-style worker debugging)
-  // Using Rc<Cell<bool>> to avoid RefCell borrow conflicts with sessions
   nodeworker_enabled: Rc<Cell<bool>>,
 }
 
@@ -398,7 +394,7 @@ impl JsRuntimeInspectorState {
           if let Some(main_to_worker_tx) =
             target_session.main_to_worker_tx.borrow().as_ref()
           {
-            let _ = main_to_worker_tx.send(message);
+            let _ = main_to_worker_tx.unbounded_send(message);
           }
         }
       }
@@ -699,7 +695,7 @@ struct TargetSession {
   target_id: String,
   session_id: String,
   local_session_id: i32,
-  main_to_worker_tx: RefCell<Option<std::sync::mpsc::Sender<String>>>,
+  main_to_worker_tx: RefCell<Option<UnboundedSender<String>>>,
   worker_to_main_rx: RefCell<Option<UnboundedReceiver<InspectorMsg>>>,
   url: String,
   /// Track if we've already sent attachedToTarget for this session
@@ -834,7 +830,7 @@ impl SessionContainer {
   pub fn register_worker_channels(
     &mut self,
     local_session_id: i32,
-    main_to_worker_tx: std::sync::mpsc::Sender<String>,
+    main_to_worker_tx: UnboundedSender<String>,
     worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
   ) -> bool {
     // Find the target session for this local session ID
