@@ -245,7 +245,7 @@ impl JsRuntimeInspectorState {
           sessions.established.push(fut);
           let id = sessions.next_local_id;
           sessions.next_local_id += 1;
-          sessions.local.insert(id, session.clone());
+          sessions.local.insert(id, session);
 
           // Track the first session as the main session for Target events
           if sessions.main_session_id.is_none() {
@@ -708,8 +708,6 @@ pub struct SessionContainer {
   next_local_id: i32,
   local: HashMap<i32, Rc<InspectorSession>>,
 
-  // Target domain support for worker debugging
-  // next_target_session_id: i32,
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   auto_attach_enabled: bool,
   main_session_id: Option<i32>, // The first session that should receive Target events
