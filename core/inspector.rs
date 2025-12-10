@@ -184,10 +184,7 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
   fn run_message_loop_on_pause(&self, context_group_id: i32) {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.0.flags.borrow_mut().on_pause = true;
-
-    while self.0.flags.borrow().on_pause {
-      let _ = self.0.poll_sessions(None);
-    }
+    let _ = self.0.poll_sessions(None);
   }
 
   fn quit_message_loop_on_pause(&self) {
@@ -294,36 +291,34 @@ impl JsRuntimeInspectorState {
               );
 
               // If discover_targets is enabled, notify about target creation
-              if self.discover_targets_enabled.get() {
-                if let Some(main_id) = sessions.main_session_id {
-                  if let Some(main_session) = sessions.local.get(&main_id) {
-                    if let Some(ts) = sessions.target_sessions.get(&format!("{}", worker_id)) {
-                      (main_session.state.send)(InspectorMsg::notification(json!({
-                        "method": "Target.targetCreated",
-                        "params": { "targetInfo": ts.target_info(false) }
-                      })));
-                    }
-                  }
-                }
+              if self.discover_targets_enabled.get()
+                && let Some(main_id) = sessions.main_session_id
+                && let Some(main_session) = sessions.local.get(&main_id)
+                && let Some(ts) =
+                  sessions.target_sessions.get(&format!("{}", worker_id))
+              {
+                (main_session.state.send)(InspectorMsg::notification(json!({
+                  "method": "Target.targetCreated",
+                  "params": { "targetInfo": ts.target_info(false) }
+                })));
               }
 
               // If auto_attach is enabled, notify the main session about this worker
-              if self.auto_attach_enabled.get() {
-                if let Some(main_id) = sessions.main_session_id {
-                  if let Some(main_session) = sessions.local.get(&main_id) {
-                    if let Some(ts) = sessions.target_sessions.get(&format!("{}", worker_id)) {
-                      ts.attached.set(true);
-                      (main_session.state.send)(InspectorMsg::notification(json!({
-                        "method": "Target.attachedToTarget",
-                        "params": {
-                          "sessionId": ts.session_id,
-                          "targetInfo": ts.target_info(true),
-                          "waitingForDebugger": false
-                        }
-                      })));
-                    }
+              if self.auto_attach_enabled.get()
+                && let Some(main_id) = sessions.main_session_id
+                && let Some(main_session) = sessions.local.get(&main_id)
+                && let Some(ts) =
+                  sessions.target_sessions.get(&format!("{}", worker_id))
+              {
+                ts.attached.set(true);
+                (main_session.state.send)(InspectorMsg::notification(json!({
+                  "method": "Target.attachedToTarget",
+                  "params": {
+                    "sessionId": ts.session_id,
+                    "targetInfo": ts.target_info(true),
+                    "waitingForDebugger": false
                   }
-                }
+                })));
               }
 
               continue;
@@ -1235,8 +1230,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
       }
       "Target.setDiscoverTargets" => {
         let discover = get_bool_param(&params, "discover");
-        // Set discover_targets SYNCHRONOUSLY using Cell (no borrow_mut needed)
-        // This ensures workers created after this point will trigger targetCreated
         session.state.discover_targets_enabled.set(discover);
 
         if discover {
@@ -1259,13 +1252,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
         let auto_attach = get_bool_param(&params, "autoAttach");
         let send = session.state.send.clone();
         let sessions = session.state.sessions.clone();
-
-        // Set auto_attach SYNCHRONOUSLY using Cell (no borrow_mut needed)
-        // This ensures workers created after this point will trigger attachedToTarget
         session.state.auto_attach_enabled.set(auto_attach);
-
-        // Send attachedToTarget for existing workers in an async task
-        // to avoid borrowing conflicts
         if auto_attach {
           deno_core::unsync::spawn(async move {
             let sessions = sessions.borrow();
