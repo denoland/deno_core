@@ -355,6 +355,7 @@ impl JsRuntimeInspectorState {
 
           if let Some(send) = main_session_send {
             let mut has_worker_message = false;
+            let mut terminated_workers = Vec::new();
 
             for target_session in sessions.target_sessions.values() {
               match target_session.poll_from_worker(cx) {
@@ -401,9 +402,38 @@ impl JsRuntimeInspectorState {
 
                   has_worker_message = true;
                 }
-                Poll::Ready(None) => {}
+                Poll::Ready(None) => {
+                  // Worker channel closed - worker has terminated
+                  // Notify debugger based on which protocol is in use
+                  if self.nodeworker_enabled.get() {
+                    // VSCode / Node.js style
+                    send(InspectorMsg::notification(json!({
+                      "method": "NodeWorker.detachedFromWorker",
+                      "params": {
+                        "sessionId": target_session.session_id
+                      }
+                    })));
+                  } else if self.auto_attach_enabled.get()
+                    || self.discover_targets_enabled.get()
+                  {
+                    // Chrome DevTools style
+                    send(InspectorMsg::notification(json!({
+                      "method": "Target.targetDestroyed",
+                      "params": {
+                        "targetId": target_session.target_id
+                      }
+                    })));
+                  }
+                  terminated_workers.push(target_session.session_id.clone());
+                }
                 Poll::Pending => {}
               }
+            }
+
+            // Clean up terminated worker sessions
+            for session_id in terminated_workers {
+              sessions.target_sessions.remove(&session_id);
+              has_worker_message = true; // Trigger re-poll
             }
 
             if has_worker_message {
