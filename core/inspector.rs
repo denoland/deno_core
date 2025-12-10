@@ -1266,10 +1266,15 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
 
     // Send response after handling the command
     if let Some(id) = msg_id {
-      (session.state.send)(InspectorMsg::notification(json!({
-        "id": id,
-        "result": {}
-      })));
+      let call_id = id.as_i64().unwrap_or(0) as i32;
+      (session.state.send)(InspectorMsg {
+        kind: InspectorMsgKind::Message(call_id),
+        content: json!({
+          "id": id,
+          "result": {}
+        })
+        .to_string(),
+      });
     }
   }
 }
