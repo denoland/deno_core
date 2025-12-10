@@ -174,6 +174,8 @@ struct JsRuntimeInspectorState {
   is_dispatching_message: Rc<RefCell<bool>>,
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
   nodeworker_enabled: Rc<Cell<bool>>,
+  auto_attach_enabled: Rc<Cell<bool>>,
+  discover_targets_enabled: Rc<Cell<bool>>,
 }
 
 struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
@@ -183,7 +185,9 @@ impl v8::inspector::V8InspectorClientImpl for JsRuntimeInspectorClient {
     assert_eq!(context_group_id, JsRuntimeInspector::CONTEXT_GROUP_ID);
     self.0.flags.borrow_mut().on_pause = true;
 
-    let _ = self.0.poll_sessions(None);
+    while self.0.flags.borrow().on_pause {
+      let _ = self.0.poll_sessions(None);
+    }
   }
 
   fn quit_message_loop_on_pause(&self) {
@@ -289,6 +293,39 @@ impl JsRuntimeInspectorState {
                 worker_to_main_rx,
               );
 
+              // If discover_targets is enabled, notify about target creation
+              if self.discover_targets_enabled.get() {
+                if let Some(main_id) = sessions.main_session_id {
+                  if let Some(main_session) = sessions.local.get(&main_id) {
+                    if let Some(ts) = sessions.target_sessions.get(&format!("{}", worker_id)) {
+                      (main_session.state.send)(InspectorMsg::notification(json!({
+                        "method": "Target.targetCreated",
+                        "params": { "targetInfo": ts.target_info(false) }
+                      })));
+                    }
+                  }
+                }
+              }
+
+              // If auto_attach is enabled, notify the main session about this worker
+              if self.auto_attach_enabled.get() {
+                if let Some(main_id) = sessions.main_session_id {
+                  if let Some(main_session) = sessions.local.get(&main_id) {
+                    if let Some(ts) = sessions.target_sessions.get(&format!("{}", worker_id)) {
+                      ts.attached.set(true);
+                      (main_session.state.send)(InspectorMsg::notification(json!({
+                        "method": "Target.attachedToTarget",
+                        "params": {
+                          "sessionId": ts.session_id,
+                          "targetInfo": ts.target_info(true),
+                          "waitingForDebugger": false
+                        }
+                      })));
+                    }
+                  }
+                }
+              }
+
               continue;
             }
             InspectorSessionChannels::Regular { tx, rx } => {
@@ -304,6 +341,8 @@ impl JsRuntimeInspectorState {
                 self.sessions.clone(),
                 self.pending_worker_messages.clone(),
                 self.nodeworker_enabled.clone(),
+                self.auto_attach_enabled.clone(),
+                self.discover_targets_enabled.clone(),
               );
 
               let prev = sessions.handshake.replace(session);
@@ -342,7 +381,7 @@ impl JsRuntimeInspectorState {
                         // Send the flattened response with sessionId at top level
                         send(InspectorMsg {
                           kind: msg.kind,
-                          content: flattened_msg.clone(),
+                          content: flattened_msg,
                         });
                       }
                     } else {
@@ -483,6 +522,8 @@ impl JsRuntimeInspector {
       is_dispatching_message: Default::default(),
       pending_worker_messages: Arc::new(Mutex::new(Vec::new())),
       nodeworker_enabled: Rc::new(Cell::new(false)),
+      auto_attach_enabled: Rc::new(Cell::new(false)),
+      discover_targets_enabled: Rc::new(Cell::new(false)),
     });
     let client = Box::new(JsRuntimeInspectorClient(state.clone()));
     let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
@@ -650,6 +691,8 @@ impl JsRuntimeInspector {
         sessions.clone(),
         inspector.state.pending_worker_messages.clone(),
         inspector.state.nodeworker_enabled.clone(),
+        inspector.state.auto_attach_enabled.clone(),
+        inspector.state.discover_targets_enabled.clone(),
       );
 
       let session_id = {
@@ -693,7 +736,6 @@ pub struct SessionContainer {
   local: HashMap<i32, Rc<InspectorSession>>,
 
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
-  auto_attach_enabled: bool,
   main_session_id: Option<i32>, // The first session that should receive Target events
 }
 
@@ -753,7 +795,6 @@ impl SessionContainer {
       local: HashMap::new(),
 
       target_sessions: HashMap::new(),
-      auto_attach_enabled: false,
       main_session_id: None,
     }
   }
@@ -807,7 +848,6 @@ impl SessionContainer {
       local: HashMap::new(),
 
       target_sessions: HashMap::new(),
-      auto_attach_enabled: false,
       main_session_id: None,
     }
   }
@@ -964,6 +1004,10 @@ struct InspectorSessionState {
   pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
   // Track whether NodeWorker.enable has been called (enables VSCode-style worker debugging)
   nodeworker_enabled: Rc<Cell<bool>>,
+  // Track whether Target.setAutoAttach has been called (enables worker auto-attach)
+  auto_attach_enabled: Rc<Cell<bool>>,
+  // Track whether Target.setDiscoverTargets has been called (enables target discovery)
+  discover_targets_enabled: Rc<Cell<bool>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -986,6 +1030,8 @@ impl InspectorSession {
     sessions: Rc<RefCell<SessionContainer>>,
     pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
     nodeworker_enabled: Rc<Cell<bool>>,
+    auto_attach_enabled: Rc<Cell<bool>>,
+    discover_targets_enabled: Rc<Cell<bool>>,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
@@ -995,6 +1041,8 @@ impl InspectorSession {
       sessions,
       pending_worker_messages,
       nodeworker_enabled,
+      auto_attach_enabled,
+      discover_targets_enabled,
     };
 
     let v8_session = v8_inspector.connect(
@@ -1149,6 +1197,7 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
     };
 
     let params = parsed.get("params").cloned();
+    let msg_id = parsed.get("id").cloned();
 
     match method {
       "NodeWorker.enable" => {
@@ -1163,15 +1212,34 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
             }
           })));
         });
+        // Send response
+        if let Some(id) = msg_id {
+          (session.state.send)(InspectorMsg::notification(json!({
+            "id": id,
+            "result": {}
+          })));
+        }
       }
       "NodeWorker.sendMessageToWorker" | "Target.sendMessageToTarget" => {
         session.queue_worker_message(
           &get_str_param(&params, "sessionId"),
           get_str_param(&params, "message"),
         );
+        // Send response
+        if let Some(id) = msg_id {
+          (session.state.send)(InspectorMsg::notification(json!({
+            "id": id,
+            "result": {}
+          })));
+        }
       }
       "Target.setDiscoverTargets" => {
-        if get_bool_param(&params, "discover") {
+        let discover = get_bool_param(&params, "discover");
+        // Set discover_targets SYNCHRONOUSLY using Cell (no borrow_mut needed)
+        // This ensures workers created after this point will trigger targetCreated
+        session.state.discover_targets_enabled.set(discover);
+
+        if discover {
           session.notify_workers(|ts, send| {
             send(InspectorMsg::notification(json!({
               "method": "Target.targetCreated",
@@ -1179,15 +1247,28 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
             })));
           });
         }
+        // Send response
+        if let Some(id) = msg_id {
+          (session.state.send)(InspectorMsg::notification(json!({
+            "id": id,
+            "result": {}
+          })));
+        }
       }
       "Target.setAutoAttach" => {
         let auto_attach = get_bool_param(&params, "autoAttach");
-        let sessions = session.state.sessions.clone();
         let send = session.state.send.clone();
-        deno_core::unsync::spawn(async move {
-          let mut sessions = sessions.borrow_mut();
-          sessions.auto_attach_enabled = auto_attach;
-          if auto_attach {
+        let sessions = session.state.sessions.clone();
+
+        // Set auto_attach SYNCHRONOUSLY using Cell (no borrow_mut needed)
+        // This ensures workers created after this point will trigger attachedToTarget
+        session.state.auto_attach_enabled.set(auto_attach);
+
+        // Send attachedToTarget for existing workers in an async task
+        // to avoid borrowing conflicts
+        if auto_attach {
+          deno_core::unsync::spawn(async move {
+            let sessions = sessions.borrow();
             for ts in sessions.target_sessions.values() {
               if ts.attached.replace(true) {
                 continue; // Skip if already attached
@@ -1201,8 +1282,16 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
                 }
               })));
             }
-          }
-        });
+          });
+        }
+
+        // Send response after setting auto_attach_enabled
+        if let Some(id) = msg_id {
+          (session.state.send)(InspectorMsg::notification(json!({
+            "id": id,
+            "result": {}
+          })));
+        }
       }
       _ => session.dispatch_message(msg),
     }
