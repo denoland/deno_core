@@ -732,6 +732,7 @@ pub struct SessionContainer {
 
   target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
   main_session_id: Option<i32>, // The first session that should receive Target events
+  next_worker_id: u32, // Sequential ID for worker display naming (1, 2, 3, ...)
 }
 
 struct MainWorkerChannels {
@@ -744,6 +745,8 @@ struct TargetSession {
   target_id: String,
   session_id: String,
   local_session_id: i32,
+  /// Sequential worker ID for display (1, 2, 3, ...) - independent from session IDs
+  worker_id: u32,
   main_worker_channels: RefCell<Option<MainWorkerChannels>>,
   url: String,
   /// Track if we've already sent attachedToTarget for this session
@@ -754,10 +757,7 @@ impl TargetSession {
   /// Get a display title for the worker using Node.js style naming
   /// e.g., "worker [1]", "worker [2]"
   fn title(&self) -> String {
-    // Use Node.js style "worker [N]" format for consistency
-    // The local_session_id is unique and sequential (starts at 2 for first worker)
-    // Subtract 1 to make it 1-indexed for display
-    format!("worker [{}]", self.local_session_id - 1)
+    format!("worker [{}]", self.worker_id)
   }
 
   /// Send a message to the worker (main → worker direction)
@@ -791,6 +791,7 @@ impl SessionContainer {
 
       target_sessions: HashMap::new(),
       main_session_id: None,
+      next_worker_id: 1, // Workers are numbered starting from 1
     }
   }
 
@@ -844,6 +845,7 @@ impl SessionContainer {
 
       target_sessions: HashMap::new(),
       main_session_id: None,
+      next_worker_id: 1,
     }
   }
 
@@ -856,22 +858,25 @@ impl SessionContainer {
     session.dispatch_message(message);
   }
 
-  /// Register a worker session
+  /// Register a worker session and return the assigned worker ID
   fn register_worker_session(
     &mut self,
     local_session_id: i32,
     worker_url: String,
-  ) {
-    // Use the local_session_id passed to us, not next_local_id
-    // The caller already assigned a unique ID before calling this
+  ) -> u32 {
+    // Assign a sequential worker ID for display purposes
+    let worker_id = self.next_worker_id;
+    self.next_worker_id += 1;
+
+    // Use the local_session_id for internal session routing
     let target_id = format!("{}", local_session_id);
     let session_id = format!("{}", local_session_id);
 
-    // Extract just the filename for display (like Node.js does)
     let target_session = Rc::new(TargetSession {
       target_id: target_id.clone(),
       session_id: session_id.clone(),
       local_session_id,
+      worker_id,
       main_worker_channels: RefCell::new(None),
       url: worker_url.clone(),
       attached: Cell::new(false),
@@ -879,6 +884,8 @@ impl SessionContainer {
     self
       .target_sessions
       .insert(session_id.clone(), target_session.clone());
+
+    worker_id
   }
 
   /// Register the communication channels for a worker's V8 inspector
