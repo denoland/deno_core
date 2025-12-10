@@ -1207,26 +1207,12 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
             }
           })));
         });
-        // Send response
-        if let Some(id) = msg_id {
-          (session.state.send)(InspectorMsg::notification(json!({
-            "id": id,
-            "result": {}
-          })));
-        }
       }
       "NodeWorker.sendMessageToWorker" | "Target.sendMessageToTarget" => {
         session.queue_worker_message(
           &get_str_param(&params, "sessionId"),
           get_str_param(&params, "message"),
         );
-        // Send response
-        if let Some(id) = msg_id {
-          (session.state.send)(InspectorMsg::notification(json!({
-            "id": id,
-            "result": {}
-          })));
-        }
       }
       "Target.setDiscoverTargets" => {
         let discover = get_bool_param(&params, "discover");
@@ -1239,13 +1225,6 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
               "params": { "targetInfo": ts.target_info(false) }
             })));
           });
-        }
-        // Send response
-        if let Some(id) = msg_id {
-          (session.state.send)(InspectorMsg::notification(json!({
-            "id": id,
-            "result": {}
-          })));
         }
       }
       "Target.setAutoAttach" => {
@@ -1271,16 +1250,19 @@ async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
             }
           });
         }
-
-        // Send response after setting auto_attach_enabled
-        if let Some(id) = msg_id {
-          (session.state.send)(InspectorMsg::notification(json!({
-            "id": id,
-            "result": {}
-          })));
-        }
       }
-      _ => session.dispatch_message(msg),
+      _ => {
+        session.dispatch_message(msg);
+        continue;
+      }
+    }
+
+    // Send response after handling the command
+    if let Some(id) = msg_id {
+      (session.state.send)(InspectorMsg::notification(json!({
+        "id": id,
+        "result": {}
+      })));
     }
   }
 }
