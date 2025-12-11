@@ -153,23 +153,18 @@ impl SourceMapper {
           match resolve_url(source_file_name) {
             Ok(m) if m.scheme() == "blob" => None,
             Ok(m) => Some(m.to_string()),
-            Err(_) => {
-              resolve_url(file_name)
-                .ok()
-                .and_then(|base_url| base_url.join(source_file_name).ok())
-                .and_then(|resolved| {
-                  if resolved.scheme() == "file" {
-                    if resolved.to_file_path().ok()?.exists() {
-                      Some(resolved.to_string())
-                    } else {
-                      None
-                    }
-                  } else {
-                    // For non-file URLs, we can't check existence, so use the resolved path
-                    Some(resolved.to_string())
-                  }
-                })
-            }
+            Err(_) => resolve_url(file_name)
+              .ok()
+              .and_then(|base_url| base_url.join(source_file_name).ok())
+              .and_then(|resolved| {
+                if resolved.scheme() == "file"
+                  && resolved.to_file_path().ok()?.exists()
+                {
+                  Some(resolved.to_string())
+                } else {
+                  None
+                }
+              }),
           }
         }
       }
@@ -319,6 +314,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg_attr(miri, ignore)] // Miri doesn't support filesystem operations
   fn test_source_map_relative_path_nonexistent_file() {
     // This is important for npm packages that ship source maps pointing to
     // source files that aren't distributed.
@@ -347,6 +343,7 @@ mod tests {
   }
 
   #[test]
+  #[cfg_attr(miri, ignore)] // Miri doesn't support filesystem operations
   fn test_source_map_relative_path_existing_file() {
     // Test that relative paths pointing to existing files DO rewrite the file name
     use std::io::Write;
