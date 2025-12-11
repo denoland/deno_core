@@ -2,7 +2,7 @@
 
 //! The documentation for the inspector API is sparse, but these are helpful:
 //! <https://chromedevtools.github.io/devtools-protocol/>
-//! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
+//! <https://web.archive.org/web/20210918052901/https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
