@@ -154,11 +154,21 @@ impl SourceMapper {
             Ok(m) if m.scheme() == "blob" => None,
             Ok(m) => Some(m.to_string()),
             Err(_) => {
-              // Try to resolve as a relative path from the module URL
               resolve_url(file_name)
                 .ok()
                 .and_then(|base_url| base_url.join(source_file_name).ok())
-                .map(|resolved| resolved.to_string())
+                .and_then(|resolved| {
+                  if resolved.scheme() == "file" {
+                    if resolved.to_file_path().ok()?.exists() {
+                      Some(resolved.to_string())
+                    } else {
+                      None
+                    }
+                  } else {
+                    // For non-file URLs, we can't check existence, so use the resolved path
+                    Some(resolved.to_string())
+                  }
+                })
             }
           }
         }
