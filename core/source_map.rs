@@ -161,14 +161,9 @@ impl SourceMapper {
                 // Only rewrite file name if the source file actually exists.
                 // This prevents npm packages with source maps pointing to
                 // non-distributed source files from breaking stack traces.
-                if self
-                  .loader
-                  .load_external_source_map(&resolved_str)
-                  .is_some()
-                {
-                  Some(resolved_str)
-                } else {
-                  None
+                match self.loader.source_map_source_exists(&resolved_str) {
+                  Some(true) => Some(resolved_str),
+                  _ => None,
                 }
               }),
           }
@@ -286,15 +281,8 @@ mod tests {
       Some("fake source line".to_string())
     }
 
-    fn load_external_source_map(
-      &self,
-      source_map_url: &str,
-    ) -> Option<Cow<'_, [u8]>> {
-      if self.existing_files.borrow().contains(source_map_url) {
-        Some(Cow::Borrowed(b"exists"))
-      } else {
-        None
-      }
+    fn source_map_source_exists(&self, source_url: &str) -> Option<bool> {
+      Some(self.existing_files.borrow().contains(source_url))
     }
   }
 
