@@ -157,10 +157,16 @@ impl SourceMapper {
               .ok()
               .and_then(|base_url| base_url.join(source_file_name).ok())
               .and_then(|resolved| {
-                if resolved.scheme() == "file"
-                  && resolved.to_file_path().ok()?.exists()
+                let resolved_str = resolved.to_string();
+                // Only rewrite file name if the source file actually exists.
+                // This prevents npm packages with source maps pointing to
+                // non-distributed source files from breaking stack traces.
+                if self
+                  .loader
+                  .load_external_source_map(&resolved_str)
+                  .is_some()
                 {
-                  Some(resolved.to_string())
+                  Some(resolved_str)
                 } else {
                   None
                 }
@@ -232,6 +238,16 @@ mod tests {
   #[derive(Default)]
   pub struct SourceMapLoader {
     map: HashMap<ModuleSpecifier, SourceMapLoaderContent>,
+    existing_files: std::cell::RefCell<std::collections::HashSet<String>>,
+  }
+
+  impl SourceMapLoader {
+    fn add_existing_file(&self, file_name: &str) {
+      self
+        .existing_files
+        .borrow_mut()
+        .insert(file_name.to_string());
+    }
   }
 
   impl ModuleLoader for SourceMapLoader {
@@ -268,6 +284,17 @@ mod tests {
       _line_number: usize,
     ) -> Option<String> {
       Some("fake source line".to_string())
+    }
+
+    fn load_external_source_map(
+      &self,
+      source_map_url: &str,
+    ) -> Option<Cow<'_, [u8]>> {
+      if self.existing_files.borrow().contains(source_map_url) {
+        Some(Cow::Borrowed(b"exists"))
+      } else {
+        None
+      }
     }
   }
 
@@ -314,7 +341,6 @@ mod tests {
   }
 
   #[test]
-  #[cfg_attr(miri, ignore)] // Miri doesn't support filesystem operations
   fn test_source_map_relative_path_nonexistent_file() {
     // This is important for npm packages that ship source maps pointing to
     // source files that aren't distributed.
@@ -343,51 +369,29 @@ mod tests {
   }
 
   #[test]
-  #[cfg_attr(miri, ignore)] // Miri doesn't support filesystem operations
   fn test_source_map_relative_path_existing_file() {
     // Test that relative paths pointing to existing files DO rewrite the file name
-    use std::io::Write;
-
-    // Create a temporary directory with actual files
-    let temp_dir = std::env::temp_dir().join("deno_source_map_test");
-    let _ = std::fs::create_dir_all(&temp_dir);
-    let src_dir = temp_dir.join("src");
-    let _ = std::fs::create_dir_all(&src_dir);
-    let dist_dir = temp_dir.join("dist");
-    let _ = std::fs::create_dir_all(&dist_dir);
-
-    // Create the source file
-    let source_file = src_dir.join("index.ts");
-    let mut f = std::fs::File::create(&source_file).unwrap();
-    writeln!(f, "console.log('hello');").unwrap();
-
-    let dist_file_url =
-      Url::from_file_path(dist_dir.join("bundle.js")).unwrap();
-    let source_file_url = Url::from_file_path(&source_file).unwrap();
-
     let mut loader = SourceMapLoader::default();
     loader.map.insert(
-      dist_file_url.clone(),
+      Url::parse("file:///project/dist/bundle.js").unwrap(),
       SourceMapLoaderContent {
-        // Source map with relative path "../src/index.ts" that DOES exist
+        // Source map with relative path "../src/index.ts"
         source_map: Some(ascii_str!(r#"{"version":3,"sources":["../src/index.ts"],"sourcesContent":["console.log('hello');\n"],"names":[],"mappings":"AAAA,QAAQ,IAAI"}"#).into()),
       },
     );
+    loader.add_existing_file("file:///project/src/index.ts");
 
     let mut source_mapper = SourceMapper::new(Rc::new(loader));
 
     let application =
-      source_mapper.apply_source_map(dist_file_url.as_str(), 1, 1);
+      source_mapper.apply_source_map("file:///project/dist/bundle.js", 1, 1);
     assert_eq!(
       application,
       SourceMapApplication::LineAndColumnAndFileName {
-        file_name: source_file_url.to_string(),
+        file_name: "file:///project/src/index.ts".to_string(),
         line_number: 1,
         column_number: 1
       }
     );
-
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&temp_dir);
   }
 }
