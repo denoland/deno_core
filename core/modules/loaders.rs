@@ -156,6 +156,13 @@ pub trait ModuleLoader {
     None
   }
 
+  /// Checks if an external source map file exists. Used by the source map
+  /// logic to verify that source files referenced in source maps actually
+  /// exist before rewriting stack trace file names.
+  fn source_map_source_exists(&self, _source_url: &str) -> bool {
+    false
+  }
+
   fn get_source_mapped_source_line(
     &self,
     _file_name: &str,
