@@ -317,4 +317,80 @@ mod tests {
     let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
     assert_eq!(line, "fake source line");
   }
+
+  #[test]
+  fn test_source_map_relative_path_nonexistent_file() {
+    // This is important for npm packages that ship source maps pointing to
+    // source files that aren't distributed.
+    let mut loader = SourceMapLoader::default();
+    loader.map.insert(
+      Url::parse("file:///project/dist/bundle.js").unwrap(),
+      SourceMapLoaderContent {
+        // Source map with relative path "../src/index.ts" that doesn't exist
+        source_map: Some(ascii_str!(r#"{"version":3,"sources":["../src/index.ts"],"sourcesContent":["console.log('hello');\n"],"names":[],"mappings":"AAAA,QAAQ,IAAI"}"#).into()),
+      },
+    );
+
+    let mut source_mapper = SourceMapper::new(Rc::new(loader));
+
+    // The source file "../src/index.ts" resolved to "file:///project/src/index.ts"
+    // doesn't exist, so we should only get line/column mapping without file rename
+    let application =
+      source_mapper.apply_source_map("file:///project/dist/bundle.js", 1, 1);
+    assert_eq!(
+      application,
+      SourceMapApplication::LineAndColumn {
+        line_number: 1,
+        column_number: 1
+      }
+    );
+  }
+
+  #[test]
+  fn test_source_map_relative_path_existing_file() {
+    // Test that relative paths pointing to existing files DO rewrite the file name
+    use std::io::Write;
+
+    // Create a temporary directory with actual files
+    let temp_dir = std::env::temp_dir().join("deno_source_map_test");
+    let _ = std::fs::create_dir_all(&temp_dir);
+    let src_dir = temp_dir.join("src");
+    let _ = std::fs::create_dir_all(&src_dir);
+    let dist_dir = temp_dir.join("dist");
+    let _ = std::fs::create_dir_all(&dist_dir);
+
+    // Create the source file
+    let source_file = src_dir.join("index.ts");
+    let mut f = std::fs::File::create(&source_file).unwrap();
+    writeln!(f, "console.log('hello');").unwrap();
+
+    let dist_file_url =
+      Url::from_file_path(dist_dir.join("bundle.js")).unwrap();
+    let source_file_url = Url::from_file_path(&source_file).unwrap();
+
+    let mut loader = SourceMapLoader::default();
+    loader.map.insert(
+      dist_file_url.clone(),
+      SourceMapLoaderContent {
+        // Source map with relative path "../src/index.ts" that DOES exist
+        source_map: Some(ascii_str!(r#"{"version":3,"sources":["../src/index.ts"],"sourcesContent":["console.log('hello');\n"],"names":[],"mappings":"AAAA,QAAQ,IAAI"}"#).into()),
+      },
+    );
+
+    let mut source_mapper = SourceMapper::new(Rc::new(loader));
+
+    let application =
+      source_mapper.apply_source_map(dist_file_url.as_str(), 1, 1);
+    assert_eq!(
+      application,
+      SourceMapApplication::LineAndColumnAndFileName {
+        file_name: source_file_url.to_string(),
+        line_number: 1,
+        column_number: 1
+      }
+    );
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&temp_dir);
+  }
 }
