@@ -161,8 +161,6 @@ pub use crate::runtime::MODULE_MAP_SLOT_INDEX;
 pub use crate::runtime::PollEventLoopOptions;
 pub use crate::runtime::RuntimeOptions;
 pub use crate::runtime::SharedArrayBufferStore;
-pub use crate::runtime::V8_WRAPPER_OBJECT_INDEX;
-pub use crate::runtime::V8_WRAPPER_TYPE_INDEX;
 pub use crate::runtime::stats;
 
 pub use crate::source_map::SourceMapData;
@@ -196,8 +194,6 @@ pub mod _ops {
   pub use super::ops_metrics::dispatch_metrics_async;
   pub use super::ops_metrics::dispatch_metrics_fast;
   pub use super::ops_metrics::dispatch_metrics_slow;
-  pub use super::runtime::V8_WRAPPER_OBJECT_INDEX;
-  pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
   pub use super::runtime::ops::*;
   pub use super::runtime::ops_rust_to_v8::*;
 }

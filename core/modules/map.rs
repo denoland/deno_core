@@ -806,6 +806,7 @@ impl ModuleMap {
         referrer_source_offset,
         phase: match module_request.get_phase() {
           v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
+          v8::ModuleImportPhase::kDefer => ModuleImportPhase::Evaluation,
           v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
         },
       };
