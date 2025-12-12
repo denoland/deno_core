@@ -297,7 +297,44 @@ macro_rules! impl_number_types {
   };
 }
 
-impl_number_types!(u8, i8, u16, i16, u32, i32, f32);
+impl_number_types!(
+  u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64
+);
+
+pub struct BigInt {
+  pub sign_bit: bool,
+  pub words: Vec<u64>,
+}
+
+impl<'s> ToV8<'s> for BigInt {
+  type Error = JsErrorBox;
+
+  fn to_v8<'i>(
+    self,
+    scope: &mut v8::PinScope<'s, 'i>,
+  ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
+    v8::BigInt::new_from_words(scope, self.sign_bit, &self.words)
+      .map(Into::into)
+      .ok_or_else(|| JsErrorBox::type_error("Failed to create BigInt"))
+  }
+}
+
+impl<'s> FromV8<'s> for BigInt {
+  type Error = DataError;
+
+  fn from_v8<'i>(
+    _scope: &mut v8::PinScope<'s, 'i>,
+    value: v8::Local<'s, v8::Value>,
+  ) -> Result<Self, Self::Error> {
+    let bigint = value.try_cast::<v8::BigInt>()?;
+
+    let word_count = bigint.word_count();
+    let mut words = vec![0u64; word_count];
+    let (sign_bit, _) = bigint.to_words_array(&mut words);
+
+    Ok(BigInt { sign_bit, words })
+  }
+}
 
 impl<'s> ToV8<'s> for bool {
   type Error = Infallible;
@@ -1478,5 +1515,91 @@ function equal(a, b) {
 
     let from = ToV8::to_v8(TupleSingle(1), scope).unwrap();
     assert_eq!(from.number_value(scope).unwrap(), 1.0);
+  }
+
+  #[test]
+  fn test_bigint() {
+    let mut runtime = JsRuntime::new(Default::default());
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: false,
+        words: vec![42],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === 42n"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: true,
+        words: vec![42],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === -42n"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: false,
+        words: vec![0],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === 0n"
+    );
+
+    to_v8_test!(
+      runtime,
+      |scope, _args| BigInt {
+        sign_bit: false,
+        words: vec![0, 1],
+      }
+      .to_v8(scope)
+      .unwrap(),
+      "test_fn() === 18446744073709551616n"
+    );
+
+    from_v8_test!(runtime, "42n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert!(!bigint.sign_bit);
+      assert_eq!(bigint.words, vec![42]);
+    });
+
+    from_v8_test!(runtime, "-42n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert!(bigint.sign_bit);
+      assert_eq!(bigint.words, vec![42]);
+    });
+
+    from_v8_test!(runtime, "0n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert!(!bigint.sign_bit);
+      assert!(bigint.words.is_empty());
+    });
+
+    from_v8_test!(runtime, "18446744073709551616n", |scope, result| {
+      let bigint = BigInt::from_v8(scope, result).unwrap();
+      assert!(!bigint.sign_bit);
+      assert_eq!(bigint.words, vec![0, 1]);
+    });
+
+    from_v8_test!(
+      runtime,
+      "123456789012345678901234567890n",
+      |scope, result| {
+        let bigint = BigInt::from_v8(scope, result).unwrap();
+        let to_v8 = bigint.to_v8(scope).unwrap();
+        let back = BigInt::from_v8(scope, to_v8).unwrap();
+
+        assert!(!back.sign_bit);
+        assert!(!back.words.is_empty());
+      }
+    );
   }
 }

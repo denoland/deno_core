@@ -1,6 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::V8Eternal;
+use crate::V8StaticString;
 use crate::conversion::kw as shared_kw;
 use crate::conversion::to_v8::convert_or_serde;
 use proc_macro2::Ident;
@@ -34,10 +34,6 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
         .iter()
         .map(|field| field.eternal.define_static())
         .collect::<Vec<_>>();
-      let v8_lazy_strings = fields
-        .iter()
-        .map(|field| field.eternal.define_eternal())
-        .collect::<Vec<_>>();
 
       let fields = fields.into_iter().map(|field| {
         let field_name = field.name;
@@ -57,10 +53,6 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
       let body = quote! {
         ::deno_core::v8_static_strings! {
           #(#v8_static_strings),*
-        }
-
-        thread_local! {
-          #(#v8_lazy_strings)*
         }
 
         let __obj = ::deno_core::v8::Object::new(__scope);
@@ -112,7 +104,7 @@ struct StructField {
   name: Ident,
   serde: bool,
   ty: Type,
-  eternal: V8Eternal,
+  eternal: V8StaticString,
 }
 
 impl TryFrom<Field> for StructField {
@@ -148,7 +140,7 @@ impl TryFrom<Field> for StructField {
     let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      eternal: V8Eternal::new(js_name),
+      eternal: V8StaticString::new(js_name),
       name,
       serde,
       ty: value.ty,
