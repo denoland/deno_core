@@ -1,6 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-import { $, Crate, Repo } from "./deps.ts";
+import { $, Crate, Repo } from "@deno/rust-automation";
 
 export { Crate };
 
@@ -8,7 +8,7 @@ export class DenoWorkspace {
   #repo: Repo;
 
   static get rootDirPath() {
-    return $.path(import.meta).join("../../").resolve().toString();
+    return $.path(import.meta.filename!).join("../../").resolve().toString();
   }
 
   static async load(): Promise<DenoWorkspace> {
@@ -29,7 +29,7 @@ export class DenoWorkspace {
   }
 
   static get manifest() {
-    return $.path.join(this.rootDirPath, "Cargo.toml");
+    return $.path(this.rootDirPath).join("Cargo.toml");
   }
 
   get crates() {

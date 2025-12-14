@@ -163,19 +163,6 @@ pub fn op_timer_queue_system(
     .queue_system_timer(repeat, timeout_ms as _, (task, 0)) as _
 }
 
-/// Queue a timer. We return a "large integer" timer ID in an f64 which allows for up
-/// to `MAX_SAFE_INTEGER` (2^53) timers to exist, versus 2^32 timers if we used
-/// `u32`.
-#[op2(fast)]
-pub fn op_timer_queue_immediate(
-  scope: &mut v8::PinScope,
-  task: v8::Local<v8::Function>,
-) -> f64 {
-  let task = v8::Global::new(scope, task);
-  let context_state = JsRealm::state_from_scope(scope);
-  context_state.timers.queue_timer(0, (task, 0)) as _
-}
-
 #[op2(fast)]
 pub fn op_timer_cancel(scope: &mut v8::PinScope, id: f64) {
   let context_state = JsRealm::state_from_scope(scope);
@@ -235,6 +222,54 @@ pub fn op_set_has_tick_scheduled(scope: &mut v8::PinScope, v: bool) {
   JsRealm::state_from_scope(scope)
     .has_next_tick_scheduled
     .set(v);
+}
+
+#[op2(fast)]
+pub fn op_immediate_count(scope: &mut v8::PinScope, increase: bool) -> u32 {
+  let state = JsRealm::state_from_scope(scope);
+  let mut immediate_info = state.immediate_info.borrow_mut();
+
+  if increase {
+    immediate_info.count += 1;
+  } else {
+    immediate_info.count -= 1;
+  }
+
+  immediate_info.count
+}
+
+#[op2(fast)]
+pub fn op_immediate_ref_count(scope: &mut v8::PinScope, increase: bool) -> u32 {
+  let state = JsRealm::state_from_scope(scope);
+  let mut immediate_info = state.immediate_info.borrow_mut();
+
+  if increase {
+    immediate_info.ref_count += 1;
+  } else {
+    immediate_info.ref_count -= 1;
+  }
+
+  immediate_info.ref_count
+}
+
+#[op2(fast)]
+pub fn op_immediate_set_has_outstanding(
+  scope: &mut v8::PinScope,
+  has_outstanding: bool,
+) {
+  JsRealm::state_from_scope(scope)
+    .immediate_info
+    .borrow_mut()
+    .has_outstanding = has_outstanding;
+}
+
+#[op2(fast)]
+pub fn op_immediate_has_ref_count(scope: &mut v8::PinScope) -> bool {
+  JsRealm::state_from_scope(scope)
+    .immediate_info
+    .borrow()
+    .ref_count
+    > 0
 }
 
 pub struct EvalContextError<'s> {

@@ -100,7 +100,6 @@ builtin_ops! {
   ops_builtin_v8::op_set_handled_promise_rejection_handler,
   ops_builtin_v8::op_timer_queue,
   ops_builtin_v8::op_timer_queue_system,
-  ops_builtin_v8::op_timer_queue_immediate,
   ops_builtin_v8::op_timer_cancel,
   ops_builtin_v8::op_timer_ref,
   ops_builtin_v8::op_timer_unref,
@@ -110,6 +109,10 @@ builtin_ops! {
   ops_builtin_v8::op_run_microtasks,
   ops_builtin_v8::op_has_tick_scheduled,
   ops_builtin_v8::op_set_has_tick_scheduled,
+  ops_builtin_v8::op_immediate_count,
+  ops_builtin_v8::op_immediate_ref_count,
+  ops_builtin_v8::op_immediate_set_has_outstanding,
+  ops_builtin_v8::op_immediate_has_ref_count,
   ops_builtin_v8::op_eval_context,
   ops_builtin_v8::op_queue_microtask,
   ops_builtin_v8::op_encode,
@@ -527,9 +530,9 @@ async fn do_load_job<'s, 'i>(
   .await?;
 
   while let Some(load_result) = load.next().await {
-    let (reference, info) = load_result?;
+    let (request, info) = load_result?;
     load
-      .register_and_recurse(scope, &reference, info)
+      .register_and_recurse(scope, &request, info)
       .map_err(|e| e.into_error(scope, false, false))?;
   }
 

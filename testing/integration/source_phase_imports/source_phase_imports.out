@@ -1,1 +1,2 @@
-[ERR] Uncaught SyntaxError: Module source can not be imported for "../wasm_imports/add.wasm"
+exported_add: 42
+Aliased duplicate import is equal: true

@@ -103,6 +103,12 @@ impl<T> Default for WebTimers<T> {
   }
 }
 
+impl<T> WebTimers<T> {
+  pub fn has_pending(&self) -> bool {
+    !self.timers.borrow().is_empty()
+  }
+}
+
 pub(crate) struct WebTimersIterator<'a, T> {
   data: Ref<'a, BTreeMap<WebTimerId, TimerData<T>>>,
   timers: Ref<'a, BTreeSet<TimerKey>>,
