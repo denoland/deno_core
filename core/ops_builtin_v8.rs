@@ -3,6 +3,7 @@
 use crate::JsBuffer;
 use crate::JsRuntime;
 use crate::OpState;
+use crate::convert::Uint8Array;
 use crate::error;
 use crate::error::CoreError;
 use crate::error::JsError;
@@ -621,7 +622,6 @@ impl v8::ValueDeserializerImpl for SerializeDeserialize<'_> {
 
 // May be reentrant in the case of errors.
 #[op2(reentrant)]
-#[buffer]
 pub fn op_serialize<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
   value: v8::Local<'s, v8::Value>,
@@ -629,7 +629,7 @@ pub fn op_serialize<'s, 'i>(
   transferred_array_buffers: Option<v8::Local<'s, v8::Value>>,
   for_storage: bool,
   error_callback: Option<v8::Local<'s, v8::Value>>,
-) -> Result<Vec<u8>, JsErrorBox> {
+) -> Result<Uint8Array, JsErrorBox> {
   let error_callback = match error_callback {
     Some(cb) => Some(
       v8::Local::<v8::Function>::try_from(cb)
@@ -708,10 +708,10 @@ pub fn op_serialize<'s, 'i>(
   if scope.has_caught() || scope.has_terminated() {
     scope.rethrow();
     // Dummy value, this result will be discarded because an error was thrown.
-    Ok(vec![])
+    Ok(vec![].into())
   } else if let Some(true) = ret {
     let vector = value_serializer.release();
-    Ok(vector)
+    Ok(vector.into())
   } else {
     Err(JsErrorBox::type_error("Failed to serialize response"))
   }

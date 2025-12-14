@@ -25,8 +25,6 @@ deno_core::extension!(
     op_local,
     op_local_scope,
     op_local_nofast,
-    op_global,
-    op_global_scope,
     op_scope,
     op_isolate_nofast,
     op_make_external,
@@ -445,28 +443,6 @@ fn bench_op_v8_local_nofast(b: &mut Bencher) {
   );
 }
 
-/// A function that takes a v8::Global<String>
-fn bench_op_v8_global(b: &mut Bencher) {
-  bench_op(
-    b,
-    BENCH_COUNT,
-    "op_global",
-    1,
-    "op_global('this is a reasonably long string that we would like to get the length of!');",
-  );
-}
-
-/// A function that takes a v8::Global<String>
-fn bench_op_v8_global_scope(b: &mut Bencher) {
-  bench_op(
-    b,
-    BENCH_COUNT,
-    "op_global_scope",
-    1,
-    "op_global_scope('this is a reasonably long string that we would like to get the length of!');",
-  );
-}
-
 fn bench_op_bigint(b: &mut Bencher) {
   bench_op(b, BENCH_COUNT, "op_bigint", 1, "op_bigint(0n);");
 }
@@ -571,8 +547,6 @@ benchmark_group!(
   bench_op_v8_local,
   bench_op_v8_local_scope,
   bench_op_v8_local_nofast,
-  bench_op_v8_global,
-  bench_op_v8_global_scope,
   bench_op_bigint,
   bench_op_bigint_return,
   bench_op_v8_scope,

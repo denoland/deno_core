@@ -909,7 +909,7 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::OptionString(_)
     | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
-    | Arg::FromV8(_)
+    | Arg::FromV8(_, _)
     | Arg::WebIDL(_, _, _)
     | Arg::Ref(..) => return Ok(None),
     // We do support v8 type arguments (including Option<...>)
@@ -961,7 +961,7 @@ fn map_retval_to_v8_fastcall_type(
   let rv = match arg {
     Arg::OptionNumeric(..)
     | Arg::SerdeV8(_)
-    | Arg::ToV8(_)
+    | Arg::ToV8(_, _)
     | Arg::WebIDL(_, _, _) => return Ok(None),
     Arg::VoidUndefined | Arg::Void => V8FastCallType::Void,
     Arg::Numeric(NumericArg::bool, _) => V8FastCallType::Bool,

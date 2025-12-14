@@ -540,6 +540,7 @@ mod tests {
   use crate::ToV8;
   use crate::convert::Number;
   use crate::convert::Smi;
+  use crate::convert::Uint8Array;
   use crate::error::CoreError;
   use crate::error::CoreErrorKind;
   use crate::external;
@@ -2311,11 +2312,10 @@ mod tests {
   }
 
   #[op2]
-  #[buffer]
-  async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
+  async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Uint8Array {
     let mut output = input.to_vec();
     output.reverse();
-    output
+    output.into()
   }
 
   #[op2]
@@ -2469,7 +2469,7 @@ mod tests {
   }
 
   #[op2]
-  fn op_bool_to_from_v8(value: Bool) -> Bool {
+  fn op_bool_to_from_v8(#[v8_slow] value: Bool) -> Bool {
     value
   }
 

@@ -83,6 +83,7 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
 pub enum RetVal {
   /// An op that can never fail.
   Value(Arg),

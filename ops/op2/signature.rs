@@ -354,8 +354,8 @@ pub enum Arg {
   CppGcResource(bool, String),
   OptionCppGcResource(String),
   CppGcProtochain(Vec<String>),
-  FromV8(String),
-  ToV8(String),
+  FromV8(String, bool),
+  ToV8(String, bool),
   WebIDL(String, Vec<WebIDLPair>, Option<WebIDLDefault>),
   VarArgs,
   This,
@@ -401,9 +401,9 @@ impl Arg {
       COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
       COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
-      CUnknown(t) => match position {
-        Position::Arg => Ok(Arg::FromV8(stringify_token(t))),
-        Position::RetVal => Ok(Arg::ToV8(stringify_token(t))),
+      CUnknown(t, slow) => match position {
+        Position::Arg => Ok(Arg::FromV8(stringify_token(t), slow)),
+        Position::RetVal => Ok(Arg::ToV8(stringify_token(t), slow)),
       },
       _ => unreachable!(),
     }
@@ -522,7 +522,7 @@ impl Arg {
           // Fast return value path for empty strings
           Arg::String(_) => ArgSlowRetval::RetValFallible,
           Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
-          Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
+          Arg::ToV8(_, _) => ArgSlowRetval::V8LocalFalliable,
           // No scope required for these
           Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
           // ArrayBuffer is infallible
@@ -561,7 +561,8 @@ impl Arg {
       Arg::CppGcProtochain(_)
       | Arg::CppGcResource(..)
       | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
-      Arg::ToV8(_) => ArgMarker::ToV8,
+      Arg::ToV8(_, true) => ArgMarker::ToV8,
+      Arg::ToV8(_, false) => ArgMarker::ToV8Fast,
       Arg::VoidUndefined => ArgMarker::Undefined,
       _ => ArgMarker::None,
     }
@@ -601,8 +602,10 @@ pub enum ArgMarker {
   ArrayBuffer,
   /// This type should be wrapped as a cppgc V8 object.
   Cppgc,
-  /// This type should be converted with `ToV8``
+  /// This type should be converted with `ToV8`
   ToV8,
+  /// This type should be converted with `ToV8Fast`
+  ToV8Fast,
   /// This unit type should be a undefined.
   Undefined,
 }
@@ -644,6 +647,7 @@ impl ParsedType {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum ParsedTypeContainer {
   CBare(ParsedType),
   COption(ParsedType),
@@ -651,7 +655,7 @@ pub enum ParsedTypeContainer {
   CRcRefCell(ParsedType),
   COptionV8Local(ParsedType),
   CV8Local(ParsedType),
-  CUnknown(Type),
+  CUnknown(Type, bool),
 }
 
 impl ParsedTypeContainer {
@@ -663,7 +667,8 @@ impl ParsedTypeContainer {
   ) -> Option<&'static [AttributeModifier]> {
     use ParsedTypeContainer::*;
     match self {
-      CV8Local(_) | COptionV8Local(_) | CUnknown(_) => None,
+      CV8Local(_) | COptionV8Local(_) | CUnknown(_, false) => None,
+      CUnknown(_, true) => Some(&[AttributeModifier::V8Slow]),
       CBare(t) | COption(t) | CRcRefCell(t) | CRc(t) => {
         t.required_attributes(position)
       }
@@ -790,6 +795,8 @@ pub enum AttributeModifier {
   This,
   /// `undefined`
   Undefined,
+  /// Use non-fast versions of FromV8/ToV8 traits
+  V8Slow,
   /// Custom validator.
   Validate(Path),
 }
@@ -810,6 +817,7 @@ impl AttributeModifier {
       AttributeModifier::VarArgs => "varargs",
       AttributeModifier::This => "this",
       AttributeModifier::Undefined => "undefined",
+      AttributeModifier::V8Slow => "v8_slow",
       AttributeModifier::Validate(_) => "validate",
     }
   }
@@ -1250,6 +1258,7 @@ fn parse_attribute(
     "cppgc" => Some(AttributeModifier::CppGcResource),
     "proto" => Some(AttributeModifier::CppGcProto),
     "varargs" => Some(AttributeModifier::VarArgs),
+    "v8_slow" => Some(AttributeModifier::V8Slow),
 
     "validate" => {
       let value: Path = attr
@@ -1374,10 +1383,10 @@ fn parse_type_path(
         std?::vec?::Vec<::$ty> => {
           if let Some(AttributeModifier::Buffer(_, _)) = attrs.primary {
             Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(ty)?))))
-          } else if let Some(_) = attrs.primary {
-            Err(ArgError::InvalidAttributeType("buffer", stringify_token(tp)))
+          } else if attrs.primary.is_none() || attrs.primary.as_ref().is_some_and(|primary| matches!(primary, AttributeModifier::V8Slow)) {
+            Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow))))
           } else {
-            Ok(CUnknown(Type::Path(tp.clone())))
+            Err(ArgError::InvalidAttributeType("buffer", stringify_token(tp)))
           }
         },
         std?::boxed?::Box<[$ty]> => {
@@ -1397,7 +1406,7 @@ fn parse_type_path(
         v8::PinScope<'_, '_> | v8::PinScope => Ok(CBare(TSpecial(Special::HandleScope))),
         v8::FastApiCallbackOptions => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
         v8::Local<'_, v8::$v8> | v8::Local<v8::$v8> => Ok(CV8Local(TV8(parse_v8_type(v8)?))),
-        v8::Global<'_, v8::$_v8> | v8::Global<v8::$_v8> => Ok(CUnknown(Type::Path(tp.clone()))),
+        v8::Global<'_, v8::$_v8> | v8::Global<v8::$_v8> => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow)))),
         v8::$v8 => Ok(CBare(TV8(parse_v8_type(v8)?))),
         std?::rc?::Rc<RefCell<$ty>> => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
         std?::rc?::Rc<$ty> => Ok(CRc(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
@@ -1417,7 +1426,7 @@ fn parse_type_path(
             Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
             Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
             Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
-            _ => Ok(CUnknown(Type::Path(tp.clone()))),
+            _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow)))),
           }
         }
         deno_core::$next::$any? => {
@@ -1427,7 +1436,7 @@ fn parse_type_path(
           let instead = format!("{next}{any}");
           Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), next, instead))
         }
-        _ => Ok(CUnknown(Type::Path(tp.clone()))),
+        _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow)))),
       )?
     }
   };
@@ -1562,7 +1571,7 @@ fn better_alternative_exists(position: Position, of: &TypePath) -> bool {
     TypePathContext::None,
     of,
   ) {
-    Err(_) | Ok(ParsedTypeContainer::CUnknown(_)) => {}
+    Err(_) | Ok(ParsedTypeContainer::CUnknown(_, _)) => {}
     _ => {
       return true;
     }
@@ -1614,8 +1623,7 @@ pub(crate) fn parse_type(
         return parse_cppgc(position, ty, false);
       }
       AttributeModifier::CppGcProto => return parse_cppgc(position, ty, true),
-      AttributeModifier::Serde
-      | AttributeModifier::WebIDL(_) => {
+      AttributeModifier::Serde | AttributeModifier::WebIDL(_) => {
         let make_arg: Box<dyn Fn(String) -> Arg> = match &primary {
           AttributeModifier::Serde => Box::new(Arg::SerdeV8),
           AttributeModifier::WebIDL(args) => Box::new(move |s| {
@@ -1678,6 +1686,7 @@ pub(crate) fn parse_type(
 
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
+      | AttributeModifier::V8Slow
       | AttributeModifier::Bigint => {
         // We handle this as part of the normal parsing process
       }
@@ -1745,8 +1754,14 @@ pub(crate) fn parse_type(
         Ok(Arg::Void)
       } else {
         match position {
-          Position::Arg => Ok(Arg::FromV8(stringify_token(ty))),
-          Position::RetVal => Ok(Arg::ToV8(stringify_token(ty))),
+          Position::Arg => Ok(Arg::FromV8(
+            stringify_token(ty),
+            matches!(attrs.primary, Some(AttributeModifier::V8Slow)),
+          )),
+          Position::RetVal => Ok(Arg::ToV8(
+            stringify_token(ty),
+            matches!(attrs.primary, Some(AttributeModifier::V8Slow)),
+          )),
         }
       }
     }

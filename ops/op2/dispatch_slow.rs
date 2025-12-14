@@ -656,7 +656,7 @@ pub fn from_arg(
         };
       }
     }
-    Arg::FromV8(ty) => {
+    Arg::FromV8(ty, true) => {
       *needs_scope = true;
       let ty =
         syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
@@ -664,7 +664,26 @@ pub fn from_arg(
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
       quote! {
-        let #arg_ident = match <#ty as deno_core::FromV8>::from_v8(&mut #scope, #arg_ident) {
+        let #arg_ident = {
+          use deno_core::FromV8;
+          use deno_core::FromV8Fast;
+
+          match <#ty>::from_v8(&mut #scope, #arg_ident) {
+            Ok(t) => t,
+            Err(#err) => {
+              #throw_exception;
+            }
+          }
+        };
+      }
+    }
+    Arg::FromV8(ty, false) => {
+      let ty =
+        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+      let err = format_ident!("{}_err", arg_ident);
+      let throw_exception = throw_type_error_string(generator_state, &err);
+      quote! {
+        let #arg_ident = match <#ty as deno_core::FromV8Fast>::from_v8(#arg_ident) {
           Ok(t) => t,
           Err(#err) => {
             #throw_exception;
@@ -1101,7 +1120,7 @@ pub fn return_value_infallible(
         gs_quote!(generator_state(result) => (#marker(#result)))
       }
     }
-    ArgMarker::ToV8 => {
+    ArgMarker::ToV8 | ArgMarker::ToV8Fast => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result)))
     }
     ArgMarker::Undefined => {
@@ -1184,7 +1203,7 @@ pub fn return_value_v8_value(
         quote!(#marker(#result))
       }
     }
-    ArgMarker::ToV8 => {
+    ArgMarker::ToV8 | ArgMarker::ToV8Fast => {
       quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::ToV8Marker, _>::from(#result))
     }
     ArgMarker::Undefined => {
