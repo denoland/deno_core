@@ -59,6 +59,8 @@ pub enum Op2Error {
   ShouldNotBeFast(&'static str),
   #[error("Only one constructor is allowed per object")]
   MultipleConstructors,
+  #[error("Only identifiers are supported in impl blocks")]
+  NonIdentifierImplBlock,
 }
 
 #[derive(Debug, Error)]

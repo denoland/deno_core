@@ -391,7 +391,7 @@ impl<'s> ToV8<'s> for &'static str {
   }
 }
 
-const USIZE2X: usize = size_of::<usize>() * 2;
+const USIZE2X: usize = std::mem::size_of::<usize>() * 2;
 #[derive(PartialEq, Eq, Clone, Debug, Default)]
 pub struct ByteString(SmallVec<[u8; USIZE2X]>);
 
@@ -561,7 +561,7 @@ where
   T: FromV8Fast<'s>,
 {
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
-    if value.is_undefined() {
+    if value.is_null() {
       Ok(OptionNull(None))
     } else {
       <T as FromV8Fast>::from_v8(value).map(|v| OptionNull(Some(v)))

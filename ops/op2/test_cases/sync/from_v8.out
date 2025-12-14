@@ -44,14 +44,18 @@ pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
             );
             let result = {
                 let arg0 = args.get(0usize as i32);
-                let arg0 = match <Foo as deno_core::FromV8>::from_v8(&mut scope, arg0) {
-                    Ok(t) => t,
-                    Err(arg0_err) => {
-                        deno_core::_ops::throw_error_js_error_class(
-                            &mut scope,
-                            &arg0_err,
-                        );
-                        return 1;
+                let arg0 = {
+                    use deno_core::FromV8;
+                    use deno_core::FromV8Fast;
+                    match <Foo>::from_v8(&mut scope, arg0) {
+                        Ok(t) => t,
+                        Err(arg0_err) => {
+                            deno_core::_ops::throw_error_js_error_class(
+                                &mut scope,
+                                &arg0_err,
+                            );
+                            return 1;
+                        }
                     }
                 };
                 Self::call(arg0)

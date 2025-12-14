@@ -81,9 +81,11 @@ pub(crate) fn generate_impl_ops(
 
   let self_ty = &item.self_ty;
   let syn::Type::Path(path) = &**self_ty else {
-    panic!()
+    return Err(Op2Error::NonIdentifierImplBlock);
   };
-  let self_ty_ident = path.path.get_ident().unwrap();
+  let Some(self_ty_ident) = path.path.get_ident() else {
+    return Err(Op2Error::NonIdentifierImplBlock);
+  };
 
   // State
   let mut constructor = None;
