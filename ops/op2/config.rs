@@ -87,9 +87,6 @@ impl MacroConfig {
       let flag = parse2::<Flags>(meta.to_token_stream())?;
 
       match &flag {
-        Flags::Method(name) => {
-          config.method = name.as_ref().map(|name| Ident::new(name, span))
-        }
         Flags::Constructor => config.constructor = true,
         Flags::Getter => config.getter = true,
         Flags::Setter => config.setter = true,
@@ -168,7 +165,6 @@ enum Flags {
   Constructor,
   Fast(Option<String>),
   Getter,
-  Method(Option<String>),
   NoFast,
   NoSideEffects,
   Reentrant,
@@ -212,17 +208,7 @@ impl Parse for Flags {
   fn parse(input: ParseStream) -> syn::Result<Self> {
     let lookahead = input.lookahead1();
 
-    let flag = if lookahead.peek(kw::method) {
-      match input.parse::<CustomMeta>()?.as_meta_list() {
-        Some(list) => {
-          let ty = list.parse_args::<Type>()?;
-          Flags::Method(Some(
-            ty.into_token_stream().to_string().replace(' ', ""),
-          ))
-        }
-        _ => Flags::Method(None),
-      }
-    } else if lookahead.peek(kw::static_method) {
+    let flag = if lookahead.peek(kw::static_method) {
       input.parse::<kw::static_method>()?;
       Flags::StaticMethod
     } else if lookahead.peek(kw::constructor) {
@@ -391,7 +377,6 @@ impl ToTokens for CustomMeta {
 mod kw {
   use syn::custom_keyword;
 
-  custom_keyword!(method);
   custom_keyword!(constructor);
   custom_keyword!(static_method);
   custom_keyword!(getter);
@@ -415,7 +400,6 @@ mod kw {
 #[cfg(test)]
 mod tests {
   use super::*;
-  use quote::format_ident;
   use syn::ItemFn;
   use syn::Meta;
   use syn::parse::Parser;
@@ -479,22 +463,6 @@ mod tests {
       "(fast(op_generic::<T>))",
       MacroConfig {
         fast_alternative: Some("op_generic::<T>".to_owned()),
-        ..Default::default()
-      },
-    );
-
-    test_parse(
-      "(method(A))",
-      MacroConfig {
-        method: Some(format_ident!("A")),
-        ..Default::default()
-      },
-    );
-    test_parse(
-      "(fast, method(T))",
-      MacroConfig {
-        method: Some(format_ident!("T")),
-        fast: true,
         ..Default::default()
       },
     );
