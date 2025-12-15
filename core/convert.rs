@@ -294,23 +294,23 @@ macro_rules! impl_number_types {
   ($($t:ty),*) => {
     $(
       impl<'a> FromV8<'a> for $t {
-        type Error = JsErrorBox;
+        type Error = DataError;
         #[inline]
         fn from_v8<'i>(
-          scope: &mut v8::PinScope<'a, 'i>,
+          _scope: &mut v8::PinScope<'a, 'i>,
           value: v8::Local<'a, v8::Value>,
         ) -> Result<Self, Self::Error> {
-          if value.is_big_int() {
-            return Err(JsErrorBox::type_error("BigInts are not supported"));
-          }
-
-          let Some(n) = value.number_value(scope) else {
-            return Err(JsErrorBox::type_error(concat!("Could not convert to ", stringify!($t))));
-          };
-
-          Ok(n as Self)
+          <Self as FromV8Fast>::from_v8(value)
         }
       }
+      impl<'a> FromV8Fast<'a> for $t {
+        #[inline]
+        fn from_v8(value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
+          let n = value.try_cast::<v8::Number>()?;
+          Ok(n.value() as Self)
+        }
+      }
+
       impl<'a> ToV8<'a> for $t {
         type Error = Infallible;
         #[inline]
@@ -318,7 +318,7 @@ macro_rules! impl_number_types {
           self,
           scope: &mut v8::PinScope<'a, 'i>,
         ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
-          Ok(v8::Number::new(scope, self as _).into())
+          Ok(v8::Number::new(scope, self as f64).into())
         }
       }
     )*
