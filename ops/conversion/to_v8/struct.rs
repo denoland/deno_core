@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::V8StaticString;
 use crate::conversion::kw as shared_kw;
 use crate::conversion::to_v8::convert_or_serde;
 use proc_macro2::Ident;
@@ -30,31 +29,29 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
         .collect::<Result<Vec<StructField>, Error>>()?;
       fields.sort_by(|a, b| a.name.cmp(&b.name));
 
-      let v8_static_strings = fields
-        .iter()
-        .map(|field| field.eternal.define_static())
-        .collect::<Vec<_>>();
+      let fields = fields
+        .into_iter()
+        .map(|field| {
+          let field_name = field.name;
+          let key = crate::get_internalized_string(field.js_name)?;
 
-      let fields = fields.into_iter().map(|field| {
-        let field_name = field.name;
-        let eternal_get_key = field.eternal.get_key();
+          let converter = convert_or_serde(
+            field.serde,
+            field.ty.span(),
+            quote!(self.#field_name),
+          );
 
-        let converter = convert_or_serde(field.serde, field.ty.span(), quote!(self.#field_name));
-
-        quote! {
-          {
-            let __key = #eternal_get_key.map_err(::deno_error::JsErrorBox::from_err)?;
-            let __value = #converter;
-            __obj.set(__scope, __key, __value);
-          };
-        }
-      }).collect::<Vec<_>>();
+          Ok(quote! {
+            {
+              let __key = #key;
+              let __value = #converter;
+              __obj.set(__scope, __key, __value);
+            };
+          })
+        })
+        .collect::<Result<Vec<_>, Error>>()?;
 
       let body = quote! {
-        ::deno_core::v8_static_strings! {
-          #(#v8_static_strings),*
-        }
-
         let __obj = ::deno_core::v8::Object::new(__scope);
 
         #(#fields)*
@@ -104,7 +101,7 @@ struct StructField {
   name: Ident,
   serde: bool,
   ty: Type,
-  eternal: V8StaticString,
+  js_name: Ident,
 }
 
 impl TryFrom<Field> for StructField {
@@ -140,7 +137,7 @@ impl TryFrom<Field> for StructField {
     let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      eternal: V8StaticString::new(js_name),
+      js_name,
       name,
       serde,
       ty: value.ty,

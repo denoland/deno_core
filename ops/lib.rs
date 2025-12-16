@@ -60,37 +60,27 @@ pub fn to_v8(item: TokenStream) -> TokenStream {
   }
 }
 
-struct V8StaticString {
+fn get_internalized_string(
   name: syn::Ident,
-  static_name: syn::Ident,
-}
+) -> Result<proc_macro2::TokenStream, syn::Error> {
+  let name_str = name.to_string();
 
-impl V8StaticString {
-  fn new(name: syn::Ident) -> Self {
-    Self {
-      static_name: quote::format_ident!("__v8_static_{name}"),
-      name,
-    }
+  if !name_str.is_ascii() {
+    return Err(syn::Error::new(
+      name.span(),
+      "Only ASCII keys are supported",
+    ));
   }
 
-  fn define_static(&self) -> proc_macro2::TokenStream {
-    let Self {
-      static_name, name, ..
-    } = self;
-    let name_str = name.to_string();
-
-    quote::quote! {
-      #static_name = #name_str
-    }
-  }
-
-  fn get_key(&self) -> proc_macro2::TokenStream {
-    let Self { static_name, .. } = self;
-
-    quote::quote! {
-      #static_name.v8_string(__scope).map(Into::into)
-    }
-  }
+  Ok(quote::quote! {
+    ::deno_core::v8::String::new_from_one_byte(
+      __scope,
+      #name_str.as_bytes(),
+      ::deno_core::v8::NewStringType::Internalized,
+    )
+    .unwrap()
+    .into()
+  })
 }
 
 #[cfg(test)]
