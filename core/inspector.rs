@@ -305,22 +305,26 @@ impl JsRuntimeInspectorState {
                   sessions.target_sessions.get(&format!("{}", worker_id))
               {
                 if self.discover_targets_enabled.get() {
-                  (main_session.state.send)(InspectorMsg::notification(json!({
-                    "method": "Target.targetCreated",
-                    "params": { "targetInfo": ts.target_info(false) }
-                  })));
+                  (main_session.state.send)(InspectorMsg::notification(
+                    json!({
+                      "method": "Target.targetCreated",
+                      "params": { "targetInfo": ts.target_info(false) }
+                    }),
+                  ));
                 }
 
                 if self.auto_attach_enabled.get() {
                   ts.attached.set(true);
-                  (main_session.state.send)(InspectorMsg::notification(json!({
-                    "method": "Target.attachedToTarget",
-                    "params": {
-                      "sessionId": ts.session_id,
-                      "targetInfo": ts.target_info(true),
-                      "waitingForDebugger": false
-                    }
-                  })));
+                  (main_session.state.send)(InspectorMsg::notification(
+                    json!({
+                      "method": "Target.attachedToTarget",
+                      "params": {
+                        "sessionId": ts.session_id,
+                        "targetInfo": ts.target_info(true),
+                        "waitingForDebugger": false
+                      }
+                    }),
+                  ));
                 }
               }
 
