@@ -290,35 +290,38 @@ impl JsRuntimeInspectorState {
                 worker_to_main_rx,
               );
 
-              // If discover_targets is enabled, notify about target creation
-              if self.discover_targets_enabled.get()
-                && let Some(main_id) = sessions.main_session_id
+              // Notify the main session about worker target creation/attachment.
+              //
+              // discover_targets_enabled: Set to true when the debugger calls
+              // Target.setDiscoverTargets. When enabled, the inspector sends
+              // Target.targetCreated events for new workers.
+              //
+              // auto_attach_enabled: Set to true when the debugger calls
+              // Target.setAutoAttach. When enabled, the inspector automatically
+              // attaches to new workers and sends Target.attachedToTarget events.
+              if let Some(main_id) = sessions.main_session_id
                 && let Some(main_session) = sessions.local.get(&main_id)
                 && let Some(ts) =
                   sessions.target_sessions.get(&format!("{}", worker_id))
               {
-                (main_session.state.send)(InspectorMsg::notification(json!({
-                  "method": "Target.targetCreated",
-                  "params": { "targetInfo": ts.target_info(false) }
-                })));
-              }
+                if self.discover_targets_enabled.get() {
+                  (main_session.state.send)(InspectorMsg::notification(json!({
+                    "method": "Target.targetCreated",
+                    "params": { "targetInfo": ts.target_info(false) }
+                  })));
+                }
 
-              // If auto_attach is enabled, notify the main session about this worker
-              if self.auto_attach_enabled.get()
-                && let Some(main_id) = sessions.main_session_id
-                && let Some(main_session) = sessions.local.get(&main_id)
-                && let Some(ts) =
-                  sessions.target_sessions.get(&format!("{}", worker_id))
-              {
-                ts.attached.set(true);
-                (main_session.state.send)(InspectorMsg::notification(json!({
-                  "method": "Target.attachedToTarget",
-                  "params": {
-                    "sessionId": ts.session_id,
-                    "targetInfo": ts.target_info(true),
-                    "waitingForDebugger": false
-                  }
-                })));
+                if self.auto_attach_enabled.get() {
+                  ts.attached.set(true);
+                  (main_session.state.send)(InspectorMsg::notification(json!({
+                    "method": "Target.attachedToTarget",
+                    "params": {
+                      "sessionId": ts.session_id,
+                      "targetInfo": ts.target_info(true),
+                      "waitingForDebugger": false
+                    }
+                  })));
+                }
               }
 
               continue;
