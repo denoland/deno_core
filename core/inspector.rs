@@ -361,6 +361,10 @@ impl JsRuntimeInspectorState {
             let mut terminated_workers = Vec::new();
 
             for target_session in sessions.target_sessions.values() {
+              // Skip sessions that haven't had their channels registered
+              if !target_session.has_channels() {
+                continue;
+              }
               match target_session.poll_from_worker(cx) {
                 Poll::Ready(Some(msg)) => {
                   // CDP Flattened Session Mode: Add sessionId at top level
@@ -800,12 +804,22 @@ impl TargetSession {
     }
   }
 
-  /// Poll for messages from the worker (worker → main direction)
+  /// Returns true if worker channels have been registered
+  fn has_channels(&self) -> bool {
+    self.main_worker_channels.borrow().is_some()
+  }
+
+  /// Poll for messages from the worker (worker → main direction).
+  /// Panics if channels have not been registered yet - caller should
+  /// check has_channels() first.
   fn poll_from_worker(&self, cx: &mut Context) -> Poll<Option<InspectorMsg>> {
-    match self.main_worker_channels.borrow_mut().as_mut() {
-      Some(channels) => channels.worker_to_main_rx.poll_next_unpin(cx),
-      None => Poll::Pending,
-    }
+    self
+      .main_worker_channels
+      .borrow_mut()
+      .as_mut()
+      .expect("poll_from_worker called before channels were registered")
+      .worker_to_main_rx
+      .poll_next_unpin(cx)
   }
 }
 
