@@ -2105,10 +2105,15 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
-    if !did_work
-      && !context_state.timers.has_pending()
-      && pending_state.has_refed_immediates > 0
-    {
+    // eprintln!(
+    //   "did work {}, dispatched_ops {}, has timers {}, has_refed_immediates {}, has_outstanding_immediates {}",
+    //   did_work,
+    //   dispatched_ops,
+    //   context_state.timers.has_pending(),
+    //   pending_state.has_refed_immediates,
+    //   pending_state.has_outstanding_immediates
+    // );
+    if !did_work && pending_state.has_refed_immediates > 0 {
       Self::do_js_run_immediate_callbacks(scope, context_state)?;
     }
 
