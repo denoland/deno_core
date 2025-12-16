@@ -2,7 +2,7 @@
 
 //! The documentation for the inspector API is sparse, but these are helpful:
 //! <https://chromedevtools.github.io/devtools-protocol/>
-//! <https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
+//! <https://web.archive.org/web/20210918052901/https://hyperandroid.com/2020/02/12/v8-inspector-from-an-embedder-standpoint/>
 
 use crate::futures::channel::mpsc;
 use crate::futures::channel::mpsc::UnboundedReceiver;
@@ -15,6 +15,7 @@ use crate::futures::task;
 use crate::serde_json::json;
 
 use parking_lot::Mutex;
+use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::c_void;
@@ -39,17 +40,75 @@ pub struct InspectorMsg {
   pub content: String,
 }
 
+impl InspectorMsg {
+  /// Create a notification message from a JSON value
+  pub fn notification(content: serde_json::Value) -> Self {
+    Self {
+      kind: InspectorMsgKind::Notification,
+      content: content.to_string(),
+    }
+  }
+}
+
 // TODO(bartlomieju): remove this
 pub type SessionProxySender = UnboundedSender<InspectorMsg>;
 // TODO(bartlomieju): remove this
 pub type SessionProxyReceiver = UnboundedReceiver<String>;
 
-/// Encapsulates an UnboundedSender/UnboundedReceiver pair that together form
-/// a duplex channel for sending/receiving messages in V8 session.
+/// Channels for an inspector session
+pub enum InspectorSessionChannels {
+  /// Regular inspector session with bidirectional communication
+  Regular {
+    tx: SessionProxySender,
+    rx: SessionProxyReceiver,
+  },
+  /// Worker inspector session with separate channels for main<->worker communication
+  Worker {
+    /// Main thread sends commands TO worker
+    main_to_worker_tx: UnboundedSender<String>,
+    /// Worker sends responses/events TO main thread
+    worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
+    /// Worker URL for identification
+    worker_url: String,
+  },
+}
+
+/// Encapsulates channels and metadata for creating an inspector session
 pub struct InspectorSessionProxy {
-  pub tx: SessionProxySender,
-  pub rx: SessionProxyReceiver,
+  pub channels: InspectorSessionChannels,
   pub kind: InspectorSessionKind,
+}
+
+/// Creates a pair of inspector session proxies for worker-main communication.
+pub fn create_worker_inspector_session_pair(
+  worker_url: String,
+) -> (InspectorSessionProxy, InspectorSessionProxy) {
+  let (worker_to_main_tx, worker_to_main_rx) =
+    mpsc::unbounded::<InspectorMsg>();
+  let (main_to_worker_tx, main_to_worker_rx) = mpsc::unbounded::<String>();
+
+  let main_side = InspectorSessionProxy {
+    channels: InspectorSessionChannels::Worker {
+      main_to_worker_tx,
+      worker_to_main_rx,
+      worker_url,
+    },
+    kind: InspectorSessionKind::NonBlocking {
+      wait_for_disconnect: false,
+    },
+  };
+
+  let worker_side = InspectorSessionProxy {
+    channels: InspectorSessionChannels::Regular {
+      tx: worker_to_main_tx,
+      rx: main_to_worker_rx,
+    },
+    kind: InspectorSessionKind::NonBlocking {
+      wait_for_disconnect: false,
+    },
+  };
+
+  (main_side, worker_side)
 }
 
 pub type InspectorSessionSend = Box<dyn Fn(InspectorMsg)>;
@@ -113,6 +172,10 @@ struct JsRuntimeInspectorState {
   waker: Arc<InspectorWaker>,
   sessions: Rc<RefCell<SessionContainer>>,
   is_dispatching_message: Rc<RefCell<bool>>,
+  pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
+  nodeworker_enabled: Rc<Cell<bool>>,
+  auto_attach_enabled: Rc<Cell<bool>>,
+  discover_targets_enabled: Rc<Cell<bool>>,
 }
 
 struct JsRuntimeInspectorClient(Rc<JsRuntimeInspectorState>);
@@ -195,23 +258,199 @@ impl JsRuntimeInspectorState {
           let id = sessions.next_local_id;
           sessions.next_local_id += 1;
           sessions.local.insert(id, session);
+
+          // Track the first session as the main session for Target events
+          if sessions.main_session_id.is_none() {
+            sessions.main_session_id = Some(id);
+          }
+
           continue;
         }
 
         // Accept new connections.
-        let poll_result = sessions.session_rx.poll_next_unpin(cx);
-        if let Poll::Ready(Some(session_proxy)) = poll_result {
-          let session = InspectorSession::new(
-            sessions.v8_inspector.as_ref().unwrap().clone(),
-            self.is_dispatching_message.clone(),
-            Box::new(move |msg| {
-              let _ = session_proxy.tx.unbounded_send(msg);
-            }),
-            Some(session_proxy.rx),
-            session_proxy.kind,
-          );
-          let prev = sessions.handshake.replace(session);
-          assert!(prev.is_none());
+        if let Poll::Ready(Some(session_proxy)) =
+          sessions.session_rx.poll_next_unpin(cx)
+        {
+          match session_proxy.channels {
+            InspectorSessionChannels::Worker {
+              main_to_worker_tx,
+              worker_to_main_rx,
+              worker_url,
+            } => {
+              // Get the next local ID for this worker
+              let worker_id = sessions.next_local_id;
+              sessions.next_local_id += 1;
+
+              sessions.register_worker_session(worker_id, worker_url.clone());
+
+              // Register the worker channels
+              sessions.register_worker_channels(
+                worker_id,
+                main_to_worker_tx,
+                worker_to_main_rx,
+              );
+
+              // Notify the main session about worker target creation/attachment.
+              //
+              // discover_targets_enabled: Set to true when the debugger calls
+              // Target.setDiscoverTargets. When enabled, the inspector sends
+              // Target.targetCreated events for new workers.
+              //
+              // auto_attach_enabled: Set to true when the debugger calls
+              // Target.setAutoAttach. When enabled, the inspector automatically
+              // attaches to new workers and sends Target.attachedToTarget events.
+              if let Some(main_id) = sessions.main_session_id
+                && let Some(main_session) = sessions.local.get(&main_id)
+                && let Some(ts) =
+                  sessions.target_sessions.get(&format!("{}", worker_id))
+              {
+                if self.discover_targets_enabled.get() {
+                  (main_session.state.send)(InspectorMsg::notification(
+                    json!({
+                      "method": "Target.targetCreated",
+                      "params": { "targetInfo": ts.target_info(false) }
+                    }),
+                  ));
+                }
+
+                if self.auto_attach_enabled.get() {
+                  ts.attached.set(true);
+                  (main_session.state.send)(InspectorMsg::notification(
+                    json!({
+                      "method": "Target.attachedToTarget",
+                      "params": {
+                        "sessionId": ts.session_id,
+                        "targetInfo": ts.target_info(true),
+                        "waitingForDebugger": false
+                      }
+                    }),
+                  ));
+                }
+              }
+
+              continue;
+            }
+            InspectorSessionChannels::Regular { tx, rx } => {
+              // Normal session (not a worker)
+              let session = InspectorSession::new(
+                sessions.v8_inspector.as_ref().unwrap().clone(),
+                self.is_dispatching_message.clone(),
+                Box::new(move |msg| {
+                  let _ = tx.unbounded_send(msg);
+                }),
+                Some(rx),
+                session_proxy.kind,
+                self.sessions.clone(),
+                self.pending_worker_messages.clone(),
+                self.nodeworker_enabled.clone(),
+                self.auto_attach_enabled.clone(),
+                self.discover_targets_enabled.clone(),
+              );
+
+              let prev = sessions.handshake.replace(session);
+              assert!(prev.is_none());
+              continue;
+            }
+          }
+        }
+
+        // Poll worker message channels - forward messages from workers to main session
+        if let Some(main_id) = sessions.main_session_id {
+          // Get main session send function before mutably iterating over target_sessions
+          let main_session_send =
+            sessions.local.get(&main_id).map(|s| s.state.send.clone());
+
+          if let Some(send) = main_session_send {
+            let mut has_worker_message = false;
+            let mut terminated_workers = Vec::new();
+
+            for target_session in sessions.target_sessions.values() {
+              // Skip sessions that haven't had their channels registered
+              if !target_session.has_channels() {
+                continue;
+              }
+              match target_session.poll_from_worker(cx) {
+                Poll::Ready(Some(msg)) => {
+                  // CDP Flattened Session Mode: Add sessionId at top level
+                  // Used by Chrome DevTools (when NodeWorker.enable has NOT been called)
+                  // VSCode uses NodeWorker.receivedMessageFromWorker instead
+                  if !self.nodeworker_enabled.get() {
+                    if let Ok(mut parsed) =
+                      serde_json::from_str::<serde_json::Value>(&msg.content)
+                    {
+                      if let Some(obj) = parsed.as_object_mut() {
+                        obj.insert(
+                          "sessionId".to_string(),
+                          json!(target_session.session_id),
+                        );
+                        let flattened_msg = parsed.to_string();
+
+                        // Send the flattened response with sessionId at top level
+                        send(InspectorMsg {
+                          kind: msg.kind,
+                          content: flattened_msg,
+                        });
+                      }
+                    } else {
+                      // Fallback: send as-is if not valid JSON
+                      send(msg);
+                    }
+                  } else {
+                    let wrapped_nodeworker = json!({
+                      "method": "NodeWorker.receivedMessageFromWorker",
+                      "params": {
+                        "sessionId": target_session.session_id,
+                        "message": msg.content,
+                        "workerId": target_session.target_id
+                      }
+                    });
+
+                    send(InspectorMsg {
+                      kind: InspectorMsgKind::Notification,
+                      content: wrapped_nodeworker.to_string(),
+                    });
+                  }
+
+                  has_worker_message = true;
+                }
+                Poll::Ready(None) => {
+                  // Worker channel closed - worker has terminated
+                  // Notify debugger based on which protocol is in use
+                  if self.nodeworker_enabled.get() {
+                    // VSCode / Node.js style
+                    send(InspectorMsg::notification(json!({
+                      "method": "NodeWorker.detachedFromWorker",
+                      "params": {
+                        "sessionId": target_session.session_id
+                      }
+                    })));
+                  } else if self.auto_attach_enabled.get()
+                    || self.discover_targets_enabled.get()
+                  {
+                    // Chrome DevTools style
+                    send(InspectorMsg::notification(json!({
+                      "method": "Target.targetDestroyed",
+                      "params": {
+                        "targetId": target_session.target_id
+                      }
+                    })));
+                  }
+                  terminated_workers.push(target_session.session_id.clone());
+                }
+                Poll::Pending => {}
+              }
+            }
+
+            // Clean up terminated worker sessions
+            for session_id in terminated_workers {
+              sessions.target_sessions.remove(&session_id);
+              has_worker_message = true; // Trigger re-poll
+            }
+
+            if has_worker_message {
+              continue;
+            }
+          }
         }
 
         // Poll established sessions.
@@ -232,6 +471,20 @@ impl JsRuntimeInspectorState {
         let flags = self.flags.borrow();
         flags.on_pause || flags.waiting_for_session
       };
+
+      // Process any queued NodeWorker messages after polling completes
+      // Drain from the thread-safe Mutex queue (doesn't require borrowing sessions)
+      let pending_messages: Vec<(String, String)> = {
+        let mut queue = self.pending_worker_messages.lock();
+        queue.drain(..).collect()
+      };
+
+      for (session_id, message) in pending_messages {
+        if let Some(target_session) = sessions.target_sessions.get(&session_id)
+        {
+          target_session.send_to_worker(message);
+        }
+      }
 
       let new_state = self.waker.update(|w| {
         match w.poll_state {
@@ -288,12 +541,12 @@ impl JsRuntimeInspector {
     scope: &mut v8::PinScope,
     context: v8::Local<v8::Context>,
     is_main_runtime: bool,
+    worker_id: Option<u32>,
   ) -> Rc<Self> {
     let (new_session_tx, new_session_rx) =
       mpsc::unbounded::<InspectorSessionProxy>();
 
     let waker = InspectorWaker::new(scope.thread_safe_handle());
-
     let state = Rc::new(JsRuntimeInspectorState {
       waker,
       flags: Default::default(),
@@ -303,6 +556,10 @@ impl JsRuntimeInspector {
         RefCell::new(SessionContainer::temporary_placeholder()),
       ),
       is_dispatching_message: Default::default(),
+      pending_worker_messages: Arc::new(Mutex::new(Vec::new())),
+      nodeworker_enabled: Rc::new(Cell::new(false)),
+      auto_attach_enabled: Rc::new(Cell::new(false)),
+      discover_targets_enabled: Rc::new(Cell::new(false)),
     });
     let client = Box::new(JsRuntimeInspectorClient(state.clone()));
     let v8_inspector_client = v8::inspector::V8InspectorClient::new(client);
@@ -315,14 +572,22 @@ impl JsRuntimeInspector {
       SessionContainer::new(v8_inspector.clone(), new_session_rx);
 
     // Tell the inspector about the main realm.
-    let context_name = v8::inspector::StringView::from(&b"main realm"[..]);
+    let context_name_bytes = if is_main_runtime {
+      &b"main realm"[..]
+    } else {
+      &format!("worker [{}]", worker_id.unwrap_or(1)).into_bytes()
+    };
+
+    let context_name = v8::inspector::StringView::from(context_name_bytes);
     // NOTE(bartlomieju): this is what Node.js does and it turns out some
     // debuggers (like VSCode) rely on this information to disconnect after
-    // program completes
+    // program completes.
+    // The auxData structure should match {isDefault: boolean, type: 'default'|'isolated'|'worker'}
+    // For Chrome DevTools to properly show workers in the execution context dropdown.
     let aux_data = if is_main_runtime {
-      r#"{"isDefault": true}"#
+      r#"{"isDefault": true, "type": "default"}"#
     } else {
-      r#"{"isDefault": false}"#
+      r#"{"isDefault": false, "type": "worker"}"#
     };
     let aux_data_view = v8::inspector::StringView::from(aux_data.as_bytes());
     v8_inspector.context_created(
@@ -459,6 +724,11 @@ impl JsRuntimeInspector {
         callback,
         None,
         kind,
+        sessions.clone(),
+        inspector.state.pending_worker_messages.clone(),
+        inspector.state.nodeworker_enabled.clone(),
+        inspector.state.auto_attach_enabled.clone(),
+        inspector.state.discover_targets_enabled.clone(),
       );
 
       let session_id = {
@@ -500,6 +770,61 @@ pub struct SessionContainer {
   established: FuturesUnordered<InspectorSessionPumpMessages>,
   next_local_id: i32,
   local: HashMap<i32, Rc<InspectorSession>>,
+
+  target_sessions: HashMap<String, Rc<TargetSession>>, // sessionId -> TargetSession
+  main_session_id: Option<i32>, // The first session that should receive Target events
+  next_worker_id: u32, // Sequential ID for worker display naming (1, 2, 3, ...)
+}
+
+struct MainWorkerChannels {
+  main_to_worker_tx: UnboundedSender<String>,
+  worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
+}
+
+/// Represents a CDP Target session (e.g., a worker)
+struct TargetSession {
+  target_id: String,
+  session_id: String,
+  local_session_id: i32,
+  /// Sequential worker ID for display (1, 2, 3, ...) - independent from session IDs
+  worker_id: u32,
+  main_worker_channels: RefCell<Option<MainWorkerChannels>>,
+  url: String,
+  /// Track if we've already sent attachedToTarget for this session
+  attached: Cell<bool>,
+}
+
+impl TargetSession {
+  /// Get a display title for the worker using Node.js style naming
+  /// e.g., "worker [1]", "worker [2]"
+  fn title(&self) -> String {
+    format!("worker [{}]", self.worker_id)
+  }
+
+  /// Send a message to the worker (main → worker direction)
+  fn send_to_worker(&self, message: String) {
+    if let Some(channels) = self.main_worker_channels.borrow().as_ref() {
+      let _ = channels.main_to_worker_tx.unbounded_send(message);
+    }
+  }
+
+  /// Returns true if worker channels have been registered
+  fn has_channels(&self) -> bool {
+    self.main_worker_channels.borrow().is_some()
+  }
+
+  /// Poll for messages from the worker (worker → main direction).
+  /// Panics if channels have not been registered yet - caller should
+  /// check has_channels() first.
+  fn poll_from_worker(&self, cx: &mut Context) -> Poll<Option<InspectorMsg>> {
+    self
+      .main_worker_channels
+      .borrow_mut()
+      .as_mut()
+      .expect("poll_from_worker called before channels were registered")
+      .worker_to_main_rx
+      .poll_next_unpin(cx)
+  }
 }
 
 impl SessionContainer {
@@ -514,6 +839,10 @@ impl SessionContainer {
       established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
+
+      target_sessions: HashMap::new(),
+      main_session_id: None,
+      next_worker_id: 1, // Workers are numbered starting from 1
     }
   }
 
@@ -564,6 +893,10 @@ impl SessionContainer {
       established: FuturesUnordered::new(),
       next_local_id: 1,
       local: HashMap::new(),
+
+      target_sessions: HashMap::new(),
+      main_session_id: None,
+      next_worker_id: 1,
     }
   }
 
@@ -574,6 +907,58 @@ impl SessionContainer {
   ) {
     let session = self.local.get(&session_id).unwrap();
     session.dispatch_message(message);
+  }
+
+  /// Register a worker session and return the assigned worker ID
+  fn register_worker_session(
+    &mut self,
+    local_session_id: i32,
+    worker_url: String,
+  ) -> u32 {
+    // Assign a sequential worker ID for display purposes
+    let worker_id = self.next_worker_id;
+    self.next_worker_id += 1;
+
+    // Use the local_session_id for internal session routing
+    let target_id = format!("{}", local_session_id);
+    let session_id = format!("{}", local_session_id);
+
+    let target_session = Rc::new(TargetSession {
+      target_id: target_id.clone(),
+      session_id: session_id.clone(),
+      local_session_id,
+      worker_id,
+      main_worker_channels: RefCell::new(None),
+      url: worker_url.clone(),
+      attached: Cell::new(false),
+    });
+    self
+      .target_sessions
+      .insert(session_id.clone(), target_session.clone());
+
+    worker_id
+  }
+
+  /// Register the communication channels for a worker's V8 inspector
+  /// This is called from the worker side to establish bidirectional communication
+  pub fn register_worker_channels(
+    &mut self,
+    local_session_id: i32,
+    main_to_worker_tx: UnboundedSender<String>,
+    worker_to_main_rx: UnboundedReceiver<InspectorMsg>,
+  ) -> bool {
+    // Find the target session for this local session ID
+    for target_session in self.target_sessions.values() {
+      if target_session.local_session_id == local_session_id {
+        *target_session.main_worker_channels.borrow_mut() =
+          Some(MainWorkerChannels {
+            main_to_worker_tx,
+            worker_to_main_rx,
+          });
+        return true;
+      }
+    }
+    false
   }
 }
 
@@ -667,6 +1052,15 @@ struct InspectorSessionState {
   // Describes if session should keep event loop alive, eg. a local REPL
   // session should keep event loop alive, but a Websocket session shouldn't.
   kind: InspectorSessionKind,
+  sessions: Rc<RefCell<SessionContainer>>,
+  // Thread-safe queue for NodeWorker messages that need to be sent to workers
+  pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
+  // Track whether NodeWorker.enable has been called (enables VSCode-style worker debugging)
+  nodeworker_enabled: Rc<Cell<bool>>,
+  // Track whether Target.setAutoAttach has been called (enables worker auto-attach)
+  auto_attach_enabled: Rc<Cell<bool>>,
+  // Track whether Target.setDiscoverTargets has been called (enables target discovery)
+  discover_targets_enabled: Rc<Cell<bool>>,
 }
 
 /// An inspector session that proxies messages to concrete "transport layer",
@@ -679,18 +1073,29 @@ struct InspectorSession {
 impl InspectorSession {
   const CONTEXT_GROUP_ID: i32 = 1;
 
+  #[allow(clippy::too_many_arguments)]
   pub fn new(
     v8_inspector: Rc<v8::inspector::V8Inspector>,
     is_dispatching_message: Rc<RefCell<bool>>,
     send: InspectorSessionSend,
     rx: Option<SessionProxyReceiver>,
     kind: InspectorSessionKind,
+    sessions: Rc<RefCell<SessionContainer>>,
+    pending_worker_messages: Arc<Mutex<Vec<(String, String)>>>,
+    nodeworker_enabled: Rc<Cell<bool>>,
+    auto_attach_enabled: Rc<Cell<bool>>,
+    discover_targets_enabled: Rc<Cell<bool>>,
   ) -> Rc<Self> {
     let state = InspectorSessionState {
       is_dispatching_message,
       send: Rc::new(send),
       rx: Rc::new(RefCell::new(rx)),
       kind,
+      sessions,
+      pending_worker_messages,
+      nodeworker_enabled,
+      auto_attach_enabled,
+      discover_targets_enabled,
     };
 
     let v8_session = v8_inspector.connect(
@@ -717,6 +1122,30 @@ impl InspectorSession {
     self
       .v8_session
       .schedule_pause_on_next_statement(reason, detail);
+  }
+
+  /// Queue a message to be sent to a worker
+  fn queue_worker_message(&self, session_id: &str, message: String) {
+    self
+      .state
+      .pending_worker_messages
+      .lock()
+      .push((session_id.to_string(), message));
+  }
+
+  /// Notify all registered workers via a callback
+  fn notify_workers<F>(&self, mut f: F)
+  where
+    F: FnMut(&TargetSession, &dyn Fn(InspectorMsg)) + 'static,
+  {
+    let sessions = self.state.sessions.clone();
+    let send = self.state.send.clone();
+    deno_core::unsync::spawn(async move {
+      let sessions = sessions.borrow();
+      for ts in sessions.target_sessions.values() {
+        f(ts, &|msg| send(msg));
+      }
+    });
   }
 }
 
@@ -752,13 +1181,152 @@ impl v8::inspector::ChannelImpl for InspectorSessionState {
 
   fn flush_protocol_notifications(&self) {}
 }
-
 type InspectorSessionPumpMessages = Pin<Box<dyn Future<Output = ()>>>;
+/// Helper to extract a string param from CDP params
+fn get_str_param(params: &Option<serde_json::Value>, key: &str) -> String {
+  params
+    .as_ref()
+    .and_then(|p| p.get(key))
+    .and_then(|v| v.as_str())
+    .unwrap_or_default()
+    .to_owned()
+}
+
+/// Helper to extract a bool param from CDP params
+fn get_bool_param(params: &Option<serde_json::Value>, key: &str) -> bool {
+  params
+    .as_ref()
+    .and_then(|p| p.get(key))
+    .and_then(|v| v.as_bool())
+    .unwrap_or(false)
+}
+
+impl TargetSession {
+  /// Build target info JSON for CDP events
+  fn target_info(&self, attached: bool) -> serde_json::Value {
+    json!({
+      "targetId": self.target_id,
+      "type": "node_worker",
+      "title": self.title(),
+      "url": self.url,
+      "attached": attached,
+      "canAccessOpener": true
+    })
+  }
+
+  /// Build worker info JSON for NodeWorker events
+  fn worker_info(&self) -> serde_json::Value {
+    json!({
+      "workerId": self.target_id,
+      "type": "node_worker",
+      "title": self.title(),
+      "url": self.url
+    })
+  }
+}
 
 async fn pump_inspector_session_messages(session: Rc<InspectorSession>) {
   let mut rx = session.state.rx.borrow_mut().take().unwrap();
+
   while let Some(msg) = rx.next().await {
-    session.dispatch_message(msg);
+    let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&msg) else {
+      session.dispatch_message(msg);
+      continue;
+    };
+
+    // CDP Flattened Session Mode: route messages with top-level sessionId to workers
+    if let Some(session_id) = parsed.get("sessionId").and_then(|s| s.as_str()) {
+      let mut worker_msg = parsed.clone();
+      if let Some(obj) = worker_msg.as_object_mut() {
+        obj.remove("sessionId");
+        session.queue_worker_message(session_id, worker_msg.to_string());
+      }
+      continue;
+    }
+
+    let Some(method) = parsed.get("method").and_then(|m| m.as_str()) else {
+      session.dispatch_message(msg);
+      continue;
+    };
+
+    let params = parsed.get("params").cloned();
+    let msg_id = parsed.get("id").cloned();
+
+    match method {
+      "NodeWorker.enable" => {
+        session.state.nodeworker_enabled.set(true);
+        session.notify_workers(|ts, send| {
+          send(InspectorMsg::notification(json!({
+            "method": "NodeWorker.attachedToWorker",
+            "params": {
+              "sessionId": ts.session_id,
+              "workerInfo": ts.worker_info(),
+              "waitingForDebugger": false
+            }
+          })));
+        });
+      }
+      "NodeWorker.sendMessageToWorker" | "Target.sendMessageToTarget" => {
+        session.queue_worker_message(
+          &get_str_param(&params, "sessionId"),
+          get_str_param(&params, "message"),
+        );
+      }
+      "Target.setDiscoverTargets" => {
+        let discover = get_bool_param(&params, "discover");
+        session.state.discover_targets_enabled.set(discover);
+
+        if discover {
+          session.notify_workers(|ts, send| {
+            send(InspectorMsg::notification(json!({
+              "method": "Target.targetCreated",
+              "params": { "targetInfo": ts.target_info(false) }
+            })));
+          });
+        }
+      }
+      "Target.setAutoAttach" => {
+        let auto_attach = get_bool_param(&params, "autoAttach");
+        let send = session.state.send.clone();
+        let sessions = session.state.sessions.clone();
+        session.state.auto_attach_enabled.set(auto_attach);
+        if auto_attach {
+          deno_core::unsync::spawn(async move {
+            let sessions = sessions.borrow();
+            for ts in sessions.target_sessions.values() {
+              if ts.attached.replace(true) {
+                continue; // Skip if already attached
+              }
+              send(InspectorMsg::notification(json!({
+                "method": "Target.attachedToTarget",
+                "params": {
+                  "sessionId": ts.session_id,
+                  "targetInfo": ts.target_info(true),
+                  "waitingForDebugger": false
+                }
+              })));
+            }
+          });
+        }
+      }
+      _ => {
+        session.dispatch_message(msg);
+        continue;
+      }
+    }
+
+    // Send response after handling the command
+    if let Some(id) = msg_id {
+      let call_id = id.as_i64().unwrap_or(0) as i32;
+      (session.state.send)(InspectorMsg {
+        kind: InspectorMsgKind::Message(call_id),
+        content: json!({
+          "id": id,
+          "result": {}
+        })
+        .to_string(),
+      });
+    }
   }
 }
 

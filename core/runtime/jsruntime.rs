@@ -503,6 +503,10 @@ pub struct RuntimeOptions {
   /// situation - like disconnecting when program finishes running.
   pub is_main: bool,
 
+  /// Worker ID for inspector context naming (e.g., "worker [1]", "worker [2]").
+  /// Only used when `is_main` is false. Starts at 1.
+  pub worker_id: Option<u32>,
+
   #[cfg(any(test, feature = "unsafe_runtime_options"))]
   /// Should this isolate expose the v8 natives (eg: %OptimizeFunctionOnNextCall) and
   /// GC control functions (`gc()`)? WARNING: This should not be used for production code as
@@ -1058,6 +1062,7 @@ impl JsRuntime {
           scope,
           context,
           options.is_main,
+          options.worker_id,
         ))
       } else {
         None
@@ -1876,6 +1881,7 @@ impl JsRuntime {
       scope,
       context,
       self.is_main_runtime,
+      None,
     ));
   }
 
