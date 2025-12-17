@@ -1,7 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use super::kw;
-use crate::V8Eternal;
 use proc_macro2::Ident;
 use proc_macro2::Span;
 use proc_macro2::TokenStream;
@@ -51,19 +50,11 @@ pub fn get_body(
     .iter()
     .map(|field| field.name.clone())
     .collect::<Vec<_>>();
-  let v8_static_strings = fields
-    .iter()
-    .map(|field| field.eternal.define_static())
-    .collect::<Vec<_>>();
-  let v8_lazy_strings = fields
-    .iter()
-    .map(|field| field.eternal.define_eternal())
-    .collect::<Vec<_>>();
 
   let fields = fields.into_iter().map(|field| {
     let field_name = field.name;
     let js_name = field.js_name.to_string();
-    let eternal_get_key = field.eternal.get_key();
+    let key = crate::get_internalized_string(field.js_name)?;
 
     let options = if field.converter_options.is_empty() {
       quote!(Default::default())
@@ -116,9 +107,9 @@ pub fn get_body(
       }
     }};
 
-    quote! {
+    Ok(quote! {
       let #field_name = {
-        let __key = #eternal_get_key.map_err(|e| ::deno_core::webidl::WebIdlError::other(__prefix.clone(), __context.borrowed(), e))?;
+        let __key = #key;
 
         if let Some(__value) = __obj.as_ref().and_then(|__obj| __obj.get(__scope, __key))#undefined_as_none {
           ::deno_core::webidl::WebIdlConverter::convert(
@@ -132,18 +123,10 @@ pub fn get_body(
           #required_or_default
         }
       };
-    }
-  }).collect::<Vec<_>>();
+    })
+  }).collect::<Result<Vec<_>, Error>>()?;
 
   let body = quote! {
-    ::deno_core::v8_static_strings! {
-      #(#v8_static_strings),*
-    }
-
-    thread_local! {
-      #(#v8_lazy_strings)*
-    }
-
     let __obj: Option<::deno_core::v8::Local<::deno_core::v8::Object>> = if __value.is_undefined() || __value.is_null() {
       None
     } else {
@@ -172,7 +155,6 @@ struct DictionaryField {
   default_value: Option<Expr>,
   converter_options: std::collections::HashMap<Ident, Expr>,
   ty: Type,
-  eternal: V8Eternal,
 }
 
 impl TryFrom<Field> for DictionaryField {
@@ -238,7 +220,6 @@ impl TryFrom<Field> for DictionaryField {
     let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      eternal: V8Eternal::new(js_name.clone()),
       name,
       js_name,
       default_value,
