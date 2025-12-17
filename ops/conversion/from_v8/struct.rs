@@ -2,7 +2,6 @@
 
 use super::convert_or_serde;
 use super::kw;
-use crate::V8Eternal;
 use crate::conversion::kw as shared_kw;
 use proc_macro2::Ident;
 use proc_macro2::Span;
@@ -41,19 +40,11 @@ pub fn get_body(
         .iter()
         .map(|field| field.name.clone())
         .collect::<Vec<_>>();
-      let v8_static_strings = fields
-        .iter()
-        .map(|field| field.eternal.define_static())
-        .collect::<Vec<_>>();
-      let v8_lazy_strings = fields
-        .iter()
-        .map(|field| field.eternal.define_eternal())
-        .collect::<Vec<_>>();
 
       let fields = fields.into_iter().map(|field| {
         let field_name = field.name;
         let js_name = field.js_name.to_string();
-        let eternal_get_key = field.eternal.get_key();
+        let key = crate::get_internalized_string(field.js_name)?;
 
         let undefined_as_none = if field.default_value.is_some() {
           quote! {
@@ -79,9 +70,9 @@ pub fn get_body(
 
         let converter = convert_or_serde(field.serde, field.ty.span(), quote!(__value));
 
-        quote! {
+        Ok(quote! {
           let #field_name = {
-            let __key = #eternal_get_key.map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = #key;
 
             if let Some(__value) = __obj.get(__scope, __key)#undefined_as_none {
              #converter
@@ -89,18 +80,10 @@ pub fn get_body(
               #required_or_default
             }
           };
-        }
-      }).collect::<Vec<_>>();
+        })
+      }).collect::<Result<Vec<_>, Error>>()?;
 
       let body = quote! {
-        ::deno_core::v8_static_strings! {
-          #(#v8_static_strings),*
-        }
-
-        thread_local! {
-          #(#v8_lazy_strings)*
-        }
-
         let __obj: ::deno_core::v8::Local<::deno_core::v8::Object> =  match __value.try_into() {
           Ok(obj) => obj,
           Err(err) => return Err(::deno_error::JsErrorBox::from_err(::deno_core::error::DataError::from(err))),
@@ -165,7 +148,6 @@ struct StructField {
   default_value: Option<Expr>,
   serde: bool,
   ty: Type,
-  eternal: V8Eternal,
 }
 
 impl TryFrom<Field> for StructField {
@@ -221,7 +203,6 @@ impl TryFrom<Field> for StructField {
     let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      eternal: V8Eternal::new(js_name.clone()),
       name,
       js_name,
       default_value,
