@@ -4,43 +4,51 @@ impl<'a> ::deno_core::convert::ToV8<'a> for Struct {
         self,
         __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
     ) -> Result<::deno_core::v8::Local<'a, ::deno_core::v8::Value>, Self::Error> {
-        ::deno_core::v8_static_strings! {
-            __v8_static_a = "a", __v8_static_c = "c", __v8_static_e = "e", __v8_static_f
-            = "f"
-        }
         let __obj = ::deno_core::v8::Object::new(__scope);
         {
-            let __key = __v8_static_a
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "a".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             let __value = ::deno_core::convert::ToV8::to_v8(self.a, __scope)
                 .map_err(::deno_error::JsErrorBox::from_err)?;
             __obj.set(__scope, __key, __value);
         };
         {
-            let __key = __v8_static_c
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "c".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             let __value = ::deno_core::serde_v8::to_v8(__scope, self.c)
                 .map_err(::deno_error::JsErrorBox::from_err)?;
             __obj.set(__scope, __key, __value);
         };
         {
-            let __key = __v8_static_e
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "e".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             let __value = ::deno_core::convert::ToV8::to_v8(self.d, __scope)
                 .map_err(::deno_error::JsErrorBox::from_err)?;
             __obj.set(__scope, __key, __value);
         };
         {
-            let __key = __v8_static_f
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "f".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             let __value = ::deno_core::convert::ToV8::to_v8(self.f, __scope)
                 .map_err(::deno_error::JsErrorBox::from_err)?;
             __obj.set(__scope, __key, __value);

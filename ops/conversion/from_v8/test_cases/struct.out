@@ -4,10 +4,6 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
         __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
     ) -> Result<Self, Self::Error> {
-        ::deno_core::v8_static_strings! {
-            __v8_static_a = "a", __v8_static_c = "c", __v8_static_e = "e", __v8_static_f
-            = "f"
-        }
         let __obj: ::deno_core::v8::Local<::deno_core::v8::Object> = match __value
             .try_into()
         {
@@ -21,10 +17,13 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             }
         };
         let a = {
-            let __key = __v8_static_a
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "a".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             if let Some(__value) = __obj.get(__scope, __key) {
                 ::deno_core::convert::FromV8::from_v8(__scope, __value)
                     .map_err(::deno_error::JsErrorBox::from_err)?
@@ -37,10 +36,13 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             }
         };
         let c = {
-            let __key = __v8_static_c
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "c".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             if let Some(__value) = __obj
                 .get(__scope, __key)
                 .and_then(|__value| {
@@ -54,10 +56,13 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             }
         };
         let d = {
-            let __key = __v8_static_e
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "e".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             if let Some(__value) = __obj.get(__scope, __key) {
                 ::deno_core::convert::FromV8::from_v8(__scope, __value)
                     .map_err(::deno_error::JsErrorBox::from_err)?
@@ -70,10 +75,13 @@ impl<'a> ::deno_core::convert::FromV8<'a> for Struct {
             }
         };
         let f = {
-            let __key = __v8_static_f
-                .v8_string(__scope)
-                .map(Into::into)
-                .map_err(::deno_error::JsErrorBox::from_err)?;
+            let __key = ::deno_core::v8::String::new_from_one_byte(
+                    __scope,
+                    "f".as_bytes(),
+                    ::deno_core::v8::NewStringType::Internalized,
+                )
+                .unwrap()
+                .into();
             if let Some(__value) = __obj
                 .get(__scope, __key)
                 .and_then(|__value| {
