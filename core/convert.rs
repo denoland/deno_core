@@ -1028,7 +1028,7 @@ where
   ) -> Result<v8::Local<'s, v8::Value>, Self::Error> {
     match self {
       Some(value) => value.to_v8(scope),
-      None => Ok(v8::undefined(scope).into()),
+      None => Ok(v8::null(scope).into()),
     }
   }
 }
@@ -1043,7 +1043,7 @@ where
     scope: &mut v8::PinScope<'s, 'i>,
     value: v8::Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    if value.is_undefined() {
+    if value.is_null_or_undefined() {
       Ok(None)
     } else {
       T::from_v8(scope, value).map(|v| Some(v))
@@ -1056,7 +1056,7 @@ where
   T: FromV8Fast<'s>,
 {
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
-    if value.is_undefined() {
+    if value.is_null_or_undefined() {
       Ok(None)
     } else {
       <T as FromV8Fast>::from_v8(value).map(|v| Some(v))
