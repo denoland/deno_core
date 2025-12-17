@@ -104,6 +104,7 @@ impl<T> Default for WebTimers<T> {
 }
 
 impl<T> WebTimers<T> {
+  #[allow(unused)]
   pub fn has_pending(&self) -> bool {
     !self.timers.borrow().is_empty()
   }

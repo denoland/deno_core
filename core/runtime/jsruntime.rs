@@ -503,6 +503,10 @@ pub struct RuntimeOptions {
   /// situation - like disconnecting when program finishes running.
   pub is_main: bool,
 
+  /// Worker ID for inspector context naming (e.g., "worker [1]", "worker [2]").
+  /// Only used when `is_main` is false. Starts at 1.
+  pub worker_id: Option<u32>,
+
   #[cfg(any(test, feature = "unsafe_runtime_options"))]
   /// Should this isolate expose the v8 natives (eg: %OptimizeFunctionOnNextCall) and
   /// GC control functions (`gc()`)? WARNING: This should not be used for production code as
@@ -1058,6 +1062,7 @@ impl JsRuntime {
           scope,
           context,
           options.is_main,
+          options.worker_id,
         ))
       } else {
         None
@@ -1876,6 +1881,7 @@ impl JsRuntime {
       scope,
       context,
       self.is_main_runtime,
+      None,
     ));
   }
 
@@ -2099,10 +2105,15 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
-    if !did_work
-      && !context_state.timers.has_pending()
-      && pending_state.has_refed_immediates > 0
-    {
+    // eprintln!(
+    //   "did work {}, dispatched_ops {}, has timers {}, has_refed_immediates {}, has_outstanding_immediates {}",
+    //   did_work,
+    //   dispatched_ops,
+    //   context_state.timers.has_pending(),
+    //   pending_state.has_refed_immediates,
+    //   pending_state.has_outstanding_immediates
+    // );
+    if !did_work && pending_state.has_refed_immediates > 0 {
       Self::do_js_run_immediate_callbacks(scope, context_state)?;
     }
 

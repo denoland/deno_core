@@ -153,13 +153,19 @@ impl SourceMapper {
           match resolve_url(source_file_name) {
             Ok(m) if m.scheme() == "blob" => None,
             Ok(m) => Some(m.to_string()),
-            Err(_) => {
-              // Try to resolve as a relative path from the module URL
-              resolve_url(file_name)
-                .ok()
-                .and_then(|base_url| base_url.join(source_file_name).ok())
-                .map(|resolved| resolved.to_string())
-            }
+            Err(_) => resolve_url(file_name)
+              .ok()
+              .and_then(|base_url| base_url.join(source_file_name).ok())
+              .and_then(|resolved| {
+                let resolved_str = resolved.to_string();
+                // Only rewrite file name if the source file actually exists.
+                // This prevents npm packages with source maps pointing to
+                // non-distributed source files from breaking stack traces.
+                match self.loader.source_map_source_exists(&resolved_str) {
+                  Some(true) => Some(resolved_str),
+                  _ => None,
+                }
+              }),
           }
         }
       }
@@ -227,6 +233,16 @@ mod tests {
   #[derive(Default)]
   pub struct SourceMapLoader {
     map: HashMap<ModuleSpecifier, SourceMapLoaderContent>,
+    existing_files: std::cell::RefCell<std::collections::HashSet<String>>,
+  }
+
+  impl SourceMapLoader {
+    fn add_existing_file(&self, file_name: &str) {
+      self
+        .existing_files
+        .borrow_mut()
+        .insert(file_name.to_string());
+    }
   }
 
   impl ModuleLoader for SourceMapLoader {
@@ -263,6 +279,10 @@ mod tests {
       _line_number: usize,
     ) -> Option<String> {
       Some("fake source line".to_string())
+    }
+
+    fn source_map_source_exists(&self, source_url: &str) -> Option<bool> {
+      Some(self.existing_files.borrow().contains(source_url))
     }
   }
 
@@ -306,5 +326,60 @@ mod tests {
     // Get again to hit a cache
     let line = source_mapper.get_source_line("file:///a.ts", 1).unwrap();
     assert_eq!(line, "fake source line");
+  }
+
+  #[test]
+  fn test_source_map_relative_path_nonexistent_file() {
+    // This is important for npm packages that ship source maps pointing to
+    // source files that aren't distributed.
+    let mut loader = SourceMapLoader::default();
+    loader.map.insert(
+      Url::parse("file:///project/dist/bundle.js").unwrap(),
+      SourceMapLoaderContent {
+        // Source map with relative path "../src/index.ts" that doesn't exist
+        source_map: Some(ascii_str!(r#"{"version":3,"sources":["../src/index.ts"],"sourcesContent":["console.log('hello');\n"],"names":[],"mappings":"AAAA,QAAQ,IAAI"}"#).into()),
+      },
+    );
+
+    let mut source_mapper = SourceMapper::new(Rc::new(loader));
+
+    // The source file "../src/index.ts" resolved to "file:///project/src/index.ts"
+    // doesn't exist, so we should only get line/column mapping without file rename
+    let application =
+      source_mapper.apply_source_map("file:///project/dist/bundle.js", 1, 1);
+    assert_eq!(
+      application,
+      SourceMapApplication::LineAndColumn {
+        line_number: 1,
+        column_number: 1
+      }
+    );
+  }
+
+  #[test]
+  fn test_source_map_relative_path_existing_file() {
+    // Test that relative paths pointing to existing files DO rewrite the file name
+    let mut loader = SourceMapLoader::default();
+    loader.map.insert(
+      Url::parse("file:///project/dist/bundle.js").unwrap(),
+      SourceMapLoaderContent {
+        // Source map with relative path "../src/index.ts"
+        source_map: Some(ascii_str!(r#"{"version":3,"sources":["../src/index.ts"],"sourcesContent":["console.log('hello');\n"],"names":[],"mappings":"AAAA,QAAQ,IAAI"}"#).into()),
+      },
+    );
+    loader.add_existing_file("file:///project/src/index.ts");
+
+    let mut source_mapper = SourceMapper::new(Rc::new(loader));
+
+    let application =
+      source_mapper.apply_source_map("file:///project/dist/bundle.js", 1, 1);
+    assert_eq!(
+      application,
+      SourceMapApplication::LineAndColumnAndFileName {
+        file_name: "file:///project/src/index.ts".to_string(),
+        line_number: 1,
+        column_number: 1
+      }
+    );
   }
 }
