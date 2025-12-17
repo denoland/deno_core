@@ -1433,7 +1433,7 @@ function equal(a, b) {
       |scope, _args| vec![Some(Number(1.0)), None, Some(Number(2.0))]
         .to_v8(scope)
         .unwrap(),
-      "equal(test_fn(), [1.0, undefined, 2.0])"
+      "equal(test_fn(), [1.0, null, 2.0])"
     );
     from_v8_test!(runtime, "[1.0, undefined, 2.0]", |scope, result| {
       let v = <Vec<Option<Number<f64>>>>::from_v8(scope, result).unwrap();
