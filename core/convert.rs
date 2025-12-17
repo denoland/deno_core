@@ -671,13 +671,16 @@ where
   }
 }
 
-unsafe fn abview_to_box<T>(ab_view: v8::Local<v8::ArrayBufferView>) -> Box<[T]> {
+unsafe fn abview_to_box<T>(
+  ab_view: v8::Local<v8::ArrayBufferView>,
+) -> Box<[T]> {
   let data = ab_view.data();
   let data = unsafe { data.add(ab_view.byte_offset()) };
   let len = ab_view.byte_length() / std::mem::size_of::<T>();
   let mut out = Box::<[T]>::new_uninit_slice(len);
   unsafe {
-    std::ptr::copy_nonoverlapping(data.cast::<T>(),
+    std::ptr::copy_nonoverlapping(
+      data.cast::<T>(),
       out.as_mut_ptr().cast::<T>(),
       len,
     );
@@ -816,9 +819,7 @@ impl<'s> FromV8<'s> for ArrayBufferView {
 impl<'a> FromV8Fast<'a> for ArrayBufferView {
   fn from_v8(value: Local<'a, v8::Value>) -> Result<Self, Self::Error> {
     if value.is_int8_array() {
-      Ok(Self::Int8Array(<Int8Array as FromV8Fast>::from_v8(
-        value,
-      )?))
+      Ok(Self::Int8Array(<Int8Array as FromV8Fast>::from_v8(value)?))
     } else if value.is_uint8_array() {
       Ok(Self::Uint8Array(<Uint8Array as FromV8Fast>::from_v8(
         value,
