@@ -253,8 +253,14 @@ impl JsRuntimeInspectorState {
         if let Some(session) = sessions.handshake.take() {
           let mut fut =
             pump_inspector_session_messages(session.clone()).boxed_local();
-          let _ = fut.poll_unpin(cx);
-          sessions.established.push(fut);
+          // Only add to established if the future is still pending.
+          // If the channel is already closed (e.g., worker terminated quickly),
+          // the future may complete immediately on first poll. Pushing a
+          // completed future to FuturesUnordered would cause a panic when
+          // polled again.
+          if fut.poll_unpin(cx).is_pending() {
+            sessions.established.push(fut);
+          }
           let id = sessions.next_local_id;
           sessions.next_local_id += 1;
           sessions.local.insert(id, session);
