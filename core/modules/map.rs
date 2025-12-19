@@ -149,6 +149,8 @@ pub(crate) struct ModuleMap {
   pending_dynamic_imports_pending: Cell<bool>,
   pending_dyn_mod_evaluations: RefCell<Vec<DynImportModEvaluate>>,
   pending_dyn_mod_evaluations_pending: Cell<bool>,
+  pending_tla_waiters:
+    RefCell<HashMap<ModuleId, Vec<v8::Global<v8::PromiseResolver>>>>,
   pending_mod_evaluation: Cell<bool>,
   code_cache_ready_futs:
     RefCell<FuturesUnordered<Pin<Box<CodeCacheReadyFuture>>>>,
@@ -169,6 +171,7 @@ impl ModuleMap {
     self.dynamic_import_map.borrow_mut().clear();
     self.preparing_dynamic_imports.borrow_mut().clear();
     self.pending_dynamic_imports.borrow_mut().clear();
+    self.pending_tla_waiters.borrow_mut().clear();
     self.code_cache_ready_futs.borrow_mut().clear();
     std::mem::take(&mut *self.data.borrow_mut());
   }
@@ -234,6 +237,7 @@ impl ModuleMap {
       pending_dynamic_imports_pending: Default::default(),
       pending_dyn_mod_evaluations: Default::default(),
       pending_dyn_mod_evaluations_pending: Default::default(),
+      pending_tla_waiters: Default::default(),
       pending_mod_evaluation: Default::default(),
       code_cache_ready_futs: Default::default(),
       pending_code_cache_ready: Default::default(),
@@ -1246,6 +1250,25 @@ impl ModuleMap {
         .expect("Dyn import module info not found");
 
       if module.get_status() == v8::ModuleStatus::Evaluated {
+        // Check if this module has a pending TLA (top-level await) evaluation.
+        let has_pending_tla = self
+          .pending_dyn_mod_evaluations
+          .borrow()
+          .iter()
+          .any(|pending| pending.module_id == id);
+
+        // Queue this resolver to be resolved when the TLA completes.
+        if has_pending_tla {
+          self
+            .pending_tla_waiters
+            .borrow_mut()
+            .entry(id)
+            .or_default()
+            .push(resolver_handle);
+          return false;
+        }
+
+        // No pending TLA, safe to resolve immediately
         let resolver = resolver_handle.open(scope);
         let module_namespace = module.get_module_namespace();
         resolver.resolve(scope, module_namespace).unwrap();
@@ -1659,7 +1682,7 @@ impl ModuleMap {
           v8::PromiseState::Rejected => {
             let exception = promise.result(scope);
             let exception = v8::Global::new(scope, exception);
-            Some(Err((pending_dyn_evaluate.load_id, exception)))
+            Some(Err((pending_dyn_evaluate.load_id, module_id, exception)))
           }
         }
       };
@@ -1669,9 +1692,11 @@ impl ModuleMap {
         match result {
           Ok((dyn_import_id, module_id)) => {
             self.dynamic_import_resolve(scope, dyn_import_id, module_id);
+            self.resolve_tla_waiters(scope, module_id);
           }
-          Err((dyn_import_id, exception)) => {
-            self.dynamic_import_reject(scope, dyn_import_id, exception);
+          Err((dyn_import_id, module_id, exception)) => {
+            self.dynamic_import_reject(scope, dyn_import_id, exception.clone());
+            self.reject_tla_waiters(scope, module_id, exception);
           }
         }
       }
@@ -1681,6 +1706,44 @@ impl ModuleMap {
       .set(!still_pending.is_empty());
     *self.pending_dyn_mod_evaluations.borrow_mut() = still_pending;
     resolved_any
+  }
+
+  /// Resolve all waiters that are waiting for a module's TLA to complete.
+  fn resolve_tla_waiters(&self, scope: &mut v8::PinScope, module_id: ModuleId) {
+    let waiters = self.pending_tla_waiters.borrow_mut().remove(&module_id);
+    if let Some(waiters) = waiters
+      && let Some(module) = self
+        .data
+        .borrow()
+        .get_handle(module_id)
+        .map(|handle| v8::Local::new(scope, handle))
+    {
+      let module_namespace = module.get_module_namespace();
+
+      for resolver_handle in waiters {
+        let resolver = resolver_handle.open(scope);
+        resolver.resolve(scope, module_namespace).unwrap();
+      }
+      scope.perform_microtask_checkpoint();
+    }
+  }
+
+  /// Reject all waiters that are waiting for a module's TLA to complete.
+  fn reject_tla_waiters(
+    &self,
+    scope: &mut v8::PinScope,
+    module_id: ModuleId,
+    exception: v8::Global<v8::Value>,
+  ) {
+    let waiters = self.pending_tla_waiters.borrow_mut().remove(&module_id);
+    if let Some(waiters) = waiters {
+      let exception = v8::Local::new(scope, exception);
+      for resolver_handle in waiters {
+        let resolver = resolver_handle.open(scope);
+        resolver.reject(scope, exception).unwrap();
+      }
+      scope.perform_microtask_checkpoint();
+    }
   }
 
   pub(crate) fn dynamic_import_reject(
