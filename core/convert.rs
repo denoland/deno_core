@@ -81,11 +81,6 @@ pub trait ToV8<'a> {
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error>;
 }
 
-pub trait ToV8Fast<'a>: ToV8<'a> {
-  /// Converts the value to a V8 value.
-  fn to_v8(self) -> Result<v8::Local<'a, v8::Value>, Self::Error>;
-}
-
 /// A conversion from a v8 value to a rust value.
 ///
 /// When writing a op, or otherwise writing a function in Rust called
@@ -133,7 +128,8 @@ pub trait FromV8<'a>: Sized {
   ) -> Result<Self, Self::Error>;
 }
 
-pub trait FromV8Fast<'a>: Sized + FromV8<'a> {
+/// An alternative to [`FromV8`] that does not require a [`PinScope`].
+pub trait FromV8Scopeless<'a>: Sized + FromV8<'a> {
   /// Converts a V8 value to a Rust value.
   fn from_v8(value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error>;
 }
@@ -195,11 +191,11 @@ impl<'s, T: SmallInt> FromV8<'s> for Smi<T> {
     _scope: &mut PinScope<'s, 'i>,
     value: Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    <Self as FromV8Fast>::from_v8(value)
+    <Self as FromV8Scopeless>::from_v8(value)
   }
 }
 
-impl<'s, T: SmallInt> FromV8Fast<'s> for Smi<T> {
+impl<'s, T: SmallInt> FromV8Scopeless<'s> for Smi<T> {
   #[inline]
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
     let v = ops::to_i32_option(&value).ok_or_else(|| {
@@ -274,11 +270,11 @@ impl<'s, T: Numeric> FromV8<'s> for Number<T> {
     _scope: &mut PinScope<'s, 'i>,
     value: Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    <Self as FromV8Fast>::from_v8(value)
+    <Self as FromV8Scopeless>::from_v8(value)
   }
 }
 
-impl<'s, T: Numeric> FromV8Fast<'s> for Number<T> {
+impl<'s, T: Numeric> FromV8Scopeless<'s> for Number<T> {
   #[inline]
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
     T::from_value(&value).map(Number).ok_or_else(|| {
@@ -300,10 +296,10 @@ macro_rules! impl_number_types {
           _scope: &mut v8::PinScope<'a, 'i>,
           value: v8::Local<'a, v8::Value>,
         ) -> Result<Self, Self::Error> {
-          <Self as FromV8Fast>::from_v8(value)
+          <Self as FromV8Scopeless>::from_v8(value)
         }
       }
-      impl<'a> FromV8Fast<'a> for $t {
+      impl<'a> FromV8Scopeless<'a> for $t {
         #[inline]
         fn from_v8(value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
           let n = value.try_cast::<v8::Number>()?;
@@ -382,11 +378,11 @@ impl<'s> FromV8<'s> for bool {
     _scope: &mut PinScope<'s, 'i>,
     value: Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    <Self as FromV8Fast>::from_v8(value)
+    <Self as FromV8Scopeless>::from_v8(value)
   }
 }
 
-impl<'s> FromV8Fast<'s> for bool {
+impl<'s> FromV8Scopeless<'s> for bool {
   #[inline]
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
     value
@@ -593,15 +589,15 @@ where
   }
 }
 
-impl<'s, T> FromV8Fast<'s> for OptionNull<T>
+impl<'s, T> FromV8Scopeless<'s> for OptionNull<T>
 where
-  T: FromV8Fast<'s>,
+  T: FromV8Scopeless<'s>,
 {
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
     if value.is_null() {
       Ok(OptionNull(None))
     } else {
-      <T as FromV8Fast>::from_v8(value).map(|v| OptionNull(Some(v)))
+      <T as FromV8Scopeless>::from_v8(value).map(|v| OptionNull(Some(v)))
     }
   }
 }
@@ -658,15 +654,15 @@ where
   }
 }
 
-impl<'s, T> FromV8Fast<'s> for OptionUndefined<T>
+impl<'s, T> FromV8Scopeless<'s> for OptionUndefined<T>
 where
-  T: FromV8Fast<'s>,
+  T: FromV8Scopeless<'s>,
 {
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
     if value.is_undefined() {
       Ok(OptionUndefined(None))
     } else {
-      <T as FromV8Fast>::from_v8(value).map(|v| OptionUndefined(Some(v)))
+      <T as FromV8Scopeless>::from_v8(value).map(|v| OptionUndefined(Some(v)))
     }
   }
 }
@@ -744,11 +740,11 @@ macro_rules! typedarray_to_v8 {
         _scope: &mut PinScope<'s, 'i>,
         value: Local<'s, v8::Value>,
       ) -> Result<Self, Self::Error> {
-        <Self as FromV8Fast>::from_v8(value)
+        <Self as FromV8Scopeless>::from_v8(value)
       }
     }
 
-    impl<'a> FromV8Fast<'a> for $v8ty {
+    impl<'a> FromV8Scopeless<'a> for $v8ty {
       fn from_v8(value: v8::Local<'a, v8::Value>) -> Result<Self, Self::Error> {
         if value.$v8fn() {
           Ok($v8ty(unsafe {
@@ -812,41 +808,43 @@ impl<'s> FromV8<'s> for ArrayBufferView {
     _scope: &mut PinScope<'s, 'i>,
     value: Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    <Self as FromV8Fast>::from_v8(value)
+    <Self as FromV8Scopeless>::from_v8(value)
   }
 }
 
-impl<'a> FromV8Fast<'a> for ArrayBufferView {
+impl<'a> FromV8Scopeless<'a> for ArrayBufferView {
   fn from_v8(value: Local<'a, v8::Value>) -> Result<Self, Self::Error> {
     if value.is_int8_array() {
-      Ok(Self::Int8Array(<Int8Array as FromV8Fast>::from_v8(value)?))
+      Ok(Self::Int8Array(<Int8Array as FromV8Scopeless>::from_v8(
+        value,
+      )?))
     } else if value.is_uint8_array() {
-      Ok(Self::Uint8Array(<Uint8Array as FromV8Fast>::from_v8(
+      Ok(Self::Uint8Array(<Uint8Array as FromV8Scopeless>::from_v8(
         value,
       )?))
     } else if value.is_int16_array() {
-      Ok(Self::Int16Array(<Int16Array as FromV8Fast>::from_v8(
+      Ok(Self::Int16Array(<Int16Array as FromV8Scopeless>::from_v8(
         value,
       )?))
     } else if value.is_uint16_array() {
-      Ok(Self::Uint16Array(<Uint16Array as FromV8Fast>::from_v8(
-        value,
-      )?))
+      Ok(Self::Uint16Array(
+        <Uint16Array as FromV8Scopeless>::from_v8(value)?,
+      ))
     } else if value.is_int32_array() {
-      Ok(Self::Int32Array(<Int32Array as FromV8Fast>::from_v8(
+      Ok(Self::Int32Array(<Int32Array as FromV8Scopeless>::from_v8(
         value,
       )?))
     } else if value.is_uint32_array() {
-      Ok(Self::Uint32Array(<Uint32Array as FromV8Fast>::from_v8(
-        value,
-      )?))
+      Ok(Self::Uint32Array(
+        <Uint32Array as FromV8Scopeless>::from_v8(value)?,
+      ))
     } else if value.is_big_int64_array() {
-      Ok(Self::BigInt64Array(<BigInt64Array as FromV8Fast>::from_v8(
-        value,
-      )?))
+      Ok(Self::BigInt64Array(
+        <BigInt64Array as FromV8Scopeless>::from_v8(value)?,
+      ))
     } else if value.is_big_uint64_array() {
       Ok(Self::BigUint64Array(
-        <BigUint64Array as FromV8Fast>::from_v8(value)?,
+        <BigUint64Array as FromV8Scopeless>::from_v8(value)?,
       ))
     } else {
       Err(DataError(v8::DataError::BadType {
@@ -1051,15 +1049,15 @@ where
   }
 }
 
-impl<'s, T> FromV8Fast<'s> for Option<T>
+impl<'s, T> FromV8Scopeless<'s> for Option<T>
 where
-  T: FromV8Fast<'s>,
+  T: FromV8Scopeless<'s>,
 {
   fn from_v8(value: v8::Local<'s, v8::Value>) -> Result<Self, Self::Error> {
     if value.is_null_or_undefined() {
       Ok(None)
     } else {
-      <T as FromV8Fast>::from_v8(value).map(|v| Some(v))
+      <T as FromV8Scopeless>::from_v8(value).map(|v| Some(v))
     }
   }
 }
@@ -1125,16 +1123,6 @@ where
     self,
     _scope: &mut PinScope<'s, 'i>,
   ) -> Result<Local<'s, v8::Value>, Self::Error> {
-    <Self as ToV8Fast>::to_v8(self)
-  }
-}
-
-impl<'s, T, E> ToV8Fast<'s> for v8::Local<'s, T>
-where
-  Local<'s, T>: TryInto<Local<'s, v8::Value>, Error = E>,
-  E: Into<V8ConvertError>,
-{
-  fn to_v8(self) -> Result<Local<'s, v8::Value>, Self::Error> {
     self.try_into().map_err(Into::into)
   }
 }
@@ -1150,11 +1138,11 @@ where
     _scope: &mut PinScope<'s, 'i>,
     value: Local<'s, v8::Value>,
   ) -> Result<Self, Self::Error> {
-    <Self as FromV8Fast>::from_v8(value)
+    <Self as FromV8Scopeless>::from_v8(value)
   }
 }
 
-impl<'s, T, E> FromV8Fast<'s> for v8::Local<'s, T>
+impl<'s, T, E> FromV8Scopeless<'s> for v8::Local<'s, T>
 where
   Local<'s, v8::Value>: TryInto<Local<'s, T>, Error = E>,
   E: Into<V8ConvertError>,

@@ -355,7 +355,7 @@ pub enum Arg {
   OptionCppGcResource(String),
   CppGcProtochain(Vec<String>),
   FromV8(String, bool),
-  ToV8(String, bool),
+  ToV8(String),
   WebIDL(String, Vec<WebIDLPair>, Option<WebIDLDefault>),
   VarArgs,
   This,
@@ -403,7 +403,7 @@ impl Arg {
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
       CUnknown(t, slow) => match position {
         Position::Arg => Ok(Arg::FromV8(stringify_token(t), slow)),
-        Position::RetVal => Ok(Arg::ToV8(stringify_token(t), slow)),
+        Position::RetVal => Ok(Arg::ToV8(stringify_token(t))),
       },
       _ => unreachable!(),
     }
@@ -522,7 +522,7 @@ impl Arg {
           // Fast return value path for empty strings
           Arg::String(_) => ArgSlowRetval::RetValFallible,
           Arg::SerdeV8(_) => ArgSlowRetval::V8LocalFalliable,
-          Arg::ToV8(_, _) => ArgSlowRetval::V8LocalFalliable,
+          Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
           // No scope required for these
           Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
           // ArrayBuffer is infallible
@@ -561,8 +561,7 @@ impl Arg {
       Arg::CppGcProtochain(_)
       | Arg::CppGcResource(..)
       | Arg::OptionCppGcResource(_) => ArgMarker::Cppgc,
-      Arg::ToV8(_, true) => ArgMarker::ToV8,
-      Arg::ToV8(_, false) => ArgMarker::ToV8Fast,
+      Arg::ToV8(_) => ArgMarker::ToV8,
       Arg::VoidUndefined => ArgMarker::Undefined,
       _ => ArgMarker::None,
     }
@@ -604,8 +603,6 @@ pub enum ArgMarker {
   Cppgc,
   /// This type should be converted with `ToV8`
   ToV8,
-  /// This type should be converted with `ToV8Fast`
-  ToV8Fast,
   /// This unit type should be a undefined.
   Undefined,
 }
@@ -1758,10 +1755,7 @@ pub(crate) fn parse_type(
             stringify_token(ty),
             matches!(attrs.primary, Some(AttributeModifier::V8Slow)),
           )),
-          Position::RetVal => Ok(Arg::ToV8(
-            stringify_token(ty),
-            matches!(attrs.primary, Some(AttributeModifier::V8Slow)),
-          )),
+          Position::RetVal => Ok(Arg::ToV8(stringify_token(ty))),
         }
       }
     }
