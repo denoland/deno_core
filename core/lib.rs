@@ -71,7 +71,6 @@ pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
 pub use crate::convert::FromV8Scopeless;
 pub use crate::convert::ToV8;
-pub use crate::convert::ToV8Fast;
 pub use crate::cppgc::GarbageCollected;
 pub use crate::extensions::AccessorType;
 pub use crate::extensions::Extension;
