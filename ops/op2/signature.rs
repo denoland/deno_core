@@ -665,7 +665,7 @@ impl ParsedTypeContainer {
     use ParsedTypeContainer::*;
     match self {
       CV8Local(_) | COptionV8Local(_) | CUnknown(_, false) => None,
-      CUnknown(_, true) => Some(&[AttributeModifier::V8Slow]),
+      CUnknown(_, true) => Some(&[AttributeModifier::Scoped]),
       CBare(t) | COption(t) | CRcRefCell(t) | CRc(t) => {
         t.required_attributes(position)
       }
@@ -792,8 +792,8 @@ pub enum AttributeModifier {
   This,
   /// `undefined`
   Undefined,
-  /// Use non-fast versions of FromV8/ToV8 traits
-  V8Slow,
+  /// Use scoped versions of FromV8/ToV8 traits
+  Scoped,
   /// Custom validator.
   Validate(Path),
 }
@@ -814,7 +814,7 @@ impl AttributeModifier {
       AttributeModifier::VarArgs => "varargs",
       AttributeModifier::This => "this",
       AttributeModifier::Undefined => "undefined",
-      AttributeModifier::V8Slow => "v8_slow",
+      AttributeModifier::Scoped => "scoped",
       AttributeModifier::Validate(_) => "validate",
     }
   }
@@ -1255,7 +1255,7 @@ fn parse_attribute(
     "cppgc" => Some(AttributeModifier::CppGcResource),
     "proto" => Some(AttributeModifier::CppGcProto),
     "varargs" => Some(AttributeModifier::VarArgs),
-    "v8_slow" => Some(AttributeModifier::V8Slow),
+    "scoped" => Some(AttributeModifier::Scoped),
 
     "validate" => {
       let value: Path = attr
@@ -1380,8 +1380,8 @@ fn parse_type_path(
         std?::vec?::Vec<::$ty> => {
           if let Some(AttributeModifier::Buffer(_, _)) = attrs.primary {
             Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(ty)?))))
-          } else if attrs.primary.is_none() || attrs.primary.as_ref().is_some_and(|primary| matches!(primary, AttributeModifier::V8Slow)) {
-            Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow))))
+          } else if attrs.primary.is_none() || attrs.primary.as_ref().is_some_and(|primary| matches!(primary, AttributeModifier::Scoped)) {
+            Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped))))
           } else {
             Err(ArgError::InvalidAttributeType("buffer", stringify_token(tp)))
           }
@@ -1403,7 +1403,7 @@ fn parse_type_path(
         v8::PinScope<'_, '_> | v8::PinScope => Ok(CBare(TSpecial(Special::HandleScope))),
         v8::FastApiCallbackOptions => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
         v8::Local<'_, v8::$v8> | v8::Local<v8::$v8> => Ok(CV8Local(TV8(parse_v8_type(v8)?))),
-        v8::Global<'_, v8::$_v8> | v8::Global<v8::$_v8> => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow)))),
+        v8::Global<'_, v8::$_v8> | v8::Global<v8::$_v8> => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped)))),
         v8::$v8 => Ok(CBare(TV8(parse_v8_type(v8)?))),
         std?::rc?::Rc<RefCell<$ty>> => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
         std?::rc?::Rc<$ty> => Ok(CRc(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
@@ -1423,7 +1423,7 @@ fn parse_type_path(
             Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
             Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
             Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
-            _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow)))),
+            _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped)))),
           }
         }
         deno_core::$next::$any? => {
@@ -1433,7 +1433,7 @@ fn parse_type_path(
           let instead = format!("{next}{any}");
           Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), next, instead))
         }
-        _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::V8Slow)))),
+        _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped)))),
       )?
     }
   };
@@ -1683,7 +1683,7 @@ pub(crate) fn parse_type(
 
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
-      | AttributeModifier::V8Slow
+      | AttributeModifier::Scoped
       | AttributeModifier::Bigint => {
         // We handle this as part of the normal parsing process
       }
@@ -1753,7 +1753,7 @@ pub(crate) fn parse_type(
         match position {
           Position::Arg => Ok(Arg::FromV8(
             stringify_token(ty),
-            matches!(attrs.primary, Some(AttributeModifier::V8Slow)),
+            matches!(attrs.primary, Some(AttributeModifier::Scoped)),
           )),
           Position::RetVal => Ok(Arg::ToV8(stringify_token(ty))),
         }

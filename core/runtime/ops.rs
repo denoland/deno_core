@@ -2469,7 +2469,7 @@ mod tests {
   }
 
   #[op2]
-  fn op_bool_to_from_v8(#[v8_slow] value: Bool) -> Bool {
+  fn op_bool_to_from_v8(#[scoped] value: Bool) -> Bool {
     value
   }
 

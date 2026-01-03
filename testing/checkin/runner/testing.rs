@@ -45,7 +45,7 @@ pub struct TestFunctions {
 pub fn op_test_register(
   op_state: &mut OpState,
   #[string] name: String,
-  #[v8_slow] f: v8::Global<v8::Function>,
+  #[scoped] f: v8::Global<v8::Function>,
 ) {
   op_state
     .borrow_mut::<TestFunctions>()

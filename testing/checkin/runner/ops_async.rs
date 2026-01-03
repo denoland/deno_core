@@ -16,7 +16,7 @@ use std::rc::Rc;
 #[op2]
 pub fn op_task_submit(
   state: &mut OpState,
-  #[v8_slow] f: v8::Global<v8::Function>,
+  #[scoped] f: v8::Global<v8::Function>,
 ) {
   state.borrow_mut::<V8TaskSpawner>().spawn(move |scope| {
     let f = v8::Local::new(scope, f);
