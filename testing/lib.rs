@@ -59,6 +59,7 @@ integration_test!(
   dyn_import_circular,
   dyn_import_op,
   dyn_import_no_hang,
+  dyn_import_pending_tla,
   error_async_stack,
   error_callsite,
   error_non_existent_eval_source,
