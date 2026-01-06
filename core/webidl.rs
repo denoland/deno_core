@@ -1494,6 +1494,7 @@ mod tests {
     .unwrap();
     assert_eq!(converted, Enumeration::FooBar);
     assert_eq!(converted.as_str(), "foo-bar");
+
     let val = v8::String::new(scope, "foo-bar").unwrap();
     let val = v8::Array::new_with_elements(scope, &[val.into()]);
     let converted = Enumeration::convert(
