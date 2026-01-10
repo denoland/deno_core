@@ -24,10 +24,10 @@ use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
 use self::signature::Arg;
-use self::signature::RetVal;
 use self::signature::SignatureError;
 use self::signature::is_attribute_special;
 use self::signature::parse_signature;
+use self::signature_retval::RetVal;
 
 pub mod config;
 pub mod dispatch_async;
@@ -57,12 +57,10 @@ pub enum Op2Error {
   ShouldBeFast,
   #[error("This op is not fast-compatible and should not be marked as ({0})")]
   ShouldNotBeFast(&'static str),
-  #[error("This op is async and should be marked as (async)")]
-  ShouldBeAsync,
-  #[error("This op is not async and should not be marked as (async)")]
-  ShouldNotBeAsync,
   #[error("Only one constructor is allowed per object")]
   MultipleConstructors,
+  #[error("Only identifiers are supported in impl blocks")]
+  NonIdentifierImplBlock,
 }
 
 #[derive(Debug, Error)]
@@ -131,14 +129,12 @@ pub(crate) fn generate_op2(
   } else if config.static_member {
     func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
-  let signature =
-    parse_signature(config.fake_async, func.attrs, func.sig.clone())?;
+  let signature = parse_signature(func.attrs, func.sig.clone())?;
   for ident in &signature.lifetimes {
-    let ident = format_ident!("{ident}");
     op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
       LifetimeParam::new(Lifetime {
         apostrophe: op_fn.span(),
-        ident,
+        ident: ident.clone(),
       }),
     ));
   }
@@ -172,7 +168,7 @@ pub(crate) fn generate_op2(
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
   let self_ty = if let Some(ref ty) = config.self_name {
-    format_ident!("{ty}")
+    ty.clone()
   } else {
     Ident::new("UNINIT", Span::call_site())
   };
@@ -214,6 +210,7 @@ pub(crate) fn generate_op2(
     } else {
       format_ident!("try_unwrap_cppgc_object")
     },
+    is_fake_async: config.fake_async,
   };
 
   let mut slow_generator_state = base_generator_state.clone();
@@ -224,9 +221,9 @@ pub(crate) fn generate_op2(
     .as_deref()
     .unwrap_or(&orig_name.to_string())
     .to_string();
-  let name = format_ident!("{}", name);
+  let name = Ident::new(&name, orig_name.span());
 
-  let slow_fn = if signature.ret_val.is_async() {
+  let slow_fn = if signature.ret_val.is_async() || config.fake_async {
     generate_dispatch_async(&config, &mut slow_generator_state, &signature)?
   } else {
     generate_dispatch_slow(&config, &mut slow_generator_state, &signature)?
@@ -234,12 +231,6 @@ pub(crate) fn generate_op2(
   let is_async = signature.ret_val.is_async();
   let is_reentrant = config.reentrant;
   let no_side_effect = config.no_side_effects;
-
-  match (is_async, config.r#async || config.fake_async) {
-    (true, false) => return Err(Op2Error::ShouldBeAsync),
-    (false, true) => return Err(Op2Error::ShouldNotBeAsync),
-    _ => {}
-  }
 
   let mut fast_generator_state = base_generator_state.clone();
 
@@ -255,6 +246,7 @@ pub(crate) fn generate_op2(
           && config.fast_alternative.is_none()
           && !config.getter
           && !config.setter
+          && !config.fake_async
         {
           return Err(Op2Error::ShouldBeFast);
         }
@@ -519,7 +511,7 @@ mod tests {
         let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig = parse_signature(false, vec![], function.sig.clone())
+        let sig = parse_signature(vec![], function.sig.clone())
           .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
@@ -585,9 +577,8 @@ mod tests {
         let function = format!("{} fn op_test() -> {} {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig =
-          parse_signature(false, function.attrs.clone(), function.sig.clone())
-            .expect("Failed to parse signature");
+        let sig = parse_signature(function.attrs.clone(), function.sig.clone())
+          .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
           MacroConfig {
@@ -602,16 +593,12 @@ mod tests {
           let function = format!("{} async fn op_test() -> {} {{}}", attr, ty);
           let function =
             syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-          let sig = parse_signature(
-            false,
-            function.attrs.clone(),
-            function.sig.clone(),
-          )
-          .expect("Failed to parse signature");
+          let sig =
+            parse_signature(function.attrs.clone(), function.sig.clone())
+              .expect("Failed to parse signature");
           println!("Parsed signature: {sig:?}");
           generate_op2(
             MacroConfig {
-              r#async: true,
               ..Default::default()
             },
             function,

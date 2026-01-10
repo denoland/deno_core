@@ -29,22 +29,6 @@ pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
   quote!(let #i = #arg;)
 }
 
-/// Given an [`Arg`] containing a V8 value, converts this value to its final argument form.
-pub fn v8_intermediate_to_global_arg(
-  isolate: &Ident,
-  i: &Ident,
-  arg: &Arg,
-) -> TokenStream {
-  let arg = match arg {
-    Arg::V8Global(_) => quote!(deno_core::v8::Global::new(&mut #isolate, #i)),
-    Arg::OptionV8Global(_) => {
-      quote!(match #i { None => None, Some(v) => Some(deno_core::v8::Global::new(&mut #isolate, v)) })
-    }
-    _ => unreachable!("Not a v8 global arg: {arg:?}"),
-  };
-  quote!(let #i = #arg;)
-}
-
 /// Generates a [`v8::Value`] of the correct type for the required V8Arg, throwing an exception if the
 /// type cannot be cast.
 pub fn v8_to_arg(
