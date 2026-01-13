@@ -172,6 +172,16 @@ impl MutableSleep {
     if self.ready.take() {
       Poll::Ready(())
     } else {
+      // We do a manual deadline check here. Tokio's timer wheel may not immediately check the deadline if the
+      // executor was blocked.
+      let sleep = unsafe { self.sleep.get().as_mut().unwrap_unchecked() };
+      if let Some(sleep) = sleep {
+        if Instant::now() >= sleep.deadline() {
+          self.ready.set(true);
+          return Poll::Ready(());
+        }
+      }
+
       let external =
         unsafe { self.external_waker.get().as_mut().unwrap_unchecked() };
       if let Some(external) = external {
