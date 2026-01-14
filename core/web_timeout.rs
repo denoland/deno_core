@@ -181,7 +181,6 @@ impl MutableSleep {
         if let Some(sleep) = sleep
           && Instant::now() >= sleep.deadline()
         {
-          self.ready.set(true);
           return Poll::Ready(());
         }
       }
