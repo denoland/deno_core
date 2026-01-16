@@ -191,7 +191,7 @@ pub fn op_worker_send(
   Ok(())
 }
 
-#[op2]
+#[op2(async)]
 #[string]
 pub async fn op_worker_recv(#[cppgc] worker: &WorkerControl) -> Option<String> {
   worker.worker_channel.rx.lock().await.recv().await
@@ -218,7 +218,7 @@ pub fn op_worker_parent(
   })
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_worker_await_close(#[cppgc] worker: &WorkerControl) {
   loop {
     if worker

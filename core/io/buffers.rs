@@ -159,12 +159,6 @@ impl From<Vec<u8>> for BufView {
   }
 }
 
-impl From<Box<[u8]>> for BufView {
-  fn from(data: Box<[u8]>) -> Self {
-    Self::from_inner(BufViewInner::Bytes(data.into()))
-  }
-}
-
 impl From<bytes::Bytes> for BufView {
   fn from(buf: bytes::Bytes) -> Self {
     Self::from_inner(BufViewInner::Bytes(buf))

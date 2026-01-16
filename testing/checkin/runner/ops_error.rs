@@ -3,7 +3,7 @@
 use deno_core::op2;
 use deno_error::JsErrorBox;
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_throw_error_eager() -> Result<(), JsErrorBox> {
   Err(JsErrorBox::type_error("Error"))
 }

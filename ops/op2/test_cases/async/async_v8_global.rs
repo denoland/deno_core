@@ -3,5 +3,7 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-#[op2(async, stack_trace)]
-pub async fn op_async_stack_trace() {}
+use deno_core::v8;
+
+#[op2(async)]
+pub async fn op_async_v8_global(#[global] _s: v8::Global<v8::String>) {}
