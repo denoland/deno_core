@@ -7,7 +7,7 @@ use std::rc::Rc;
 #[op2]
 fn op_use_state(
   state: &mut OpState,
-  #[scoped] callback: v8::Global<v8::Function>,
+  #[global] callback: v8::Global<v8::Function>,
 ) -> Result<(), deno_error::JsErrorBox> {
   state.put(callback);
   Ok(())

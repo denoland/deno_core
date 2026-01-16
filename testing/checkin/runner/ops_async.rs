@@ -16,7 +16,7 @@ use std::rc::Rc;
 #[op2]
 pub fn op_task_submit(
   state: &mut OpState,
-  #[scoped] f: v8::Global<v8::Function>,
+  #[global] f: v8::Global<v8::Function>,
 ) {
   state.borrow_mut::<V8TaskSpawner>().spawn(move |scope| {
     let f = v8::Local::new(scope, f);
@@ -25,7 +25,7 @@ pub fn op_task_submit(
   });
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_yield() {
   tokio::task::yield_now().await
 }
@@ -40,7 +40,7 @@ pub fn op_async_barrier_create(
   state.borrow_mut::<TestData>().insert(name, barrier);
 }
 
-#[op2]
+#[op2(async)]
 pub fn op_async_barrier_await(
   state: &OpState,
   #[string] name: String,
@@ -53,7 +53,7 @@ pub fn op_async_barrier_await(
   }
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_spin_on_state(state: Rc<RefCell<OpState>>) {
   poll_fn(|cx| {
     // Ensure that we never get polled when the state has been emptied
@@ -76,13 +76,13 @@ unsafe impl GarbageCollected for TestResource {
   }
 }
 
-#[op2]
+#[op2(async)]
 #[cppgc]
 pub async fn op_async_make_cppgc_resource() -> TestResource {
   TestResource { value: 42 }
 }
 
-#[op2]
+#[op2(async)]
 #[smi]
 pub async fn op_async_get_cppgc_resource(
   #[cppgc] resource: &TestResource,
@@ -90,7 +90,7 @@ pub async fn op_async_get_cppgc_resource(
   resource.value
 }
 
-#[op2]
+#[op2(async)]
 pub fn op_async_never_resolves() -> impl Future<Output = ()> {
   std::future::pending::<()>()
 }
@@ -100,7 +100,7 @@ pub fn op_async_fake() -> Result<u32, JsErrorBox> {
   Ok(1)
 }
 
-#[op2(promise_id)]
+#[op2(async, promise_id)]
 pub async fn op_async_promise_id(#[smi] promise_id: u32) -> u32 {
   promise_id
 }

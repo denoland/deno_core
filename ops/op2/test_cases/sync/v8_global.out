@@ -1,13 +1,13 @@
 #[allow(non_camel_case_types)]
-pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
+pub const fn op_global() -> ::deno_core::_ops::OpDecl {
     #[allow(non_camel_case_types)]
-    pub struct op_from_v8_arg {
+    pub struct op_global {
         _unconstructable: ::std::marker::PhantomData<()>,
     }
-    impl ::deno_core::_ops::Op for op_from_v8_arg {
-        const NAME: &'static str = stringify!(op_from_v8_arg);
+    impl ::deno_core::_ops::Op for op_global {
+        const NAME: &'static str = stringify!(op_global);
         const DECL: ::deno_core::_ops::OpDecl = ::deno_core::_ops::OpDecl::new_internal_op2(
-            ::deno_core::__op_name_fast!(op_from_v8_arg),
+            ::deno_core::__op_name_fast!(op_global),
             false,
             false,
             false,
@@ -23,7 +23,7 @@ pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
             },
         );
     }
-    impl op_from_v8_arg {
+    impl op_global {
         pub const fn name() -> &'static str {
             <Self as deno_core::_ops::Op>::NAME
         }
@@ -44,19 +44,16 @@ pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
             );
             let result = {
                 let arg0 = args.get(0usize as i32);
-                let arg0 = match <Foo as deno_core::FromV8>::from_v8(&mut scope, arg0) {
-                    Ok(t) => t,
-                    Err(arg0_err) => {
-                        deno_core::_ops::throw_error_js_error_class(
-                            &mut scope,
-                            &arg0_err,
-                        );
-                        return 1;
-                    }
+                let Ok(mut arg0) = deno_core::_ops::v8_try_convert::<
+                    deno_core::v8::String,
+                >(arg0) else {
+                    deno_core::_ops::throw_error_one_byte_info(&info, "expected String");
+                    return 1;
                 };
+                let arg0 = deno_core::v8::Global::new(&mut scope, arg0);
                 Self::call(arg0)
             };
-            deno_core::_ops::RustToV8RetVal::to_v8_rv(result, &mut rv);
+            rv.set(deno_core::_ops::RustToV8::to_v8(result, &mut scope));
             return 0;
         }
         extern "C" fn v8_fn_ptr<'s>(info: *const deno_core::v8::FunctionCallbackInfo) {
@@ -94,11 +91,11 @@ pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
             }
         }
     }
-    impl op_from_v8_arg {
+    impl op_global {
         #[allow(clippy::too_many_arguments)]
-        pub fn call(foo: Foo) {
-            let _ = foo;
+        pub fn call(g: v8::Global<v8::String>) -> v8::Global<v8::String> {
+            g
         }
     }
-    <op_from_v8_arg as ::deno_core::_ops::Op>::DECL
+    <op_global as ::deno_core::_ops::Op>::DECL
 }
