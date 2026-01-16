@@ -705,6 +705,7 @@ pub(crate) struct ModuleReference {
 pub(crate) enum ModuleImportPhase {
   Evaluation,
   Source,
+  Defer,
 }
 
 /// Describes a request for a module as parsed from the source code.

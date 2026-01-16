@@ -811,6 +811,7 @@ impl ModuleMap {
         phase: match module_request.get_phase() {
           v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
           v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+          v8::ModuleImportPhase::kDefer => ModuleImportPhase::Defer,
         },
       };
       requests.push(request);
@@ -1991,6 +1992,9 @@ impl ModuleMap {
                   let resolver = state.resolver.open(scope);
                   resolver.resolve(scope, source).unwrap();
                 }
+              }
+              ModuleImportPhase::Defer => {
+                unimplemented!("Defer phase not yet implemented")
               }
             }
           }
