@@ -137,8 +137,8 @@ jobs:
         # NOTE(bartlomieju): during upgrade to V8 14.0 we had to disable debug info
       # because we were running into PDB errors.
       RUSTFLAGS: >-
-        -D warnings ${{ inputs.os == 'windows-2022' &&
+        -D warnings ${{ (inputs.os == 'windows-2022' || inputs.os == 'windows-11-arm') &&
         '-Csymbol-mangling-version=v0' || '' }}
       RUSTDOCFLAGS: >-
-        -D warnings ${{ inputs.os == 'windows-2022' &&
+        -D warnings ${{ (inputs.os == 'windows-2022' || inputs.os == 'windows-11-arm') &&
         '-Csymbol-mangling-version=v0' || '' }}
