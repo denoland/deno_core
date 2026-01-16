@@ -3,7 +3,7 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-#[op2]
+#[op2(async)]
 pub async fn op_async(x: i32) -> std::io::Result<i32> {
   Ok(x)
 }

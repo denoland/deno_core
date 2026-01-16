@@ -100,7 +100,7 @@ impl Resource for FileResource {
   }
 }
 
-#[op2]
+#[op2(async)]
 #[serde]
 pub async fn op_file_open(
   #[string] path: String,

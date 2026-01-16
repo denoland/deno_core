@@ -20,7 +20,7 @@ use url::Url;
 async fn test_async_opstate_borrow() {
   struct InnerState(u64);
 
-  #[op2]
+  #[op2(async)]
   async fn op_async_borrow(
     op_state: Rc<RefCell<OpState>>,
   ) -> Result<(), JsErrorBox> {
@@ -101,7 +101,7 @@ lines: {
 
 #[tokio::test]
 async fn test_async_op_serialize_object_with_numbers_as_keys() {
-  #[op2]
+  #[op2(async)]
   async fn op_async_serialize_object_with_numbers_as_keys(
     #[serde] value: serde_json::Value,
   ) -> Result<(), JsErrorBox> {
@@ -333,7 +333,7 @@ fn ops_in_js_have_proper_names() {
     Ok(String::from("Test"))
   }
 
-  #[op2]
+  #[op2(async)]
   #[string]
   async fn op_test_async() -> Result<String, JsErrorBox> {
     Ok(String::from("Test"))
@@ -482,7 +482,7 @@ fn test_call_site() {
 // https://github.com/denoland/deno/issues/19455
 #[tokio::test]
 pub async fn test_top_level_await() {
-  #[op2]
+  #[op2(async)]
   async fn op_sleep_forever() {
     tokio::time::sleep(Duration::MAX).await
   }
@@ -537,12 +537,12 @@ await op_void_async_deferred();
   .expect("Failed to get module result");
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async() {
   println!("op_async!");
 }
 
-#[op2]
+#[op2(async)]
 #[allow(unreachable_code)]
 pub fn op_async_impl_future_error()
 -> Result<impl Future<Output = ()>, JsErrorBox> {
@@ -550,20 +550,20 @@ pub fn op_async_impl_future_error()
   Ok(async {})
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_yield() {
   tokio::task::yield_now().await;
   println!("op_async_yield!");
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_yield_error() -> Result<(), JsErrorBox> {
   tokio::task::yield_now().await;
   println!("op_async_yield_error!");
   Err(JsErrorBox::generic("dead"))
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_error() -> Result<(), JsErrorBox> {
   println!("op_async_error!");
   Err(JsErrorBox::generic("dead"))
@@ -594,7 +594,7 @@ pub fn op_sync_arg_error(_: u32) {
   panic!("Should never be called")
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_arg_error(_: u32) {
   panic!("Should never be called")
 }

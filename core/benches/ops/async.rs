@@ -51,10 +51,10 @@ pub fn op_make_external() -> *const c_void {
   std::ptr::null()
 }
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_void() {}
 
-#[op2]
+#[op2(async)]
 pub async fn op_async_yield() {
   tokio::task::yield_now().await
 }
