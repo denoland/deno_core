@@ -57,6 +57,7 @@ jobs:
         run: cargo binstall cargo-nextest --secure
 
       - name: Install Deno
+        # TODO(littledivy): Remove this when Deno has Windows on ARM builds
         if: ${{ inputs.os != 'windows-11-arm' }}
         uses: denoland/setup-deno@v2
         with:

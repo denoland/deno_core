@@ -5,4 +5,4 @@ runs:
     - name: Cargo publish (dry-run)
       shell: bash
       run: |
-        # cargo publish --workspace --dry-run
+        cargo publish --workspace --dry-run
