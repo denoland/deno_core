@@ -811,6 +811,7 @@ impl ModuleMap {
         phase: match module_request.get_phase() {
           v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
           v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+          v8::ModuleImportPhase::kDefer => ModuleImportPhase::Defer,
         },
       };
       requests.push(request);
@@ -1963,7 +1964,7 @@ impl ModuleMap {
               .unwrap()
               .clone();
             match state.phase {
-              ModuleImportPhase::Evaluation => {
+              ModuleImportPhase::Defer | ModuleImportPhase::Evaluation => {
                 // The top-level module from a dynamic import has been instantiated.
                 // Load is done.
                 let module_id =

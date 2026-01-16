@@ -1020,8 +1020,8 @@ impl task::ArcWake for InspectorWaker {
           {
             w.isolate_handle.request_interrupt(handle_interrupt, arg);
           }
-          extern "C" fn handle_interrupt(
-            _isolate: &mut v8::Isolate,
+          unsafe extern "C" fn handle_interrupt(
+            _isolate: v8::UnsafeRawIsolatePtr,
             arg: *mut c_void,
           ) {
             // SAFETY: `InspectorWaker` is owned by `JsRuntimeInspector`, so the

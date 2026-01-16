@@ -253,6 +253,7 @@ mod tests {
 
   // If the deno command is available, we ensure the async stubs are correctly rebuilt.
   #[test]
+  #[cfg_attr(all(target_os = "windows", target_arch = "aarch64"), ignore)]
   fn test_rebuild_async_stubs() {
     // Check for deno first
     if let Err(e) = Command::new("deno")

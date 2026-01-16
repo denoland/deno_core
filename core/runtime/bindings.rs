@@ -705,6 +705,7 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
   let phase = match phase {
     v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
     v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+    v8::ModuleImportPhase::kDefer => ModuleImportPhase::Defer,
   };
 
   let cped = scope.get_continuation_preserved_embedder_data();

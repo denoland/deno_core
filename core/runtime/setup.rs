@@ -1,8 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::V8_WRAPPER_OBJECT_INDEX;
-use crate::V8_WRAPPER_TYPE_INDEX;
-
 use super::bindings;
 use super::snapshot;
 use super::snapshot::V8Snapshot;
@@ -20,7 +17,7 @@ fn v8_init(
 ) {
   #[cfg(feature = "include_icu_data")]
   {
-    v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
+    v8::icu::set_common_data_77(deno_core_icudata::ICU_DATA).unwrap();
   }
 
   let base_flags = concat!(
@@ -121,12 +118,7 @@ pub fn create_isolate(
   maybe_startup_snapshot: Option<V8Snapshot>,
   external_refs: Cow<'static, [v8::ExternalReference]>,
 ) -> v8::OwnedIsolate {
-  let mut params = maybe_create_params
-    .unwrap_or_default()
-    .embedder_wrapper_type_info_offsets(
-      V8_WRAPPER_TYPE_INDEX,
-      V8_WRAPPER_OBJECT_INDEX,
-    );
+  let mut params = maybe_create_params.unwrap_or_default();
   let mut isolate = if will_snapshot {
     snapshot::create_snapshot_creator(
       external_refs,
