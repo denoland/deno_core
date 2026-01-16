@@ -1964,7 +1964,7 @@ impl ModuleMap {
               .unwrap()
               .clone();
             match state.phase {
-              ModuleImportPhase::Evaluation => {
+              ModuleImportPhase::Defer | ModuleImportPhase::Evaluation => {
                 // The top-level module from a dynamic import has been instantiated.
                 // Load is done.
                 let module_id =
@@ -1992,9 +1992,6 @@ impl ModuleMap {
                   let resolver = state.resolver.open(scope);
                   resolver.resolve(scope, source).unwrap();
                 }
-              }
-              ModuleImportPhase::Defer => {
-                unimplemented!("Defer phase not yet implemented")
               }
             }
           }
