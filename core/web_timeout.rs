@@ -467,8 +467,8 @@ impl<T: Clone> WebTimers<T> {
       // When the # of running timers hits zero, clear the timer tree.
       if !timers.is_empty() {
         timers.clear();
-        self.sleep.clear();
       }
+      self.sleep.clear();
     } else {
       // Run compaction when there are enough tombstones to justify cleanup.
       let tombstone_count = timers.len() - data.len();
