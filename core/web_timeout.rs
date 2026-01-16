@@ -205,6 +205,7 @@ impl MutableSleep {
     unsafe {
       *self.sleep.get() = None;
     }
+    self.ready.set(false);
   }
 
   fn change(self: &Box<Self>, instant: Instant) {
