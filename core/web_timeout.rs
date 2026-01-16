@@ -180,6 +180,19 @@ impl MutableSleep {
         if !external.will_wake(waker) {
           external.clone_from(waker);
         }
+
+        // We do a manual deadline check here. Tokio's timer wheel may not immediately check the deadline if the
+        // executor was blocked.
+        // Skip this check under Miri as it interferes with time simulation.
+        #[cfg(not(miri))]
+        {
+          let sleep = unsafe { self.sleep.get().as_mut().unwrap_unchecked() };
+          if let Some(sleep) = sleep
+            && Instant::now() >= sleep.deadline()
+          {
+            return Poll::Ready(());
+          }
+        }
         Poll::Pending
       } else {
         *external = Some(cx.waker().clone());
