@@ -401,7 +401,6 @@ pub(crate) fn generate_dispatch_fast(
   if signature.ret_val.is_async()
     && !config.async_lazy
     && !config.async_deferred
-    || config.fake_async
   {
     return Ok(None);
   }
@@ -909,9 +908,11 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::OptionString(_)
     | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
-    | Arg::FromV8(_, _)
+    | Arg::FromV8(_)
     | Arg::WebIDL(_, _, _)
     | Arg::Ref(..) => return Ok(None),
+    // We don't support v8 global arguments
+    Arg::V8Global(_) | Arg::OptionV8Global(_) => return Ok(None),
     // We do support v8 type arguments (including Option<...>)
     Arg::V8Ref(RefType::Ref, _)
     | Arg::V8Local(_)
@@ -991,8 +992,10 @@ fn map_retval_to_v8_fastcall_type(
     Arg::String(_) => return Ok(None),
     // We don't support returning v8 types
     Arg::V8Ref(..)
+    | Arg::V8Global(_)
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
+    | Arg::OptionV8Global(_)
     | Arg::OptionV8Ref(..)
     | Arg::CppGcResource(..)
     | Arg::OptionCppGcResource(..) => return Ok(None),
