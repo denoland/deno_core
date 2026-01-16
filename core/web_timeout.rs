@@ -172,6 +172,15 @@ impl MutableSleep {
     if self.ready.take() {
       Poll::Ready(())
     } else {
+      let external =
+        unsafe { self.external_waker.get().as_mut().unwrap_unchecked() };
+      if let Some(external) = external {
+        // Already have this waker
+        let waker = cx.waker();
+        if !external.will_wake(waker) {
+          external.clone_from(waker);
+        }
+
       // We do a manual deadline check here. Tokio's timer wheel may not immediately check the deadline if the
       // executor was blocked.
       // Skip this check under Miri as it interferes with time simulation.
@@ -184,15 +193,6 @@ impl MutableSleep {
           return Poll::Ready(());
         }
       }
-
-      let external =
-        unsafe { self.external_waker.get().as_mut().unwrap_unchecked() };
-      if let Some(external) = external {
-        // Already have this waker
-        let waker = cx.waker();
-        if !external.will_wake(waker) {
-          external.clone_from(waker);
-        }
         Poll::Pending
       } else {
         *external = Some(cx.waker().clone());
