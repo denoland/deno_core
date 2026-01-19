@@ -707,11 +707,8 @@ impl JsRuntime {
   /// should only be called once per process. Further calls will be silently
   /// ignored.
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
-  pub fn init_platform(
-    v8_platform: Option<v8::SharedRef<v8::Platform>>,
-    import_assertions_enabled: bool,
-  ) {
-    setup::init_v8(v8_platform, cfg!(test), false, import_assertions_enabled);
+  pub fn init_platform(v8_platform: Option<v8::SharedRef<v8::Platform>>) {
+    setup::init_v8(v8_platform, cfg!(test), false);
   }
 
   /// Explicitly initalizes the V8 platform using the passed platform. This
@@ -726,14 +723,8 @@ impl JsRuntime {
   pub fn init_platform(
     v8_platform: Option<v8::SharedRef<v8::Platform>>,
     expose_natives: bool,
-    import_assertions_enabled: bool,
   ) {
-    setup::init_v8(
-      v8_platform,
-      cfg!(test),
-      expose_natives,
-      import_assertions_enabled,
-    );
+    setup::init_v8(v8_platform, cfg!(test), expose_natives);
   }
 
   /// Only constructor, configuration is done through `options`.
