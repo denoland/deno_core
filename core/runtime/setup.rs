@@ -36,7 +36,7 @@ fn v8_init(
     ""
   };
   let flags = match (snapshot, expose_natives) {
-    (false, false) => format!("{base_flags}"),
+    (false, false) => base_flags.to_string(),
     (true, false) => {
       format!("{base_flags} {snapshot_flags} {lazy_flags}")
     }
