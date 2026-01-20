@@ -4,8 +4,7 @@ runs:
   steps:
     - name: Format
       shell: bash
-      run: |
-        tools/format.ts --check
+      run: deno fmt --check
     - name: Lint
       shell: bash
       run: |

@@ -7,7 +7,7 @@ on:
     branches:
       - main
     tags:
-      - '*'
+      - "*"
   # Run on any pull request
   pull_request:
     branches:
@@ -25,9 +25,9 @@ jobs:
       # If we're not running in the denoland repo, use the 'nop' matrix that runs a single, no-op job
       matrix: |
         ${{
-          steps.read-jobs-fast.outputs.matrix 
-          || steps.read-jobs-pr.outputs.matrix 
-          || steps.read-jobs-tag.outputs.matrix 
+          steps.read-jobs-fast.outputs.matrix
+          || steps.read-jobs-pr.outputs.matrix
+          || steps.read-jobs-tag.outputs.matrix
           || '{ "label": "linux", "os": "ubuntu-24.04", "job": "nop" }'
         }}
       is_tag: ${{ github.repository == 'denoland/deno_core' && startsWith(github.ref, 'refs/tags/') }}
