@@ -71,7 +71,6 @@ use smallvec::SmallVec;
 use std::any::Any;
 use std::future::Future;
 use std::future::poll_fn;
-use v8::MessageErrorLevel;
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -433,7 +432,6 @@ pub struct JsRuntimeState {
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<JsRuntimeInspector>>>,
   has_inspector: Cell<bool>,
-  import_assertions_support: ImportAssertionsSupport,
   lazy_extensions: Vec<&'static str>,
 }
 
@@ -541,117 +539,10 @@ pub struct RuntimeOptions {
   pub eval_context_code_cache_cbs:
     Option<(EvalContextGetCodeCacheCb, EvalContextCodeCacheReadyCb)>,
 
-  pub import_assertions_support: ImportAssertionsSupport,
-
   /// A callback to specify how stack traces should be used when an op is
   /// annotated with `stack_trace` attribute. Use wisely, as it's very expensive
   /// to collect stack traces on each op invocation.
   pub maybe_op_stack_trace_callback: Option<OpStackTraceCallback>,
-}
-
-pub struct ImportAssertionsSupportCustomCallbackArgs {
-  pub maybe_specifier: Option<String>,
-  pub maybe_line_number: Option<usize>,
-  pub column_number: usize,
-  pub maybe_source_line: Option<String>,
-}
-
-#[derive(Default)]
-pub enum ImportAssertionsSupport {
-  /// `assert` keyword is no longer supported and causes a SyntaxError.
-  /// This is the default setting, because V8 unshipped import assertions
-  /// support in v12.6. To enable import assertion one must pass
-  /// `--harmony-import-assertions` V8 flag when initializing the runtime.
-  #[default]
-  Error,
-
-  /// `assert` keyword is supported.
-  Yes,
-
-  /// `assert` keyword is supported, but prints a warning message on occurence.
-  Warning,
-
-  /// `assert` keyword is supported, provided callback is called on each occurence.
-  /// Callback receives optional specifier, optional line number, column number and optional
-  /// source line.
-  CustomCallback(Box<dyn Fn(ImportAssertionsSupportCustomCallbackArgs)>),
-}
-
-impl ImportAssertionsSupport {
-  fn is_enabled(&self) -> bool {
-    matches!(self, Self::Yes | Self::Warning | Self::CustomCallback(_))
-  }
-
-  fn has_warning(&self) -> bool {
-    matches!(self, Self::Warning | Self::CustomCallback(_))
-  }
-}
-
-/// Currently only handles warnings for "import assertions" deprecation
-extern "C" fn isolate_message_listener(
-  message: v8::Local<v8::Message>,
-  _exception: v8::Local<v8::Value>,
-) {
-  v8::callback_scope!(unsafe scope, message);
-  v8::scope!(let scope, scope);
-
-  let message_v8_str = message.get(scope);
-  let message_str = message_v8_str.to_rust_string_lossy(scope);
-
-  if !message_str.starts_with("'assert' is deprecated") {
-    return;
-  }
-
-  let maybe_script_resource_name = message
-    .get_script_resource_name(scope)
-    .map(|s| s.to_rust_string_lossy(scope));
-  let maybe_source_line = message
-    .get_source_line(scope)
-    .map(|s| s.to_rust_string_lossy(scope));
-  let maybe_line_number = message.get_line_number(scope);
-  let start_column = message.get_start_column();
-
-  let js_runtime_state = JsRuntime::state_from(scope);
-  if let Some(specifier) = maybe_script_resource_name.as_ref() {
-    let module_map = JsRealm::module_map_from(scope);
-    module_map
-      .loader
-      .borrow()
-      .purge_and_prevent_code_cache(specifier);
-  }
-
-  match &js_runtime_state.import_assertions_support {
-    ImportAssertionsSupport::Warning => {
-      let mut msg = "⚠️  Import assertions are deprecated. Use `with` keyword, instead of 'assert' keyword.".to_string();
-      if let Some(specifier) = maybe_script_resource_name {
-        if let Some(source_line) = maybe_source_line {
-          msg.push('\n');
-          msg.push_str(&source_line);
-          msg.push('\n');
-          msg.push_str(&format!("{:0width$}^", " ", width = start_column));
-        }
-        msg.push_str(&format!(
-          "  at {}:{}:{}",
-          specifier,
-          maybe_line_number.unwrap(),
-          start_column
-        ));
-        #[allow(clippy::print_stderr)]
-        {
-          eprintln!("{}", msg);
-        }
-      }
-    }
-    ImportAssertionsSupport::CustomCallback(cb) => {
-      cb(ImportAssertionsSupportCustomCallbackArgs {
-        maybe_specifier: maybe_script_resource_name,
-        maybe_line_number,
-        column_number: start_column,
-        maybe_source_line,
-      });
-    }
-    _ => unreachable!(),
-  }
 }
 
 impl RuntimeOptions {
@@ -707,11 +598,8 @@ impl JsRuntime {
   /// should only be called once per process. Further calls will be silently
   /// ignored.
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
-  pub fn init_platform(
-    v8_platform: Option<v8::SharedRef<v8::Platform>>,
-    import_assertions_enabled: bool,
-  ) {
-    setup::init_v8(v8_platform, cfg!(test), false, import_assertions_enabled);
+  pub fn init_platform(v8_platform: Option<v8::SharedRef<v8::Platform>>) {
+    setup::init_v8(v8_platform, cfg!(test), false);
   }
 
   /// Explicitly initalizes the V8 platform using the passed platform. This
@@ -726,14 +614,8 @@ impl JsRuntime {
   pub fn init_platform(
     v8_platform: Option<v8::SharedRef<v8::Platform>>,
     expose_natives: bool,
-    import_assertions_enabled: bool,
   ) {
-    setup::init_v8(
-      v8_platform,
-      cfg!(test),
-      expose_natives,
-      import_assertions_enabled,
-    );
+    setup::init_v8(v8_platform, cfg!(test), expose_natives);
   }
 
   /// Only constructor, configuration is done through `options`.
@@ -757,7 +639,6 @@ impl JsRuntime {
       options.v8_platform.take(),
       cfg!(test),
       options.unsafe_expose_natives_and_gc(),
-      options.import_assertions_support.is_enabled(),
     );
     JsRuntime::new_inner(options, false)
   }
@@ -881,7 +762,6 @@ impl JsRuntime {
       cppgc_template: None.into(),
       function_templates: Default::default(),
       callsite_prototype: None.into(),
-      import_assertions_support: options.import_assertions_support,
       lazy_extensions,
     });
 
@@ -949,13 +829,6 @@ impl JsRuntime {
       maybe_startup_snapshot,
       external_references.into(),
     );
-
-    if state_rc.import_assertions_support.has_warning() {
-      isolate.add_message_listener_with_error_level(
-        isolate_message_listener,
-        MessageErrorLevel::ALL,
-      );
-    }
 
     let isolate_ptr = unsafe { isolate.as_raw_isolate_ptr() };
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
@@ -2268,7 +2141,6 @@ impl JsRuntimeForSnapshot {
       options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),
-      options.import_assertions_support.is_enabled(),
     );
 
     let runtime = JsRuntime::new_inner(options, true)?;
