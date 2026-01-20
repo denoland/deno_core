@@ -60,6 +60,11 @@ integration_test!(
   dyn_import_op,
   dyn_import_no_hang,
   dyn_import_pending_tla,
+  // TODO(deferred-imports): Re-enable when V8's defer import support is complete.
+  // Currently V8 14.5 (rusty_v8 145) has parser support but incomplete runtime
+  // support for import defer. The feature crashes during module instantiation.
+  // See: https://github.com/tc39/proposal-defer-import-eval
+  // import_defer,
   error_async_stack,
   error_callsite,
   error_non_existent_eval_source,
