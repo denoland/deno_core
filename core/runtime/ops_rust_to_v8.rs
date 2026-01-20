@@ -427,6 +427,7 @@ typedarray!(f64, Float64Array);
 // Serde
 //
 
+#[cfg(not(feature = "disable_serde_v8"))]
 impl<'a, T: serde::Serialize> RustToV8Fallible<'a>
   for RustToV8Marker<SerdeMarker, T>
 {

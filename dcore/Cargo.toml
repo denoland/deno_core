@@ -21,7 +21,7 @@ deno_core_testing.workspace = true
 [dependencies]
 anyhow.workspace = true
 clap = "4.5.32"
-deno_core.workspace = true
+deno_core = { workspace = true, features = ["disable_serde_v8"] }
 deno_core_testing.workspace = true
 fastwebsockets = { version = "0.10.0", features = ["upgrade", "unstable-split"] }
 http = { version = "1.3" }
