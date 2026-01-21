@@ -29,34 +29,33 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
         .collect::<Result<Vec<StructField>, Error>>()?;
       fields.sort_by(|a, b| a.name.cmp(&b.name));
 
-      let fields = fields
-        .into_iter()
-        .map(|field| {
-          let field_name = field.name;
-          let key = crate::get_internalized_string(field.js_name)?;
+      let mut names = Vec::with_capacity(fields.len());
+      let mut converters = Vec::with_capacity(fields.len());
 
-          let converter = convert_or_serde(
-            field.serde,
-            field.ty.span(),
-            quote!(self.#field_name),
-          );
+      for field in fields {
+        names.push(crate::get_internalized_string(field.js_name)?);
 
-          Ok(quote! {
-            {
-              let __key = #key;
-              let __value = #converter;
-              __obj.set(__scope, __key, __value);
-            };
-          })
-        })
-        .collect::<Result<Vec<_>, Error>>()?;
+        let field_name = field.name;
+        converters.push(convert_or_serde(
+          field.serde,
+          field.ty.span(),
+          quote!(self.#field_name),
+        ));
+      }
 
       let body = quote! {
-        let __obj = ::deno_core::v8::Object::new(__scope);
+        let __null = ::deno_core::v8::null(__scope).into();
+        let __keys = &[#
+          (#names),
+        *];
+        let __converters = &[#(#converters),*];
 
-        #(#fields)*
-
-        Ok(__obj.into())
+        Ok(::deno_core::v8::Object::with_prototype_and_properties(
+          __scope,
+          __null,
+          __keys,
+          __converters,
+        ).into())
       };
 
       Ok(body)

@@ -7,7 +7,7 @@ use deno_core::OpState;
 use std::cell::RefCell;
 use std::rc::Rc;
 
-#[op2(async)]
+#[op2]
 pub async fn op_async_opstate(
   state: Rc<RefCell<OpState>>,
 ) -> std::io::Result<i32> {

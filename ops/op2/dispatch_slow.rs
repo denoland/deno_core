@@ -6,7 +6,6 @@ use super::V8MappingError;
 use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
-use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
 use super::generator_state::GeneratorState;
@@ -24,10 +23,10 @@ use super::signature::NumericArg;
 use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
-use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::signature::WebIDLPair;
+use super::signature_retval::RetVal;
 use proc_macro2::Ident;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
@@ -346,7 +345,7 @@ pub(crate) fn with_self(
     generator_state,
     format!("expected {}", &generator_state.self_ty),
   );
-  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+  if ret_val.is_async() {
     let tokens = gs_quote!(generator_state(self_ty, fn_args, scope, try_unwrap_cppgc) => {
       let Some(mut self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
@@ -643,20 +642,6 @@ pub fn from_arg(
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
-    Arg::V8Global(v8) | Arg::OptionV8Global(v8) => {
-      // Only requires isolate, not a full scope
-      *needs_isolate = true;
-      let scope = scope.clone();
-      let throw_type_error = || {
-        Ok(throw_type_error(
-          generator_state,
-          format!("expected {v8:?}"),
-        ))
-      };
-      let extract_intermediate =
-        v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
-      v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
-    }
     Arg::SerdeV8(_class) => {
       *needs_scope = true;
       let scope = scope.clone();
@@ -671,7 +656,7 @@ pub fn from_arg(
         };
       }
     }
-    Arg::FromV8(ty) => {
+    Arg::FromV8(ty, true) => {
       *needs_scope = true;
       let ty =
         syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
@@ -679,7 +664,26 @@ pub fn from_arg(
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
       quote! {
-        let #arg_ident = match <#ty as deno_core::FromV8>::from_v8(&mut #scope, #arg_ident) {
+        let #arg_ident = {
+          use deno_core::FromV8;
+          use deno_core::FromV8Scopeless;
+
+          match <#ty>::from_v8(&mut #scope, #arg_ident) {
+            Ok(t) => t,
+            Err(#err) => {
+              #throw_exception;
+            }
+          }
+        };
+      }
+    }
+    Arg::FromV8(ty, false) => {
+      let ty =
+        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+      let err = format_ident!("{}_err", arg_ident);
+      let throw_exception = throw_type_error_string(generator_state, &err);
+      quote! {
+        let #arg_ident = match <#ty as deno_core::FromV8Scopeless>::from_v8(#arg_ident) {
           Ok(t) => t,
           Err(#err) => {
             #throw_exception;
@@ -793,13 +797,7 @@ pub fn from_arg(
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
       let ty =
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-      if matches!(
-        ret_val,
-        RetVal::Future(_)
-          | RetVal::FutureResult(_)
-          | RetVal::Infallible(.., true)
-          | RetVal::Result(.., true)
-      ) {
+      if ret_val.is_async() {
         let tokens = quote! {
           let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
@@ -827,13 +825,7 @@ pub fn from_arg(
         syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
       let scope = &generator_state.scope;
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
-      if matches!(
-        ret_val,
-        RetVal::Future(_)
-          | RetVal::FutureResult(_)
-          | RetVal::Infallible(.., true)
-          | RetVal::Result(.., true)
-      ) {
+      if ret_val.is_async() {
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
@@ -1042,21 +1034,16 @@ pub fn call(
 
   let call = quote!(#call_ ( #tokens ));
 
-  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
-    && !generator_state.moves.is_empty()
-  {
+  if ret_val.is_async() && !generator_state.moves.is_empty() {
     let mut moves = TokenStream::new();
     for m in &generator_state.moves {
-      moves.extend(quote!(#m));
+      moves.extend(m.clone());
     }
     quote!(async move {
       #moves
       #call.await
     })
-  } else if matches!(
-    ret_val,
-    RetVal::Infallible(.., true) | RetVal::Result(.., true)
-  ) {
+  } else if generator_state.is_fake_async {
     quote!(std::future::ready(#call))
   } else {
     call
@@ -1068,11 +1055,11 @@ pub fn return_value(
   ret_type: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   match ret_type {
-    RetVal::Infallible(ret_type, ..) => {
+    RetVal::Value(ret_type, ..) => {
       return_value_infallible(generator_state, ret_type)
     }
-    RetVal::Result(ret_type, ..) => {
-      return_value_result(generator_state, ret_type)
+    RetVal::Result(ret_type) => {
+      return_value_result(generator_state, ret_type.arg())
     }
     _ => todo!(),
   }

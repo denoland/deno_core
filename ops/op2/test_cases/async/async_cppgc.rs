@@ -15,14 +15,14 @@ unsafe impl GarbageCollected for Wrap {
   }
 }
 
-#[op2(async)]
+#[op2]
 #[cppgc]
 async fn op_make_cppgc_object() -> Wrap {
   Wrap
 }
 
-#[op2(async)]
+#[op2]
 async fn op_use_cppgc_object(#[cppgc] _wrap: &Wrap) {}
 
-#[op2(async)]
+#[op2]
 async fn op_use_optional_cppgc_object(#[cppgc] _wrap: Option<&Wrap>) {}
