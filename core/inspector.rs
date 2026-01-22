@@ -707,12 +707,14 @@ impl JsRuntimeInspector {
   ///
   /// NOTE: Only a single handler is currently available.
   pub fn add_deregister_handler(&self) -> oneshot::Receiver<()> {
+    let maybe_deregister_tx = self.deregister_tx.borrow_mut().take();
+    if let Some(deregister_tx) = maybe_deregister_tx
+      && !deregister_tx.is_canceled()
+    {
+      panic!("Inspector deregister handler already exists and is alive.");
+    }
     let (tx, rx) = oneshot::channel::<()>();
-    let prev = self.deregister_tx.borrow_mut().replace(tx);
-    assert!(
-      prev.is_none(),
-      "Only a single deregister handler is allowed"
-    );
+    self.deregister_tx.borrow_mut().replace(tx);
     rx
   }
 
