@@ -653,7 +653,7 @@ dependencies = [
 
 [[package]]
 name = "deno_core"
-version = "0.381.0"
+version = "0.381.1"
 dependencies = [
  "anyhow",
  "az",
