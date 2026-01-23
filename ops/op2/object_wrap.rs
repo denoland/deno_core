@@ -1,7 +1,6 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::TokenStream;
-use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
 use syn::ImplItem;
@@ -81,7 +80,12 @@ pub(crate) fn generate_impl_ops(
   let mut tokens = TokenStream::new();
 
   let self_ty = &item.self_ty;
-  let self_ty_ident = self_ty.to_token_stream().to_string();
+  let syn::Type::Path(path) = &**self_ty else {
+    return Err(Op2Error::NonIdentifierImplBlock);
+  };
+  let Some(self_ty_ident) = path.path.get_ident() else {
+    return Err(Op2Error::NonIdentifierImplBlock);
+  };
 
   // State
   let mut constructor = None;
