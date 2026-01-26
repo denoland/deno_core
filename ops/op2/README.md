@@ -1531,7 +1531,7 @@ Any type that implements `deno_core::covert::ToV8`.
 </td><td>
 
 </td><td>
-
+⚠️ Legacy & not recommended, use `ToV8` trait and macros instead.
 </td><td>
 
 </td></tr>
@@ -1547,7 +1547,7 @@ Any type that implements `deno_core::covert::ToV8`.
 </td><td>
 
 </td><td>
-
+⚠️ Legacy & not recommended, use `ToV8` trait and macros instead.
 </td><td>
 
 </td></tr>
