@@ -561,7 +561,7 @@ Any type that implements `deno_core::covert::FromV8`. ⚠️ May be slow.
 </td><td>
 any
 </td><td>
-⚠️ May be slow.
+⚠️ May be slow. Legacy & not recommended, use `FromV8` trait and macros instead.
 </td></tr>
 <tr>
 <td>
@@ -575,7 +575,7 @@ any
 </td><td>
 any
 </td><td>
-⚠️ May be slow.
+⚠️ May be slow. Legacy & not recommended, use `FromV8` trait and macros instead.
 </td></tr>
 <tr>
 <td>
