@@ -23,7 +23,8 @@ function returns `Err`, an exception is thrown.
 
 ## `async` calls
 
-Asynchronous calls are supported in two forms:
+Asynchronous calls are fully inferred from the function definition. Asynchronous
+calls are supported in two forms:
 
 ```rust,ignore
 async fn op_xyz(/* ... */) -> X {}
@@ -45,7 +46,7 @@ op system.
 fn op_xyz(promise_id: i32 /* ... */) -> Option<X> {}
 ```
 
-### Eager `async` calls: `async`
+### Eager `async` calls
 
 By default, `async` functions are eagerly polled, which reduces the latency of
 the call dramatically if the async function is ready to return a value
@@ -90,6 +91,25 @@ v8 optimized the slow function to a fastcall, it will switch the implementation
 over if the parameters are compatible. This is useful for a function that takes
 any buffer type in the slow path and wishes to use the very fast typed `u8`
 buffer for the fast path.
+
+## Argument conversion
+
+Arguments in non-fast ops use the `deno_core::convert::FromV8Scopeless` trait by
+default. This trait does not require a v8 scope for conversion, making it more
+efficient for many types.
+
+To use the `FromV8` trait instead (which provides access to a v8 scope during
+conversion), add the `#[scoped]` attribute to the argument:
+
+```rust,ignore
+fn op_xyz(#[scoped] arg: MyFromV8Type) -> X {}
+```
+
+## Return value conversion
+
+Return types use the `ToV8` trait by default in non-fast ops. Any type that
+implements `deno_core::convert::ToV8` can be returned directly without any
+attribute.
 
 # Parameters
 
@@ -491,6 +511,48 @@ v8::Local<v8::...>
 <td>
 
 ```text
+FromV8Scopeless
+```
+
+</td><td>
+
+</td><td>
+any
+</td><td>
+Any type that implements `deno_core::covert::FromV8Scopeless`.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[scoped] FromV8Type
+```
+
+</td><td>
+
+</td><td>
+any
+</td><td>
+Any type that implements `deno_core::covert::FromV8`. ⚠️ May be slow.
+</td></tr>
+<tr>
+<td>
+
+```text
+#[scoped] (Tuple, Tuple)
+```
+
+</td><td>
+
+</td><td>
+any
+</td><td>
+Any type that implements `deno_core::covert::FromV8`. ⚠️ May be slow.
+</td></tr>
+<tr>
+<td>
+
+```text
 #[serde] SerdeType
 ```
 
@@ -499,7 +561,7 @@ v8::Local<v8::...>
 </td><td>
 any
 </td><td>
-⚠️ May be slow.
+⚠️ May be slow. Legacy & not recommended, use `FromV8` trait and macros instead.
 </td></tr>
 <tr>
 <td>
@@ -513,7 +575,7 @@ any
 </td><td>
 any
 </td><td>
-⚠️ May be slow.
+⚠️ May be slow. Legacy & not recommended, use `FromV8` trait and macros instead.
 </td></tr>
 <tr>
 <td>
@@ -1429,6 +1491,38 @@ v8::Local<v8::...>
 <td>
 
 ```text
+ToV8Type
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+Any type that implements `deno_core::covert::ToV8`.
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
+(ToV8Type, ToV8Type)
+```
+
+</td><td>
+
+</td><td>
+
+</td><td>
+Any type that implements `deno_core::covert::ToV8`.
+</td><td>
+
+</td></tr>
+<tr>
+<td>
+
+```text
 #[serde] SerdeType
 ```
 
@@ -1437,7 +1531,7 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-
+⚠️ Legacy & not recommended, use `ToV8` trait and macros instead.
 </td><td>
 
 </td></tr>
@@ -1445,7 +1539,7 @@ v8::Local<v8::...>
 <td>
 
 ```text
-#[serde] (Tuple, Tuple)
+#[serde] (SerdeType, SerdeType)
 ```
 
 </td><td>
@@ -1453,7 +1547,7 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-
+⚠️ Legacy & not recommended, use `ToV8` trait and macros instead.
 </td><td>
 
 </td></tr>
