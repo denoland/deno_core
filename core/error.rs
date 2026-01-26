@@ -25,10 +25,6 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use thiserror::Error;
 
-/// A generic wrapper that can encapsulate any concrete error type.
-// TODO(ry) Deprecate AnyError and encourage deno_core::anyhow::Error instead.
-pub type AnyError = anyhow::Error;
-
 deno_error::js_error_wrapper!(v8::DataError, DataError, TYPE_ERROR);
 
 impl PartialEq<DataError> for DataError {
