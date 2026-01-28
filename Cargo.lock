@@ -676,6 +676,7 @@ dependencies = [
  "futures",
  "indexmap",
  "libc",
+ "num-bigint",
  "parking_lot",
  "paste",
  "percent-encoding",
