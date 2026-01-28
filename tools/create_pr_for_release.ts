@@ -1,7 +1,11 @@
 #!/usr/bin/env -S deno run -A --lock=tools/deno.lock.json
 // Copyright 2018-2025 the Deno authors. MIT license.
 import { DenoWorkspace } from "./deno_core_workspace.ts";
-import { $, createOctoKit, getGitHubRepository } from "./deps.ts";
+import { $ } from "@deno/rust-automation";
+import {
+  createOctoKit,
+  getGitHubRepository,
+} from "@deno/rust-automation/github-actions";
 
 const octoKit = createOctoKit();
 const workspace = await DenoWorkspace.load();

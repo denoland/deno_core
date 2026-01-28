@@ -540,6 +540,7 @@ mod tests {
   use crate::ToV8;
   use crate::convert::Number;
   use crate::convert::Smi;
+  use crate::convert::Uint8Array;
   use crate::error::CoreError;
   use crate::error::CoreErrorKind;
   use crate::external;
@@ -601,7 +602,6 @@ mod tests {
       op_test_v8_type_handle_scope,
       op_test_v8_type_handle_scope_obj,
       op_test_v8_type_handle_scope_result,
-      op_test_v8_global,
       op_test_serde_v8,
       op_jsruntimestate,
       op_state_rc,
@@ -612,6 +612,8 @@ mod tests {
       op_buffer_ptr,
       op_buffer_slice_32,
       op_buffer_ptr_32,
+      op_buffer_slice_f32,
+      op_buffer_ptr_f32,
       op_buffer_slice_f64,
       op_buffer_ptr_f64,
       op_buffer_slice_unsafe_callback,
@@ -665,6 +667,8 @@ mod tests {
       op_create_buf_i16,
       op_create_buf_i32,
       op_create_buf_i64,
+      op_create_buf_f32,
+      op_create_buf_f64,
     ],
     state = |state| {
       state.put(1234u32);
@@ -1380,25 +1384,6 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
-  pub fn op_test_v8_global(
-    scope: &mut v8::PinScope,
-    #[global] s: v8::Global<v8::String>,
-  ) -> u32 {
-    let s = s.open(scope);
-    s.length() as _
-  }
-
-  #[tokio::test]
-  pub async fn test_op_v8_global() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(
-      1,
-      "op_test_v8_global",
-      "assert(op_test_v8_global('hello world') == 11)",
-    )?;
-    Ok(())
-  }
-
   #[derive(Serialize, Deserialize)]
   pub struct Serde {
     pub s: String,
@@ -1550,12 +1535,45 @@ mod tests {
     }
   }
 
+  #[op2(fast)]
+  pub fn op_buffer_slice_f32(
+    #[buffer] input: &[f32],
+    #[number] inlen: usize,
+    #[buffer] output: &mut [f32],
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[op2(fast)]
+  pub fn op_buffer_ptr_f32(
+    #[buffer] input: *const f32,
+    #[number] inlen: usize,
+    #[buffer] output: *mut f32,
+    #[number] outlen: usize,
+  ) {
+    if inlen > 0 && outlen > 0 {
+      // SAFETY: for test
+      unsafe { std::ptr::write(output, std::ptr::read(input)) }
+    }
+  }
+
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
     for (op, op_ptr, arr, size) in [
       ("op_buffer_slice", "op_buffer_ptr", "Uint8Array", 1),
       ("op_buffer_slice_32", "op_buffer_ptr_32", "Uint32Array", 4),
+      (
+        "op_buffer_slice_f32",
+        "op_buffer_ptr_f32",
+        "Float32Array",
+        4,
+      ),
       (
         "op_buffer_slice_f64",
         "op_buffer_ptr_f64",
@@ -1927,7 +1945,7 @@ mod tests {
     }
   }
 
-  #[op2(async)]
+  #[op2]
   #[smi]
   pub async fn op_test_get_cppgc_resource(
     #[cppgc] resource: &TestResource,
@@ -2076,7 +2094,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_void() {}
 
   #[tokio::test]
@@ -2086,19 +2104,19 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_number(x: u32) -> u32 {
     x
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_add(x: u32, y: u32) -> u32 {
     x.wrapping_add(y)
   }
 
   // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
   // of valid ranges result in automatic wrapping.
-  #[op2(async)]
+  #[op2]
   #[smi]
   async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2135,12 +2153,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() {
     tokio::time::sleep(Duration::from_millis(500)).await
   }
 
-  #[op2(async)]
+  #[op2]
   fn op_async_sleep_impl() -> impl Future<Output = ()> {
     tokio::time::sleep(Duration::from_millis(500))
   }
@@ -2153,7 +2171,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   pub async fn op_async_sleep_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(Duration::from_millis(500)).await;
     Err(JsErrorBox::generic("whoops"))
@@ -2228,7 +2246,7 @@ mod tests {
 
   /// Test exits from the three possible routes -- before future, future immediate,
   /// future polled failed, future polled success.
-  #[op2(async)]
+  #[op2]
   pub fn op_async_result_impl(
     mode: u8,
   ) -> Result<impl Future<Output = Result<(), JsErrorBox>>, JsErrorBox> {
@@ -2267,7 +2285,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   pub async fn op_async_state_rc(
     state: Rc<RefCell<OpState>>,
     value: u32,
@@ -2287,21 +2305,20 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   #[buffer]
   async fn op_async_buffer(#[buffer] input: JsBuffer) -> JsBuffer {
     input
   }
 
-  #[op2(async)]
-  #[buffer]
-  async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
+  #[op2]
+  async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Uint8Array {
     let mut output = input.to_vec();
     output.reverse();
-    output
+    output.into()
   }
 
-  #[op2(async)]
+  #[op2]
   fn op_async_buffer_impl(
     #[buffer] input: &[u8],
   ) -> impl Future<Output = u32> + use<> {
@@ -2333,7 +2350,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_external(
     input: *const std::ffi::c_void,
   ) -> *const std::ffi::c_void {
@@ -2353,7 +2370,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,
@@ -2375,8 +2392,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  pub fn op_smi_to_from_v8(#[from_v8] value: Smi<i32>) -> Smi<i32> {
+  pub fn op_smi_to_from_v8(value: Smi<i32>) -> Smi<i32> {
     value
   }
 
@@ -2395,8 +2411,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  pub fn op_number_to_from_v8(#[from_v8] value: Number<f64>) -> Number<f64> {
+  pub fn op_number_to_from_v8(value: Number<f64>) -> Number<f64> {
     value
   }
 
@@ -2454,8 +2469,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  fn op_bool_to_from_v8(#[from_v8] value: Bool) -> Bool {
+  fn op_bool_to_from_v8(#[scoped] value: Bool) -> Bool {
     value
   }
 
@@ -2497,7 +2511,7 @@ mod tests {
         #[op2]
         #[buffer]
         fn [< op_create_buf_ $size >] () -> Vec<$size> {
-          vec![1, 2, 3, 4]
+          vec![1 as _, 2 as _, 3 as _, 4 as _]
         }
       }
     };
@@ -2510,6 +2524,8 @@ mod tests {
   op_create_buf!(i16);
   op_create_buf!(i32);
   op_create_buf!(i64);
+  op_create_buf!(f32);
+  op_create_buf!(f64);
 
   #[test]
   fn return_buffers() -> Result<(), Box<dyn std::error::Error>> {
@@ -2537,6 +2553,8 @@ mod tests {
     test("i16")?;
     test("i32")?;
     test("i64")?;
+    test("f32")?;
+    test("f64")?;
     Ok(())
   }
 }

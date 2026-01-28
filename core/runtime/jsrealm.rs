@@ -62,10 +62,19 @@ pub(crate) type OpDriverImpl = super::op_driver::FuturesUnorderedDriver;
 pub(crate) type UnrefedOps =
   Rc<RefCell<HashSet<i32, BuildHasherDefault<IdentityHasher>>>>;
 
+#[derive(Debug, Default)]
+pub(crate) struct ImmediateInfo {
+  pub count: u32,
+  pub ref_count: u32,
+  pub has_outstanding: bool,
+}
+
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
   pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
   pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) run_immediate_callbacks_cb:
+    RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_wasm_streaming_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) wasm_instance_fn: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) unrefed_ops: UnrefedOps,
@@ -79,6 +88,7 @@ pub struct ContextState {
   pub(crate) isolate: Option<v8::UnsafeRawIsolatePtr>,
   pub(crate) exception_state: Rc<ExceptionState>,
   pub(crate) has_next_tick_scheduled: Cell<bool>,
+  pub(crate) immediate_info: RefCell<ImmediateInfo>,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
   pub(crate) ext_import_meta_proto: RefCell<Option<v8::Global<v8::Object>>>,
 }
@@ -97,7 +107,9 @@ impl ContextState {
       isolate: Some(isolate_ptr),
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
+      immediate_info: Default::default(),
       js_event_loop_tick_cb: Default::default(),
+      run_immediate_callbacks_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       wasm_instance_fn: Default::default(),
       activity_traces: Default::default(),
@@ -198,6 +210,7 @@ impl JsRealmInner {
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
+    std::mem::take(&mut *state.run_immediate_callbacks_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 
     {
@@ -493,10 +506,10 @@ impl JsRealm {
       ModuleMap::load_main(module_map_rc.clone(), &specifier).await?;
 
     while let Some(load_result) = load.next().await {
-      let (reference, info) = load_result?;
+      let (request, info) = load_result?;
       context_scope!(scope, self, isolate);
       load
-        .register_and_recurse(scope, &reference, info)
+        .register_and_recurse(scope, &request, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
@@ -543,10 +556,10 @@ impl JsRealm {
     .await?;
 
     while let Some(load_result) = load.next().await {
-      let (reference, info) = load_result?;
+      let (request, info) = load_result?;
       context_scope!(scope, self, isolate);
       load
-        .register_and_recurse(scope, &reference, info)
+        .register_and_recurse(scope, &request, info)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 

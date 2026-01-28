@@ -18,7 +18,7 @@ use super::dispatch_slow::with_stack_trace;
 use super::generator_state::GeneratorState;
 use super::generator_state::gs_quote;
 use super::signature::ParsedSignature;
-use super::signature::RetVal;
+use super::signature_retval::RetVal;
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -27,23 +27,29 @@ pub(crate) fn map_async_return_type(
   ret_val: &RetVal,
 ) -> Result<(TokenStream, TokenStream, TokenStream), V8MappingError> {
   let return_value = return_value_v8_value(generator_state, ret_val.arg())?;
-  let (mapper, return_value_immediate) = match ret_val {
-    RetVal::Infallible(r, true)
-    | RetVal::Future(r)
-    | RetVal::ResultFuture(r) => (
-      quote!(map_async_op_infallible),
-      return_value_infallible(generator_state, r)?,
-    ),
-    RetVal::Result(r, true)
-    | RetVal::FutureResult(r)
-    | RetVal::ResultFutureResult(r) => (
-      quote!(map_async_op_fallible),
-      return_value_result(generator_state, r)?,
-    ),
-    RetVal::Infallible(_, false) | RetVal::Result(_, false) => {
-      return Err("an async return");
-    }
+
+  let fut = if generator_state.is_fake_async {
+    Some(ret_val)
+  } else {
+    ret_val.get_future()
   };
+
+  let (mapper, return_value_immediate) = if let Some(ret_val) = fut {
+    if let Some(res_ret_val) = ret_val.unwrap_result() {
+      (
+        quote!(map_async_op_fallible),
+        return_value_result(generator_state, res_ret_val.arg())?,
+      )
+    } else {
+      (
+        quote!(map_async_op_infallible),
+        return_value_infallible(generator_state, ret_val.arg())?,
+      )
+    }
+  } else {
+    return Err("an async return");
+  };
+
   Ok((return_value, mapper, return_value_immediate))
 }
 
@@ -89,7 +95,9 @@ pub(crate) fn generate_dispatch_async(
   }));
 
   // TODO(mmastrac): we should save this unwrapped result
-  if signature.ret_val.unwrap_result().is_some() {
+  if signature.ret_val.unwrap_result().is_some()
+    && !generator_state.is_fake_async
+  {
     let exception = throw_exception(generator_state);
     output.extend(gs_quote!(generator_state(result) => {
       let #result = match #result {

@@ -4,11 +4,4 @@ runs:
   steps:
     - name: Cargo publish
       shell: bash
-      run: |
-        for package in serde_v8 deno_ops deno_core; do
-          cargo publish -p $package
-        done
-    - name: Get tag version
-      shell: bash
-      id: get_tag_version
-      run: echo TAG_VERSION=${GITHUB_REF/refs\/tags\//} >> "$GITHUB_OUTPUT"
+      run: cargo publish --workspace

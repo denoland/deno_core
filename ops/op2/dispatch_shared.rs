@@ -29,22 +29,6 @@ pub fn v8_intermediate_to_arg(i: &Ident, arg: &Arg) -> TokenStream {
   quote!(let #i = #arg;)
 }
 
-/// Given an [`Arg`] containing a V8 value, converts this value to its final argument form.
-pub fn v8_intermediate_to_global_arg(
-  isolate: &Ident,
-  i: &Ident,
-  arg: &Arg,
-) -> TokenStream {
-  let arg = match arg {
-    Arg::V8Global(_) => quote!(deno_core::v8::Global::new(&mut #isolate, #i)),
-    Arg::OptionV8Global(_) => {
-      quote!(match #i { None => None, Some(v) => Some(deno_core::v8::Global::new(&mut #isolate, v)) })
-    }
-    _ => unreachable!("Not a v8 global arg: {arg:?}"),
-  };
-  quote!(let #i = #arg;)
-}
-
 /// Generates a [`v8::Value`] of the correct type for the required V8Arg, throwing an exception if the
 /// type cannot be cast.
 pub fn v8_to_arg(
@@ -87,33 +71,35 @@ pub fn v8slice_to_buffer(
     }
     BufferType::Slice(
       RefType::Ref,
-      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
     ) => {
       quote!(let #arg_ident = #v8slice.as_ref();)
     }
     BufferType::Slice(
       RefType::Mut,
-      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
     ) => {
       quote!(let #arg_ident = #v8slice.as_mut();)
     }
     BufferType::Ptr(
       RefType::Ref,
-      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
     ) => {
       quote!(let #arg_ident = if #v8slice.len() == 0 { std::ptr::null() } else { #v8slice.as_ref().as_ptr() };)
     }
     BufferType::Ptr(
       RefType::Mut,
-      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
     ) => {
       quote!(let #arg_ident = if #v8slice.len() == 0 { std::ptr::null_mut() } else { #v8slice.as_mut().as_mut_ptr() };)
     }
-    BufferType::Vec(NumericArg::u8 | NumericArg::u32 | NumericArg::f64) => {
+    BufferType::Vec(
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = #v8slice.to_vec();)
     }
     BufferType::BoxSlice(
-      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
     ) => {
       quote!(let #arg_ident = #v8slice.to_boxed_slice();)
     }
@@ -137,18 +123,23 @@ pub fn byte_slice_to_buffer(
   let res = match buffer {
     BufferType::Slice(
       _,
-      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
     ) => {
       quote!(let #arg_ident = #buf;)
     }
-    BufferType::Ptr(_, NumericArg::u8 | NumericArg::u32 | NumericArg::f64) => {
+    BufferType::Ptr(
+      _,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = if #buf.len() == 0 { ::std::ptr::null_mut() } else { #buf.as_mut_ptr() as _ };)
     }
-    BufferType::Vec(NumericArg::u8 | NumericArg::u32 | NumericArg::f64) => {
+    BufferType::Vec(
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
+    ) => {
       quote!(let #arg_ident = #buf.to_vec();)
     }
     BufferType::BoxSlice(
-      NumericArg::u8 | NumericArg::u32 | NumericArg::f64,
+      NumericArg::u8 | NumericArg::u32 | NumericArg::f32 | NumericArg::f64,
     ) => {
       quote!(let #arg_ident = #buf.to_vec().into_boxed_slice();)
     }

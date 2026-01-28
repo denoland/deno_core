@@ -71,7 +71,6 @@ use smallvec::SmallVec;
 use std::any::Any;
 use std::future::Future;
 use std::future::poll_fn;
-use v8::MessageErrorLevel;
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -433,7 +432,6 @@ pub struct JsRuntimeState {
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<JsRuntimeInspector>>>,
   has_inspector: Cell<bool>,
-  import_assertions_support: ImportAssertionsSupport,
   lazy_extensions: Vec<&'static str>,
 }
 
@@ -503,6 +501,10 @@ pub struct RuntimeOptions {
   /// situation - like disconnecting when program finishes running.
   pub is_main: bool,
 
+  /// Worker ID for inspector context naming (e.g., "worker [1]", "worker [2]").
+  /// Only used when `is_main` is false. Starts at 1.
+  pub worker_id: Option<u32>,
+
   #[cfg(any(test, feature = "unsafe_runtime_options"))]
   /// Should this isolate expose the v8 natives (eg: %OptimizeFunctionOnNextCall) and
   /// GC control functions (`gc()`)? WARNING: This should not be used for production code as
@@ -537,117 +539,10 @@ pub struct RuntimeOptions {
   pub eval_context_code_cache_cbs:
     Option<(EvalContextGetCodeCacheCb, EvalContextCodeCacheReadyCb)>,
 
-  pub import_assertions_support: ImportAssertionsSupport,
-
   /// A callback to specify how stack traces should be used when an op is
   /// annotated with `stack_trace` attribute. Use wisely, as it's very expensive
   /// to collect stack traces on each op invocation.
   pub maybe_op_stack_trace_callback: Option<OpStackTraceCallback>,
-}
-
-pub struct ImportAssertionsSupportCustomCallbackArgs {
-  pub maybe_specifier: Option<String>,
-  pub maybe_line_number: Option<usize>,
-  pub column_number: usize,
-  pub maybe_source_line: Option<String>,
-}
-
-#[derive(Default)]
-pub enum ImportAssertionsSupport {
-  /// `assert` keyword is no longer supported and causes a SyntaxError.
-  /// This is the default setting, because V8 unshipped import assertions
-  /// support in v12.6. To enable import assertion one must pass
-  /// `--harmony-import-assertions` V8 flag when initializing the runtime.
-  #[default]
-  Error,
-
-  /// `assert` keyword is supported.
-  Yes,
-
-  /// `assert` keyword is supported, but prints a warning message on occurence.
-  Warning,
-
-  /// `assert` keyword is supported, provided callback is called on each occurence.
-  /// Callback receives optional specifier, optional line number, column number and optional
-  /// source line.
-  CustomCallback(Box<dyn Fn(ImportAssertionsSupportCustomCallbackArgs)>),
-}
-
-impl ImportAssertionsSupport {
-  fn is_enabled(&self) -> bool {
-    matches!(self, Self::Yes | Self::Warning | Self::CustomCallback(_))
-  }
-
-  fn has_warning(&self) -> bool {
-    matches!(self, Self::Warning | Self::CustomCallback(_))
-  }
-}
-
-/// Currently only handles warnings for "import assertions" deprecation
-extern "C" fn isolate_message_listener(
-  message: v8::Local<v8::Message>,
-  _exception: v8::Local<v8::Value>,
-) {
-  v8::callback_scope!(unsafe scope, message);
-  v8::scope!(let scope, scope);
-
-  let message_v8_str = message.get(scope);
-  let message_str = message_v8_str.to_rust_string_lossy(scope);
-
-  if !message_str.starts_with("'assert' is deprecated") {
-    return;
-  }
-
-  let maybe_script_resource_name = message
-    .get_script_resource_name(scope)
-    .map(|s| s.to_rust_string_lossy(scope));
-  let maybe_source_line = message
-    .get_source_line(scope)
-    .map(|s| s.to_rust_string_lossy(scope));
-  let maybe_line_number = message.get_line_number(scope);
-  let start_column = message.get_start_column();
-
-  let js_runtime_state = JsRuntime::state_from(scope);
-  if let Some(specifier) = maybe_script_resource_name.as_ref() {
-    let module_map = JsRealm::module_map_from(scope);
-    module_map
-      .loader
-      .borrow()
-      .purge_and_prevent_code_cache(specifier);
-  }
-
-  match &js_runtime_state.import_assertions_support {
-    ImportAssertionsSupport::Warning => {
-      let mut msg = "⚠️  Import assertions are deprecated. Use `with` keyword, instead of 'assert' keyword.".to_string();
-      if let Some(specifier) = maybe_script_resource_name {
-        if let Some(source_line) = maybe_source_line {
-          msg.push('\n');
-          msg.push_str(&source_line);
-          msg.push('\n');
-          msg.push_str(&format!("{:0width$}^", " ", width = start_column));
-        }
-        msg.push_str(&format!(
-          "  at {}:{}:{}",
-          specifier,
-          maybe_line_number.unwrap(),
-          start_column
-        ));
-        #[allow(clippy::print_stderr)]
-        {
-          eprintln!("{}", msg);
-        }
-      }
-    }
-    ImportAssertionsSupport::CustomCallback(cb) => {
-      cb(ImportAssertionsSupportCustomCallbackArgs {
-        maybe_specifier: maybe_script_resource_name,
-        maybe_line_number,
-        column_number: start_column,
-        maybe_source_line,
-      });
-    }
-    _ => unreachable!(),
-  }
 }
 
 impl RuntimeOptions {
@@ -703,11 +598,8 @@ impl JsRuntime {
   /// should only be called once per process. Further calls will be silently
   /// ignored.
   #[cfg(not(any(test, feature = "unsafe_runtime_options")))]
-  pub fn init_platform(
-    v8_platform: Option<v8::SharedRef<v8::Platform>>,
-    import_assertions_enabled: bool,
-  ) {
-    setup::init_v8(v8_platform, cfg!(test), false, import_assertions_enabled);
+  pub fn init_platform(v8_platform: Option<v8::SharedRef<v8::Platform>>) {
+    setup::init_v8(v8_platform, cfg!(test), false);
   }
 
   /// Explicitly initalizes the V8 platform using the passed platform. This
@@ -722,14 +614,8 @@ impl JsRuntime {
   pub fn init_platform(
     v8_platform: Option<v8::SharedRef<v8::Platform>>,
     expose_natives: bool,
-    import_assertions_enabled: bool,
   ) {
-    setup::init_v8(
-      v8_platform,
-      cfg!(test),
-      expose_natives,
-      import_assertions_enabled,
-    );
+    setup::init_v8(v8_platform, cfg!(test), expose_natives);
   }
 
   /// Only constructor, configuration is done through `options`.
@@ -753,7 +639,6 @@ impl JsRuntime {
       options.v8_platform.take(),
       cfg!(test),
       options.unsafe_expose_natives_and_gc(),
-      options.import_assertions_support.is_enabled(),
     );
     JsRuntime::new_inner(options, false)
   }
@@ -877,7 +762,6 @@ impl JsRuntime {
       cppgc_template: None.into(),
       function_templates: Default::default(),
       callsite_prototype: None.into(),
-      import_assertions_support: options.import_assertions_support,
       lazy_extensions,
     });
 
@@ -945,13 +829,6 @@ impl JsRuntime {
       maybe_startup_snapshot,
       external_references.into(),
     );
-
-    if state_rc.import_assertions_support.has_warning() {
-      isolate.add_message_listener_with_error_level(
-        isolate_message_listener,
-        MessageErrorLevel::ALL,
-      );
-    }
 
     let isolate_ptr = unsafe { isolate.as_raw_isolate_ptr() };
     // ...isolate is fully set up, we can forward its pointer to the ops to finish
@@ -1058,6 +935,7 @@ impl JsRuntime {
           scope,
           context,
           options.is_main,
+          options.worker_id,
         ))
       } else {
         None
@@ -1530,7 +1408,12 @@ impl JsRuntime {
   /// Grab and store JavaScript bindings to callbacks necessary for the
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
-    let (event_loop_tick_cb, build_custom_error_cb, wasm_instance_fn) = {
+    let (
+      event_loop_tick_cb,
+      build_custom_error_cb,
+      run_immediate_callbacks_cb,
+      wasm_instance_fn,
+    ) = {
       scope!(scope, self);
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
@@ -1553,6 +1436,12 @@ impl JsRuntime {
         core_obj,
         BUILD_CUSTOM_ERROR,
         "Deno.core.buildCustomError",
+      );
+      let run_immediate_callbacks_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        RUN_IMMEDIATE_CALLBACKS,
+        "Deno.core.runImmediateCallbacks",
       );
 
       let mut wasm_instance_fn = None;
@@ -1577,6 +1466,7 @@ impl JsRuntime {
       (
         v8::Global::new(scope, event_loop_tick_cb),
         v8::Global::new(scope, build_custom_error_cb),
+        v8::Global::new(scope, run_immediate_callbacks_cb),
         wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
       )
     };
@@ -1592,6 +1482,10 @@ impl JsRuntime {
       .js_build_custom_error_cb
       .borrow_mut()
       .replace(build_custom_error_cb);
+    state_rc
+      .run_immediate_callbacks_cb
+      .borrow_mut()
+      .replace(run_immediate_callbacks_cb);
     if let Some(wasm_instance_fn) = wasm_instance_fn {
       state_rc
         .wasm_instance_fn
@@ -1860,6 +1754,7 @@ impl JsRuntime {
       scope,
       context,
       self.is_main_runtime,
+      None,
     ));
   }
 
@@ -2049,7 +1944,7 @@ impl JsRuntime {
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
     // first).
-    let dispatched_ops = Self::do_js_event_loop_tick_realm(
+    let (dispatched_ops, did_work) = Self::do_js_event_loop_tick_realm(
       cx,
       scope,
       context_state,
@@ -2083,6 +1978,18 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
+    // eprintln!(
+    //   "did work {}, dispatched_ops {}, has timers {}, has_refed_immediates {}, has_outstanding_immediates {}",
+    //   did_work,
+    //   dispatched_ops,
+    //   context_state.timers.has_pending(),
+    //   pending_state.has_refed_immediates,
+    //   pending_state.has_outstanding_immediates
+    // );
+    if !did_work && pending_state.has_refed_immediates > 0 {
+      Self::do_js_run_immediate_callbacks(scope, context_state)?;
+    }
+
     // Check if more async ops have been dispatched
     // during this turn of event loop.
     // If there are any pending background tasks, we also wake the runtime to
@@ -2094,6 +2001,8 @@ impl JsRuntime {
     {
       if pending_state.has_pending_background_tasks
         || pending_state.has_tick_scheduled
+        || pending_state.has_outstanding_immediates
+        || pending_state.has_refed_immediates > 0
         || pending_state.has_pending_promise_events
       {
         self.inner.state.waker.wake();
@@ -2114,6 +2023,7 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
+        || pending_state.has_refed_immediates > 0
       {
         // pass, will be polled again
       } else {
@@ -2132,6 +2042,7 @@ impl JsRuntime {
         || pending_state.has_pending_background_tasks
         || pending_state.has_pending_external_ops
         || pending_state.has_tick_scheduled
+        || pending_state.has_refed_immediates > 0
       {
         // pass, will be polled again
       } else if realm.modules_idle() {
@@ -2230,7 +2141,6 @@ impl JsRuntimeForSnapshot {
       options.v8_platform.take(),
       true,
       options.unsafe_expose_natives_and_gc(),
-      options.import_assertions_support.is_enabled(),
     );
 
     let runtime = JsRuntime::new_inner(options, true)?;
@@ -2353,6 +2263,8 @@ pub(crate) struct EventLoopPendingState {
   has_tick_scheduled: bool,
   has_pending_promise_events: bool,
   has_pending_external_ops: bool,
+  has_outstanding_immediates: bool,
+  has_refed_immediates: u32,
 }
 
 impl EventLoopPendingState {
@@ -2384,6 +2296,10 @@ impl EventLoopPendingState {
     let has_pending_refed_ops = has_pending_tasks
       || has_pending_refed_timers
       || num_pending_ops > num_unrefed_ops;
+    let (has_outstanding_immediates, has_refed_immediates) = {
+      let info = state.immediate_info.borrow();
+      (info.has_outstanding, info.ref_count)
+    };
     EventLoopPendingState {
       has_pending_ops: has_pending_refed_ops
         || has_pending_timers
@@ -2396,6 +2312,8 @@ impl EventLoopPendingState {
       has_tick_scheduled: state.has_next_tick_scheduled.get(),
       has_pending_promise_events,
       has_pending_external_ops: state.external_ops_tracker.has_pending_ops(),
+      has_outstanding_immediates,
+      has_refed_immediates,
     }
   }
 
@@ -2413,6 +2331,7 @@ impl EventLoopPendingState {
       || self.has_pending_module_evaluation
       || self.has_pending_background_tasks
       || self.has_tick_scheduled
+      || self.has_refed_immediates > 0
       || self.has_pending_promise_events
       || self.has_pending_external_ops
   }
@@ -2620,13 +2539,36 @@ impl JsRuntime {
     )
   }
 
+  fn do_js_run_immediate_callbacks<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    context_state: &ContextState,
+  ) -> Result<(), Box<JsError>> {
+    v8::tc_scope!(let tc_scope, scope);
+
+    let undefined = v8::undefined(tc_scope).into();
+    let run_immediate_callbacks_cb =
+      context_state.run_immediate_callbacks_cb.borrow();
+    let run_immediate_callbacks_cb =
+      run_immediate_callbacks_cb.as_ref().unwrap().open(tc_scope);
+
+    run_immediate_callbacks_cb.call(tc_scope, undefined, &[]);
+
+    if let Some(exception) = tc_scope.exception() {
+      let e: Result<(), Box<JsError>> =
+        exception_to_err_result(tc_scope, exception, false, true);
+      return e;
+    }
+    Ok(())
+  }
+
   fn do_js_event_loop_tick_realm<'s, 'i>(
     cx: &mut Context,
     scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
     exception_state: &ExceptionState,
-  ) -> Result<bool, Box<JsError>> {
+  ) -> Result<(bool, bool), Box<JsError>> {
     let mut dispatched_ops = false;
+    let mut did_work = false;
 
     // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
     // Rust will extend the lifetime of the borrow longer than we expect.
@@ -2696,6 +2638,7 @@ impl JsRuntime {
         .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
       dispatched_ops |= true;
+      did_work |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(v8::Boolean::new(scope, res.is_ok()).into());
       args.push(res.unwrap_or_else(std::convert::identity));
@@ -2758,6 +2701,7 @@ impl JsRuntime {
     // storing the exception-reporting callback.
     let timers = match context_state.timers.poll_timers(cx) {
       Poll::Ready(timers) => {
+        did_work |= true;
         let traces_enabled = context_state.activity_traces.is_enabled();
         let arr = v8::Array::new(scope, (timers.len() * 3) as _);
         #[allow(clippy::needless_range_loop)]
@@ -2798,10 +2742,10 @@ impl JsRuntime {
     }
 
     if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Ok(false);
+      return Ok((false, false));
     }
 
-    Ok(dispatched_ops)
+    Ok((dispatched_ops, did_work))
   }
 }
 

@@ -87,7 +87,7 @@ impl WakeRef for LoggingWaker {
 async fn test_wakers_for_async_ops() {
   static STATE: AtomicI8 = AtomicI8::new(0);
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() -> Result<(), JsErrorBox> {
     STATE.store(1, Ordering::SeqCst);
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -711,7 +711,7 @@ fn test_is_proxy() {
 
 #[tokio::test]
 async fn test_set_macrotask_callback_set_next_tick_callback() {
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() -> Result<(), JsErrorBox> {
     // Future must be Poll::Pending on first call
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -739,6 +739,9 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
           results.push("nextTick");
           Deno.core.setHasTickScheduled(false);
         });
+        Deno.core.setImmediateCallback(() => {
+          results.push("immediate");
+        });
         Deno.core.setHasTickScheduled(true);
         await op_async_sleep();
         if (results[0] != "nextTick") {
@@ -746,6 +749,11 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
         }
         if (results[1] != "macrotask") {
           throw new Error(`expected macrotask, got: ${results[1]}`);
+        }
+        // Manually trigger immediate callbacks to test they were registered
+        Deno.core.runImmediateCallbacks();
+        if (results[2] != "immediate") {
+          throw new Error(`expected immediate, got: ${results[2]}`);
         }
       })();
       "#,
@@ -755,7 +763,7 @@ async fn test_set_macrotask_callback_set_next_tick_callback() {
 }
 
 #[test]
-fn test_has_tick_scheduled() {
+fn test_next_tick() {
   use futures::task::ArcWake;
 
   static MACROTASK: AtomicUsize = AtomicUsize::new(0);
@@ -1033,7 +1041,7 @@ async fn test_stalled_tla() {
 // Regression test for https://github.com/denoland/deno/issues/20034.
 #[tokio::test]
 async fn test_dynamic_import_module_error_stack() {
-  #[op2(async)]
+  #[op2]
   async fn op_async_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     Err(deno_error::JsErrorBox::type_error("foo"))
@@ -1081,7 +1089,7 @@ async fn test_dynamic_import_module_error_stack() {
   expected = "Failed to initialize a JsRuntime: Top-level await is not allowed in synchronous evaluation"
 )]
 async fn tla_in_esm_extensions_panics() {
-  #[op2(async)]
+  #[op2]
   async fn op_wait(#[number] ms: usize) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
@@ -1187,7 +1195,7 @@ async fn generic_in_extension_middleware() {
     at mod:error:3:9"#
 )]
 async fn esm_extensions_throws() {
-  #[op2(async)]
+  #[op2]
   async fn op_wait(#[number] ms: usize) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
@@ -1325,7 +1333,7 @@ async fn task_spawner_cross_thread_blocking() {
 
 #[tokio::test]
 async fn terminate_execution_run_event_loop_js() {
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     Ok(())

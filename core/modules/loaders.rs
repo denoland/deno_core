@@ -148,6 +148,24 @@ pub trait ModuleLoader {
     None
   }
 
+  /// Loads an external source map file referenced by a module.
+  fn load_external_source_map(
+    &self,
+    _source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    None
+  }
+
+  /// Checks if a source file referenced in a source map exists. Used by the
+  /// source map logic to verify that source files actually exist before
+  /// rewriting stack trace file names.
+  ///
+  /// Returns `Some(true)` if the file exists, `Some(false)` if it doesn't,
+  /// or `None` if existence cannot be determined.
+  fn source_map_source_exists(&self, _source_url: &str) -> Option<bool> {
+    None
+  }
+
   fn get_source_mapped_source_line(
     &self,
     _file_name: &str,
@@ -613,6 +631,13 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
     self.loader.load(module_specifier, maybe_referrer, options)
+  }
+
+  fn load_external_source_map(
+    &self,
+    source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    self.loader.load_external_source_map(source_map_url)
   }
 }
 

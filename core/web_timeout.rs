@@ -103,6 +103,13 @@ impl<T> Default for WebTimers<T> {
   }
 }
 
+impl<T> WebTimers<T> {
+  #[allow(unused)]
+  pub fn has_pending(&self) -> bool {
+    !self.timers.borrow().is_empty()
+  }
+}
+
 pub(crate) struct WebTimersIterator<'a, T> {
   data: Ref<'a, BTreeMap<WebTimerId, TimerData<T>>>,
   timers: Ref<'a, BTreeSet<TimerKey>>,
@@ -173,6 +180,19 @@ impl MutableSleep {
         if !external.will_wake(waker) {
           external.clone_from(waker);
         }
+
+        // We do a manual deadline check here. Tokio's timer wheel may not immediately check the deadline if the
+        // executor was blocked.
+        // Skip this check under Miri as it interferes with time simulation.
+        #[cfg(not(miri))]
+        {
+          let sleep = unsafe { self.sleep.get().as_mut().unwrap_unchecked() };
+          if let Some(sleep) = sleep
+            && Instant::now() >= sleep.deadline()
+          {
+            return Poll::Ready(());
+          }
+        }
         Poll::Pending
       } else {
         *external = Some(cx.waker().clone());
@@ -185,6 +205,7 @@ impl MutableSleep {
     unsafe {
       *self.sleep.get() = None;
     }
+    self.ready.set(false);
   }
 
   fn change(self: &Box<Self>, instant: Instant) {
@@ -446,8 +467,8 @@ impl<T: Clone> WebTimers<T> {
       // When the # of running timers hits zero, clear the timer tree.
       if !timers.is_empty() {
         timers.clear();
-        self.sleep.clear();
       }
+      self.sleep.clear();
     } else {
       // Run compaction when there are enough tombstones to justify cleanup.
       let tombstone_count = timers.len() - data.len();

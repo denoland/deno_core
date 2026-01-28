@@ -152,7 +152,7 @@ impl ModuleLoader for TypescriptModuleLoader {
             &deno_ast::TranspileOptions {
               imports_not_used_as_values:
                 deno_ast::ImportsNotUsedAsValues::Remove,
-              use_decorators_proposal: true,
+              decorators: deno_ast::DecoratorsTranspileOption::Ecma,
               ..Default::default()
             },
             &deno_ast::TranspileModuleOptions { module_kind: None },
@@ -232,7 +232,9 @@ pub fn maybe_transpile_source(
     .transpile(
       &deno_ast::TranspileOptions {
         imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-        use_decorators_proposal: true,
+        decorators: deno_ast::DecoratorsTranspileOption::LegacyTypeScript {
+          emit_metadata: true,
+        },
         ..Default::default()
       },
       &deno_ast::TranspileModuleOptions { module_kind: None },

@@ -6,7 +6,7 @@ deno_ops_compile_test_runner::prelude!();
 use deno_error::JsErrorBox;
 use std::future::Future;
 
-#[op2(async)]
+#[op2]
 pub fn op_async_result_impl(
   x: i32,
 ) -> Result<impl Future<Output = std::io::Result<i32>>, JsErrorBox> {

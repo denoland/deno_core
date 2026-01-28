@@ -28,6 +28,7 @@ use crate::error::has_call_site;
 use crate::error::is_instance_of_error;
 use crate::extension_set::LoadedSources;
 use crate::modules::ImportAttributesKind;
+use crate::modules::ModuleImportPhase;
 use crate::modules::ModuleMap;
 use crate::modules::get_requested_module_type_from_attributes;
 use crate::modules::parse_import_attributes;
@@ -671,18 +672,43 @@ pub extern "C" fn wasm_async_resolve_promise_callback(
 #[allow(clippy::unnecessary_wraps)]
 pub fn host_import_module_dynamically_callback<'s, 'i>(
   scope: &mut v8::PinScope<'s, 'i>,
-  _host_defined_options: v8::Local<'s, v8::Data>,
+  host_defined_options: v8::Local<'s, v8::Data>,
   resource_name: v8::Local<'s, v8::Value>,
   specifier: v8::Local<'s, v8::String>,
   import_attributes: v8::Local<'s, v8::FixedArray>,
 ) -> Option<v8::Local<'s, v8::Promise>> {
-  let cped = scope.get_continuation_preserved_embedder_data();
+  host_import_module_with_phase_dynamically_callback(
+    scope,
+    host_defined_options,
+    resource_name,
+    specifier,
+    v8::ModuleImportPhase::kEvaluation,
+    import_attributes,
+  )
+}
 
+#[allow(clippy::unnecessary_wraps)]
+pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  _host_defined_options: v8::Local<'s, v8::Data>,
+  resource_name: v8::Local<'s, v8::Value>,
+  specifier: v8::Local<'s, v8::String>,
+  phase: v8::ModuleImportPhase,
+  import_attributes: v8::Local<'s, v8::FixedArray>,
+) -> Option<v8::Local<'s, v8::Promise>> {
   // NOTE(bartlomieju): will crash for non-UTF-8 specifier
   let specifier_str = specifier
     .to_string(scope)
     .unwrap()
     .to_rust_string_lossy(scope);
+
+  let phase = match phase {
+    v8::ModuleImportPhase::kEvaluation => ModuleImportPhase::Evaluation,
+    v8::ModuleImportPhase::kSource => ModuleImportPhase::Source,
+    v8::ModuleImportPhase::kDefer => ModuleImportPhase::Defer,
+  };
+
+  let cped = scope.get_continuation_preserved_embedder_data();
   let referrer_name_str = resource_name
     .to_string(scope)
     .unwrap()
@@ -729,6 +755,7 @@ pub fn host_import_module_dynamically_callback<'s, 'i>(
       &specifier_str,
       &referrer_name_str,
       requested_module_type,
+      phase,
       resolver_handle,
       cped_handle,
     ) {

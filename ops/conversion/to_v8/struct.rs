@@ -1,6 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::V8Eternal;
 use crate::conversion::kw as shared_kw;
 use crate::conversion::to_v8::convert_or_serde;
 use proc_macro2::Ident;
@@ -30,44 +29,33 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
         .collect::<Result<Vec<StructField>, Error>>()?;
       fields.sort_by(|a, b| a.name.cmp(&b.name));
 
-      let v8_static_strings = fields
-        .iter()
-        .map(|field| field.eternal.define_static())
-        .collect::<Vec<_>>();
-      let v8_lazy_strings = fields
-        .iter()
-        .map(|field| field.eternal.define_eternal())
-        .collect::<Vec<_>>();
+      let mut names = Vec::with_capacity(fields.len());
+      let mut converters = Vec::with_capacity(fields.len());
 
-      let fields = fields.into_iter().map(|field| {
+      for field in fields {
+        names.push(crate::get_internalized_string(field.js_name)?);
+
         let field_name = field.name;
-        let eternal_get_key = field.eternal.get_key();
-
-        let converter = convert_or_serde(field.serde, field.ty.span(), quote!(self.#field_name));
-
-        quote! {
-          {
-            let __key = #eternal_get_key.map_err(::deno_error::JsErrorBox::from_err)?;
-            let __value = #converter;
-            __obj.set(__scope, __key, __value);
-          };
-        }
-      }).collect::<Vec<_>>();
+        converters.push(convert_or_serde(
+          field.serde,
+          field.ty.span(),
+          quote!(self.#field_name),
+        ));
+      }
 
       let body = quote! {
-        ::deno_core::v8_static_strings! {
-          #(#v8_static_strings),*
-        }
+        let __null = ::deno_core::v8::null(__scope).into();
+        let __keys = &[#
+          (#names),
+        *];
+        let __converters = &[#(#converters),*];
 
-        thread_local! {
-          #(#v8_lazy_strings)*
-        }
-
-        let __obj = ::deno_core::v8::Object::new(__scope);
-
-        #(#fields)*
-
-        Ok(__obj.into())
+        Ok(::deno_core::v8::Object::with_prototype_and_properties(
+          __scope,
+          __null,
+          __keys,
+          __converters,
+        ).into())
       };
 
       Ok(body)
@@ -112,7 +100,7 @@ struct StructField {
   name: Ident,
   serde: bool,
   ty: Type,
-  eternal: V8Eternal,
+  js_name: Ident,
 }
 
 impl TryFrom<Field> for StructField {
@@ -148,7 +136,7 @@ impl TryFrom<Field> for StructField {
     let js_name = Ident::new(&js_name, span);
 
     Ok(Self {
-      eternal: V8Eternal::new(js_name),
+      js_name,
       name,
       serde,
       ty: value.ty,

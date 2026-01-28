@@ -1,8 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use proc_macro2::Ident;
-use proc_macro2::Span;
 use proc_macro2::TokenStream;
+use proc_macro2::{Ident, Span};
 use quote::ToTokens;
 use quote::TokenStreamExt;
 use quote::format_ident;
@@ -11,8 +10,7 @@ use std::collections::BTreeMap;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 
-use strum::IntoEnumIterator;
-use strum::IntoStaticStr;
+use strum::{IntoEnumIterator, IntoStaticStr};
 use strum_macros::EnumIter;
 use strum_macros::EnumString;
 use syn::Attribute;
@@ -33,7 +31,7 @@ use syn::{AttrStyle, GenericArgument, PathArguments};
 use syn::spanned::Spanned;
 use thiserror::Error;
 use crate::op2::combine_err;
-use super::signature_retval::parse_return;
+use super::signature_retval::RetVal;
 
 #[allow(non_camel_case_types)]
 #[derive(
@@ -349,9 +347,7 @@ pub enum Arg {
   OptionNumeric(NumericArg, NumericFlag),
   OptionBuffer(BufferType, BufferMode, BufferSource),
   OptionV8Local(V8Arg),
-  OptionV8Global(V8Arg),
   V8Local(V8Arg),
-  V8Global(V8Arg),
   OptionV8Ref(RefType, V8Arg),
   V8Ref(RefType, V8Arg),
   Numeric(NumericArg, NumericFlag),
@@ -359,7 +355,7 @@ pub enum Arg {
   CppGcResource(bool, String),
   OptionCppGcResource(String),
   CppGcProtochain(Vec<String>),
-  FromV8(String),
+  FromV8(String, bool),
   ToV8(String),
   WebIDL(String, Vec<WebIDLPair>, Option<WebIDLDefault>),
   VarArgs,
@@ -369,6 +365,7 @@ pub enum Arg {
 impl Arg {
   fn from_parsed(
     parsed: ParsedTypeContainer,
+    position: Position,
     attr: Attributes,
     span: Span,
   ) -> Result<Self, ArgError> {
@@ -403,11 +400,13 @@ impl Arg {
       CRc(TSpecial(special)) => Ok(Arg::Rc(special)),
       CRcRefCell(TSpecial(special)) => Ok(Arg::RcRefCell(special)),
       COptionV8Local(TV8(v8)) => Ok(Arg::OptionV8Local(v8)),
-      COptionV8Global(TV8(v8)) => Ok(Arg::OptionV8Global(v8)),
       COption(TV8(v8)) => Ok(Arg::OptionV8Ref(RefType::Ref, v8)),
       COption(TV8Mut(v8)) => Ok(Arg::OptionV8Ref(RefType::Mut, v8)),
       CV8Local(TV8(v8)) => Ok(Arg::V8Local(v8)),
-      CV8Global(TV8(v8)) => Ok(Arg::V8Global(v8)),
+      CUnknown(t, slow) => match position {
+        Position::Arg => Ok(Arg::FromV8(stringify_token(t), slow)),
+        Position::RetVal => Ok(Arg::ToV8(stringify_token(t))),
+      },
       _ => unreachable!(),
     }
   }
@@ -450,7 +449,6 @@ impl Arg {
       Arg::V8Ref(RefType::Ref, v8) => quote!(&deno_core::v8::#v8),
       Arg::V8Ref(RefType::Mut, v8) => quote!(&mut deno_core::v8::#v8),
       Arg::V8Local(v8) => quote!(deno_core::v8::Local<deno_core::v8::#v8>),
-      Arg::V8Global(v8) => quote!(deno_core::v8::Global<deno_core::v8::#v8>),
       Arg::OptionV8Ref(RefType::Ref, v8) => {
         quote!(::std::option::Option<&deno_core::v8::#v8>)
       }
@@ -459,9 +457,6 @@ impl Arg {
       }
       Arg::OptionV8Local(v8) => {
         quote!(::std::option::Option<deno_core::v8::Local<deno_core::v8::#v8>>)
-      }
-      Arg::OptionV8Global(v8) => {
-        quote!(::std::option::Option<deno_core::v8::Global<deno_core::v8::#v8>>)
       }
       _ => todo!(),
     }
@@ -473,7 +468,6 @@ impl Arg {
       self,
       Arg::OptionV8Ref(..)
         | Arg::OptionV8Local(..)
-        | Arg::OptionV8Global(..)
         | Arg::OptionNumeric(..)
         | Arg::Option(..)
         | Arg::OptionString(..)
@@ -487,7 +481,6 @@ impl Arg {
     Some(match self {
       Arg::OptionV8Ref(r, t) => Arg::V8Ref(*r, *t),
       Arg::OptionV8Local(t) => Arg::V8Local(*t),
-      Arg::OptionV8Global(t) => Arg::V8Global(*t),
       Arg::OptionNumeric(t, flag) => Arg::Numeric(*t, *flag),
       Arg::Option(t) => Arg::Special(t.clone()),
       Arg::OptionString(t) => Arg::String(*t),
@@ -534,7 +527,6 @@ impl Arg {
           Arg::ToV8(_) => ArgSlowRetval::V8LocalFalliable,
           // No scope required for these
           Arg::V8Local(_) => ArgSlowRetval::V8LocalNoScope,
-          Arg::V8Global(_) => ArgSlowRetval::V8Local,
           // ArrayBuffer is infallible
           Arg::Buffer(.., BufferSource::ArrayBuffer) => ArgSlowRetval::V8Local,
           // TypedArray is fallible
@@ -611,7 +603,7 @@ pub enum ArgMarker {
   ArrayBuffer,
   /// This type should be wrapped as a cppgc V8 object.
   Cppgc,
-  /// This type should be converted with `ToV8``
+  /// This type should be converted with `ToV8`
   ToV8,
   /// This unit type should be a undefined.
   Undefined,
@@ -654,15 +646,15 @@ impl ParsedType {
 }
 
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)]
 pub enum ParsedTypeContainer {
   CBare(ParsedType),
   COption(ParsedType),
   CRc(ParsedType),
   CRcRefCell(ParsedType),
   COptionV8Local(ParsedType),
-  COptionV8Global(ParsedType),
   CV8Local(ParsedType),
-  CV8Global(ParsedType),
+  CUnknown(Type, bool),
 }
 
 impl ParsedTypeContainer {
@@ -674,8 +666,8 @@ impl ParsedTypeContainer {
   ) -> Option<&'static [AttributeModifier]> {
     use ParsedTypeContainer::*;
     match self {
-      CV8Local(_) | COptionV8Local(_) => None,
-      CV8Global(_) | COptionV8Global(_) => Some(&[AttributeModifier::Global]),
+      CV8Local(_) | COptionV8Local(_) | CUnknown(_, false) => None,
+      CUnknown(_, true) => Some(&[AttributeModifier::Scoped]),
       CBare(t) | COption(t) | CRcRefCell(t) | CRc(t) => {
         t.required_attributes(position)
       }
@@ -716,72 +708,13 @@ impl ParsedTypeContainer {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub enum RetVal {
-  /// An op that can never fail.
-  Infallible(Arg, bool),
-  /// An op returning Result<Something, ...>
-  Result(Arg, bool),
-  /// An op returning a future, either `async fn() -> Something` or `fn() -> impl Future<Output = Something>`.
-  Future(Arg),
-  /// An op returning a future with a result, either `async fn() -> Result<Something, ...>`
-  /// or `fn() -> impl Future<Output = Result<Something, ...>>`.
-  FutureResult(Arg),
-  /// An op returning a result future: `fn() -> Result<impl Future<Output = Something>>`,
-  /// allowing it to exit before starting any async work.
-  ResultFuture(Arg),
-  /// An op returning a result future of a result: `fn() -> Result<impl Future<Output = Result<Something, ...>>>`,
-  /// allowing it to exit before starting any async work.
-  ResultFutureResult(Arg),
-}
-
-impl RetVal {
-  pub fn is_async(&self) -> bool {
-    use RetVal::*;
-    matches!(
-      self,
-      Future(..)
-        | FutureResult(..)
-        | ResultFuture(..)
-        | ResultFutureResult(..)
-        | Infallible(.., true)
-        | Result(.., true)
-    )
-  }
-
-  /// If this function returns a `Result<T, E>` (including if `T` is a `Future`), return `Some(T)`.
-  pub fn unwrap_result(&self) -> Option<RetVal> {
-    use RetVal::*;
-    Some(match self {
-      Result(arg, false) => Infallible(arg.clone(), false),
-      ResultFuture(arg) => Future(arg.clone()),
-      ResultFutureResult(arg) => FutureResult(arg.clone()),
-      _ => return None,
-    })
-  }
-
-  pub fn arg(&self) -> &Arg {
-    use RetVal::*;
-    match self {
-      Infallible(arg, ..)
-      | Result(arg, ..)
-      | Future(arg)
-      | FutureResult(arg)
-      | ResultFuture(arg)
-      | ResultFutureResult(arg) => arg,
-    }
-  }
-}
-
-#[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ParsedSignature {
   // The parsed arguments
   pub args: Vec<(Arg, Attributes)>,
-  // The argument names
-  pub names: Vec<String>,
   // The parsed return value
   pub ret_val: RetVal,
   // Lifetimes
-  pub lifetimes: Vec<String>,
+  pub lifetimes: Vec<Ident>,
   // Generic bounds: each generic must have one and only simple trait bound
   pub generic_bounds: BTreeMap<Ident, String>,
   // Metadata keys and values
@@ -827,10 +760,6 @@ pub enum BufferSource {
 pub enum AttributeModifier {
   /// #[serde], for serde_v8 types.
   Serde,
-  /// #[to_v8], for types that impl `ToV8`
-  ToV8,
-  /// #[from_v8] for types that impl `FromV8`
-  FromV8,
   /// #[webidl], for types that impl `WebIdlConverter`
   WebIDL(WebIDLArgs),
   /// #[smi], for non-integral ID types representing small integers (-2³¹ and 2³¹-1 on 64-bit platforms,
@@ -840,8 +769,6 @@ pub enum AttributeModifier {
   String(StringMode),
   /// #[buffer], for buffers.
   Buffer(BufferMode, BufferSource),
-  /// #[global], for [`v8::Global`]s
-  Global,
   /// #[bigint], for u64/usize/i64/isize indicating value is a BigInt
   Bigint,
   /// #[number], for u64/usize/i64/isize indicating value is a Number
@@ -858,6 +785,8 @@ pub enum AttributeModifier {
   This,
   /// `undefined`
   Undefined,
+  /// Use scoped versions of FromV8/ToV8 traits
+  Scoped,
   /// Custom validator.
   Validate(Path),
 }
@@ -865,8 +794,6 @@ pub enum AttributeModifier {
 impl AttributeModifier {
   fn name(&self) -> &'static str {
     match self {
-      AttributeModifier::ToV8 => "to_v8",
-      AttributeModifier::FromV8 => "from_v8",
       AttributeModifier::Bigint => "bigint",
       AttributeModifier::Number => "number",
       AttributeModifier::Buffer(..) => "buffer",
@@ -874,13 +801,13 @@ impl AttributeModifier {
       AttributeModifier::Serde => "serde",
       AttributeModifier::WebIDL(_) => "webidl",
       AttributeModifier::String(_) => "string",
-      AttributeModifier::Global => "global",
       AttributeModifier::CppGcResource => "cppgc",
       AttributeModifier::CppGcProto => "proto",
       AttributeModifier::Ignore => "ignore",
       AttributeModifier::VarArgs => "varargs",
       AttributeModifier::This => "this",
       AttributeModifier::Undefined => "undefined",
+      AttributeModifier::Scoped => "scoped",
       AttributeModifier::Validate(_) => "validate",
     }
   }
@@ -1143,32 +1070,35 @@ fn parse_metadata(
 }
 
 pub fn parse_signature(
-  is_fake_async: bool,
   attributes: Vec<Attribute>,
   signature: Signature,
 ) -> Result<ParsedSignature, SignatureError> {
   let mut args = vec![];
-  let mut names = vec![];
   for input in signature.inputs {
-    let name = match &input {
-      // Skip receiver
+    match &input {
       FnArg::Receiver(_) => continue,
-      FnArg::Typed(ty) => match &*ty.pat {
-        Pat::Ident(ident) => ident.ident.to_string(),
-        _ => "(complex)".to_owned(),
-      },
-    };
-    names.push(name.clone());
-    args.push(
-      parse_arg(input).map_err(|err| SignatureError::ArgError(name, err))?,
-    );
+      FnArg::Typed(arg) => {
+        let name = match &*arg.pat {
+          Pat::Ident(ident) => ident.ident.to_string(),
+          _ => "(complex)".to_owned(),
+        };
+
+        let attrs = parse_attributes(&arg.attrs)
+          .map_err(|err| SignatureError::ArgError(name.clone(), err.into()))?;
+        let ty = parse_type(Position::Arg, attrs.clone(), &arg.ty)
+          .map_err(|err| SignatureError::ArgError(name, err))?;
+
+        args.push((ty, attrs));
+      }
+    }
   }
-  let ret_val = parse_return(
+
+  let ret_val = RetVal::try_parse(
     signature.asyncness.is_some(),
-    is_fake_async,
     parse_attributes(&attributes).map_err(RetError::AttributeError)?,
     &signature.output,
   )?;
+
   let lifetimes = parse_lifetimes(&signature.generics)?;
   let generic_bounds = parse_generics(&signature.generics)?;
 
@@ -1195,7 +1125,6 @@ pub fn parse_signature(
 
   Ok(ParsedSignature {
     args,
-    names,
     ret_val,
     lifetimes,
     generic_bounds,
@@ -1205,14 +1134,14 @@ pub fn parse_signature(
 
 /// Extract one lifetime from the [`syn::Generics`], ensuring that the lifetime is valid
 /// and has no bounds.
-fn parse_lifetimes(generics: &Generics) -> Result<Vec<String>, SignatureError> {
+fn parse_lifetimes(generics: &Generics) -> Result<Vec<Ident>, SignatureError> {
   let mut res = Vec::new();
   for param in &generics.params {
     if let GenericParam::Lifetime(lt) = param {
       if !lt.bounds.is_empty() {
         return Err(SignatureError::LifetimesMayNotHaveBounds(lt.span()));
       }
-      res.push(lt.lifetime.ident.to_string());
+      res.push(lt.lifetime.ident.clone());
     }
   }
   Ok(res)
@@ -1379,13 +1308,11 @@ fn parse_attribute(
     "undefined" => Some(AttributeModifier::Undefined),
     "serde" => Some(AttributeModifier::Serde),
     "smi" => Some(AttributeModifier::Smi),
-    "global" => Some(AttributeModifier::Global),
     "this" => Some(AttributeModifier::This),
     "cppgc" => Some(AttributeModifier::CppGcResource),
     "proto" => Some(AttributeModifier::CppGcProto),
-    "to_v8" => Some(AttributeModifier::ToV8),
-    "from_v8" => Some(AttributeModifier::FromV8),
     "varargs" => Some(AttributeModifier::VarArgs),
+    "scoped" => Some(AttributeModifier::Scoped),
 
     "validate" => {
       let value = attr.parse_args().map_err(AttributeError::InvalidAttribute)?;
@@ -1501,7 +1428,15 @@ fn parse_type_path(
         std?::str?::str => Ok(CBare(TString(Strings::RefStr))),
         std?::borrow?::Cow<'_, str> | std?::borrow?::Cow<str> => Ok(CBare(TString(Strings::CowStr))),
         std?::borrow?::Cow<'_, [u8]> | std?::borrow?::Cow<[u8]> => Ok(CBare(TString(Strings::CowByte))),
-        std?::vec?::Vec<::$ty> => Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(ty)?)))),
+        std?::vec?::Vec<::$ty> => {
+          if let Some(AttributeModifier::Buffer(_, _)) = attrs.primary {
+            Ok(CBare(TBuffer(BufferType::Vec(parse_numeric_type(ty)?))))
+          } else if attrs.primary.is_none() || attrs.primary.as_ref().is_some_and(|primary| matches!(primary, AttributeModifier::Scoped)) {
+            Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped))))
+          } else {
+            Err(ArgError::InvalidAttributeType("buffer", stringify_token(tp)))
+          }
+        },
         std?::boxed?::Box<[$ty]> => {
           if let Type::Path(tp) = ty {
             Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&tp.path)?))))
@@ -1519,7 +1454,7 @@ fn parse_type_path(
         v8::PinScope<'_, '_> | v8::PinScope => Ok(CBare(TSpecial(Special::HandleScope))),
         v8::FastApiCallbackOptions => Ok(CBare(TSpecial(Special::FastApiCallbackOptions))),
         v8::Local<'_, v8::$v8> | v8::Local<v8::$v8> => Ok(CV8Local(TV8(parse_v8_type(v8)?))),
-        v8::Global<'_, v8::$v8> | v8::Global<v8::$v8> => Ok(CV8Global(TV8(parse_v8_type(v8)?))),
+        v8::Global<'_, v8::$_v8> | v8::Global<v8::$_v8> => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped)))),
         v8::$v8 => Ok(CBare(TV8(parse_v8_type(v8)?))),
         std?::rc?::Rc<RefCell<$ty>> => Ok(CRcRefCell(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
         std?::rc?::Rc<$ty> => Ok(CRc(TSpecial(parse_type_special(position, attrs.clone(), ty)?))),
@@ -1539,8 +1474,7 @@ fn parse_type_path(
             Arg::V8Ref(RefType::Ref, v8) => Ok(COption(TV8(v8))),
             Arg::V8Ref(RefType::Mut, v8) => Ok(COption(TV8Mut(v8))),
             Arg::V8Local(v8) => Ok(COptionV8Local(TV8(v8))),
-            Arg::V8Global(v8) => Ok(COptionV8Global(TV8(v8))),
-            _ => Err(ArgError::InvalidType(ty.span(), "for option"))
+            _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped)))),
           }
         }
         deno_core::$next::$any? => {
@@ -1550,7 +1484,7 @@ fn parse_type_path(
           let instead = format!("{next}{any}");
           Err(ArgError::InvalidDenoCorePrefix(tp.span(), next, instead))
         }
-        _ => Err(ArgError::InvalidTypePath(tp.span()))
+        _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped)))),
       )?
     }
   };
@@ -1678,11 +1612,18 @@ fn parse_cppgc(
 fn better_alternative_exists(position: Position, of: &TypePath) -> bool {
   // If this type will parse without #[serde]/#[to_v8]/#[from_v8], it is illegal to use this type
   // with #[serde]/#[to_v8]/#[from_v8]
-  if parse_type_path(position, Attributes::default(), TypePathContext::None, of)
-    .is_ok()
-  {
-    return true;
+  match parse_type_path(
+    position,
+    Attributes::default(),
+    TypePathContext::None,
+    of,
+  ) {
+    Err(_) | Ok(ParsedTypeContainer::CUnknown(_, _)) => {}
+    _ => {
+      return true;
+    }
   }
+
   // If this type will parse with #[string], it is illegal to use this type with #[serde]/#[to_v8]/#[from_v8]
   if parse_type_path(position, Attributes::string(), TypePathContext::None, of)
     .is_ok()
@@ -1701,7 +1642,7 @@ pub(crate) fn parse_type(
   use ParsedType::*;
   use ParsedTypeContainer::*;
 
-  if let Some(primary) = attrs.clone().primary {
+  if let Some(primary) = attrs.primary.clone() {
     match primary {
       AttributeModifier::Ignore | AttributeModifier::Validate(_) => {
         unreachable!();
@@ -1729,26 +1670,9 @@ pub(crate) fn parse_type(
         return parse_cppgc(position, ty, false);
       }
       AttributeModifier::CppGcProto => return parse_cppgc(position, ty, true),
-      AttributeModifier::FromV8 if position == Position::RetVal => {
-        return Err(ArgError::InvalidAttributePosition(
-          primary.name(),
-          "argument",
-        ));
-      }
-      AttributeModifier::ToV8 if position == Position::Arg => {
-        return Err(ArgError::InvalidAttributePosition(
-          primary.name(),
-          "return value",
-        ));
-      }
-      AttributeModifier::Serde
-      | AttributeModifier::FromV8
-      | AttributeModifier::ToV8
-      | AttributeModifier::WebIDL(_) => {
+      AttributeModifier::Serde | AttributeModifier::WebIDL(_) => {
         let make_arg: Box<dyn Fn(String) -> Arg> = match &primary {
           AttributeModifier::Serde => Box::new(Arg::SerdeV8),
-          AttributeModifier::FromV8 => Box::new(Arg::FromV8),
-          AttributeModifier::ToV8 => Box::new(Arg::ToV8),
           AttributeModifier::WebIDL(args) => Box::new(move |s| {
             Arg::WebIDL(s, args.options.clone(), args.default.clone())
           }),
@@ -1800,8 +1724,8 @@ pub(crate) fn parse_type(
 
       AttributeModifier::String(_)
       | AttributeModifier::Buffer(..)
-      | AttributeModifier::Bigint
-      | AttributeModifier::Global => {
+      | AttributeModifier::Scoped
+      | AttributeModifier::Bigint => {
         // We handle this as part of the normal parsing process
       }
       AttributeModifier::This => {
@@ -1857,12 +1781,19 @@ pub(crate) fn parse_type(
       },
     }
   };
+
   match ty {
     Type::Tuple(of) => {
       if of.elems.is_empty() {
         Ok(Arg::Void)
       } else {
-        Err(ArgError::InvalidType(ty.span(), "for tuple"))
+        match position {
+          Position::Arg => Ok(Arg::FromV8(
+            stringify_token(ty),
+            matches!(attrs.primary, Some(AttributeModifier::Scoped)),
+          )),
+          Position::RetVal => Ok(Arg::ToV8(stringify_token(ty))),
+        }
       }
     }
     Type::Reference(of) => {
@@ -1880,7 +1811,7 @@ pub(crate) fn parse_type(
             numeric => {
               let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, attrs.clone(), ty.span()).map_err(|_| {
+              Arg::from_parsed(res, position, attrs.clone(), ty.span()).map_err(|_| {
                 ArgError::InvalidType(ty.span(), "for slice")
               })
             }
@@ -1929,7 +1860,7 @@ pub(crate) fn parse_type(
             CBare(TNumeric(numeric)) => {
               let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, attrs.clone(), of.span()).map_err(|_| {
+              Arg::from_parsed(res, position, attrs.clone(), of.span()).map_err(|_| {
                 ArgError::InvalidType(
                   ty.span(),
                   "for numeric pointer",
@@ -1954,7 +1885,7 @@ pub(crate) fn parse_type(
       if let CBare(TSpecial(Special::Isolate)) = typath {
         return Ok(Arg::Special(Special::Isolate));
       }
-      Arg::from_parsed(typath, attrs, ty.span())
+      Arg::from_parsed(typath, position, attrs, ty.span())
         .map_err(|_| ArgError::InvalidType(ty.span(), "for path"))
     }
     _ => Err(ArgError::InvalidType(
@@ -1962,15 +1893,6 @@ pub(crate) fn parse_type(
       "for top-level type",
     )),
   }
-}
-
-fn parse_arg(arg: FnArg) -> Result<(Arg, Attributes), ArgError> {
-  let FnArg::Typed(typed) = arg else {
-    return Err(ArgError::InvalidSelf(arg.span()));
-  };
-  let attrs = parse_attributes(&typed.attrs)?;
-  let ty = parse_type(Position::Arg, attrs.clone(), &typed.ty)?;
-  Ok((ty, attrs))
 }
 
 #[cfg(test)]
@@ -2023,10 +1945,9 @@ mod tests {
       .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
 
     let attrs = item_fn.attrs;
-    let sig =
-      parse_signature(false, attrs, item_fn.sig).unwrap_or_else(|err| {
-        panic!("Failed to successfully parse signature from {op} ({err:?})")
-      });
+    let sig = parse_signature(attrs, item_fn.sig).unwrap_or_else(|err| {
+      panic!("Failed to successfully parse signature from {op} ({err:?})")
+    });
     println!("Raw parsed signatures = {sig:?}");
 
     let mut generics_res = vec![];
@@ -2078,7 +1999,7 @@ mod tests {
         let item_fn = parse_str::<ItemFn>(op)
           .unwrap_or_else(|_| panic!("Failed to parse {op} as a ItemFn"));
         let attrs = item_fn.attrs;
-        let error = parse_signature(false, attrs, item_fn.sig)
+        let error = parse_signature(attrs, item_fn.sig)
           .expect_err("Expected function to fail to parse");
         assert_eq!(format!("{error:?}"), format!("{:?}", $error));
       }
@@ -2087,143 +2008,143 @@ mod tests {
 
   test!(
     fn op_state_and_number(opstate: &mut OpState, a: u32) -> ();
-    (Ref(Mut, OpState), Numeric(u32, None)) -> Infallible(Void, false)
+    (Ref(Mut, OpState), Numeric(u32, None)) -> Value(Void)
   );
   test!(
     fn op_slices(#[buffer] r#in: &[u8], #[buffer] out: &mut [u8]);
-    (Buffer(Slice(Ref, u8), Default, TypedArray), Buffer(Slice(Mut, u8), Default, TypedArray)) -> Infallible(Void, false)
+    (Buffer(Slice(Ref, u8), Default, TypedArray), Buffer(Slice(Mut, u8), Default, TypedArray)) -> Value(Void)
   );
   test!(
     fn op_pointers(#[buffer] r#in: *const u8, #[buffer] out: *mut u8);
-    (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Infallible(Void, false)
+    (Buffer(Ptr(Ref, u8), Default, TypedArray), Buffer(Ptr(Mut, u8), Default, TypedArray)) -> Value(Void)
   );
   test!(
     fn op_arraybuffer(#[arraybuffer] r#in: &[u8]);
-    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Infallible(Void, false)
+    (Buffer(Slice(Ref, u8), Default, ArrayBuffer)) -> Value(Void)
   );
   test!(
     #[serde] fn op_serde(#[serde] input: package::SerdeInputType) -> Result<package::SerdeReturnType, Error>;
-    (SerdeV8(package::SerdeInputType)) -> Result(SerdeV8(package::SerdeReturnType), false)
+    (SerdeV8(package::SerdeInputType)) -> Result(Value(SerdeV8(package::SerdeReturnType)))
   );
   // Note the turbofish syntax here because of macro constraints
   test!(
     #[serde] fn op_serde_option(#[serde] maybe: Option<package::SerdeInputType>) -> Result<Option<package::SerdeReturnType>, Error>;
-    (SerdeV8(Option::<package::SerdeInputType>)) -> Result(SerdeV8(Option::<package::SerdeReturnType>), false)
+    (SerdeV8(Option::<package::SerdeInputType>)) -> Result(Value(SerdeV8(Option::<package::SerdeReturnType>)))
   );
   test!(
     #[serde] fn op_serde_tuple(#[serde] input: (A, B)) -> (A, B);
-    (SerdeV8((A, B))) -> Infallible(SerdeV8((A, B)), false)
+    (SerdeV8((A, B))) -> Value(SerdeV8((A, B)))
   );
   test!(
     fn op_local(input: v8::Local<v8::String>) -> Result<v8::Local<v8::String>, Error>;
-    (V8Local(String)) -> Result(V8Local(String), false)
+    (V8Local(String)) -> Result(Value(V8Local(String)))
   );
   test!(
     fn op_resource(#[smi] rid: ResourceId, #[buffer] buffer: &[u8]);
-    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8), Default, TypedArray)) ->  Infallible(Void, false)
+    (Numeric(__SMI__, None), Buffer(Slice(Ref, u8), Default, TypedArray)) ->  Value(Void)
   );
   test!(
     #[smi] fn op_resource2(#[smi] rid: ResourceId) -> Result<ResourceId, Error>;
-    (Numeric(__SMI__, None)) -> Result(Numeric(__SMI__, None), false)
+    (Numeric(__SMI__, None)) -> Result(Value(Numeric(__SMI__, None)))
   );
   test!(
     fn op_option_numeric_result(state: &mut OpState) -> Result<Option<u32>, JsErrorBox>;
-    (Ref(Mut, OpState)) -> Result(OptionNumeric(u32, None), false)
+    (Ref(Mut, OpState)) -> Result(Value(OptionNumeric(u32, None)))
   );
   test!(
     #[smi] fn op_option_numeric_smi_result(#[smi] a: Option<u32>) -> Result<Option<u32>, JsErrorBox>;
-    (OptionNumeric(__SMI__, None)) -> Result(OptionNumeric(__SMI__, None), false)
+    (OptionNumeric(__SMI__, None)) -> Result(Value(OptionNumeric(__SMI__, None)))
   );
   test!(
     fn op_ffi_read_f64(state: &mut OpState, ptr: *mut c_void, #[bigint] offset: isize) -> Result<f64, JsErrorBox>;
-    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Numeric(f64, None), false)
+    (Ref(Mut, OpState), External(Ptr(Mut)), Numeric(isize, None)) -> Result(Value(Numeric(f64, None)))
   );
   test!(
     #[number] fn op_64_bit_number(#[number] offset: isize) -> Result<u64, JsErrorBox>;
-    (Numeric(isize, Number)) -> Result(Numeric(u64, Number), false)
+    (Numeric(isize, Number)) -> Result(Value(Numeric(u64, Number)))
   );
   test!(
     fn op_ptr_out(ptr: *const c_void) -> *mut c_void;
-    (External(Ptr(Ref))) -> Infallible(External(Ptr(Mut)), false)
+    (External(Ptr(Ref))) -> Value(External(Ptr(Mut)))
   );
   test!(
     fn op_print(#[string] msg: &str, is_err: bool) -> Result<(), Error>;
-    (String(RefStr), Numeric(bool, None)) -> Result(Void, false)
+    (String(RefStr), Numeric(bool, None)) -> Result(Value(Void))
   );
   test!(
     #[string] fn op_lots_of_strings(#[string] s: String, #[string] s2: Option<String>, #[string] s3: Cow<str>, #[string(onebyte)] s4: Cow<[u8]>) -> String;
-    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Infallible(String(String), false)
+    (String(String), OptionString(String), String(CowStr), String(CowByte)) -> Value(String(String))
   );
   test!(
     #[string] fn op_lots_of_option_strings(#[string] s: Option<String>, #[string] s2: Option<&str>, #[string] s3: Option<Cow<str>>) -> Option<String>;
-    (OptionString(String), OptionString(RefStr), OptionString(CowStr)) -> Infallible(OptionString(String), false)
+    (OptionString(String), OptionString(RefStr), OptionString(CowStr)) -> Value(OptionString(String))
   );
   test!(
     fn op_scope<'s>(#[string] msg: &'s str);
-    <'s> (String(RefStr)) -> Infallible(Void, false)
+    <'s> (String(RefStr)) -> Value(Void)
   );
   test!(
     fn op_scope_and_generics<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait, BC: OtherTrait;
-    <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Infallible(Void, false)
+    <'s, AB: some::Trait, BC: OtherTrait> (String(RefStr)) -> Value(Void)
   );
   test!(
     fn op_generics_static<'s, AB, BC>(#[string] msg: &'s str) where AB: some::Trait + 'static, BC: OtherTrait;
-    <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Infallible(Void, false)
+    <'s, AB: some::Trait + 'static, BC: OtherTrait> (String(RefStr)) -> Value(Void)
   );
   test!(
-    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>, #[global] s3: v8::Global<v8::String>);
-    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String), V8Global(String)) -> Infallible(Void, false)
+    fn op_v8_types(s: &mut v8::String, sopt: Option<&mut v8::String>, s2: v8::Local<v8::String>);
+    (V8Ref(Mut, String), OptionV8Ref(Mut, String), V8Local(String)) -> Value(Void)
   );
   test!(
     fn op_v8_scope<'s>(scope: &mut v8::PinScope<'s, '_>);
-    <'s> (Ref(Mut, HandleScope)) -> Infallible(Void, false)
+    <'s> (Ref(Mut, HandleScope)) -> Value(Void)
   );
   test!(
     fn op_state_rc(state: Rc<RefCell<OpState>>);
-    (RcRefCell(OpState)) -> Infallible(Void, false)
+    (RcRefCell(OpState)) -> Value(Void)
   );
   test!(
     fn op_state_ref(state: &OpState);
-    (Ref(Ref, OpState)) -> Infallible(Void, false)
+    (Ref(Ref, OpState)) -> Value(Void)
   );
   test!(
     #[buffer] fn op_buffers(#[buffer(copy)] a: Vec<u8>, #[buffer(copy)] b: Box<[u8]>, #[buffer(copy)] c: bytes::Bytes,
       #[buffer] d: V8Slice<u8>, #[buffer] e: JsBuffer, #[buffer(detach)] f: JsBuffer) -> Vec<u8>;
     (Buffer(Vec(u8), Copy, TypedArray), Buffer(BoxSlice(u8), Copy, TypedArray),
       Buffer(Bytes, Copy, TypedArray), Buffer(V8Slice(u8), Default, TypedArray),
-      Buffer(JsBuffer, Default, TypedArray), Buffer(JsBuffer, Detach, TypedArray)) -> Infallible(Buffer(Vec(u8), Default, TypedArray), false)
+      Buffer(JsBuffer, Default, TypedArray), Buffer(JsBuffer, Detach, TypedArray)) -> Value(Buffer(Vec(u8), Default, TypedArray))
   );
   test!(
     #[buffer] fn op_return_bytesmut() -> bytes::BytesMut;
-    () -> Infallible(Buffer(BytesMut, Default, TypedArray), false)
+    () -> Value(Buffer(BytesMut, Default, TypedArray))
   );
   test!(
     async fn op_async_void();
-    () -> Future(Void)
+    () -> Future(Value(Void))
   );
   test!(
     async fn op_async_result_void() -> Result<()>;
-    () -> FutureResult(Void)
+    () -> Future(Result(Value(Void)))
   );
   test!(
     fn op_async_impl_void() -> impl Future<Output = ()>;
-    () -> Future(Void)
+    () -> Future(Value(Void))
   );
   test!(
     fn op_async_result_impl_void() -> Result<impl Future<Output = ()>, Error>;
-    () -> ResultFuture(Void)
+    () -> Result(Future(Value(Void)))
   );
   test!(
     fn op_js_runtime_state_ref(state: &JsRuntimeState);
-    (Ref(Ref, JsRuntimeState)) -> Infallible(Void, false)
+    (Ref(Ref, JsRuntimeState)) -> Value(Void)
   );
   test!(
     fn op_js_runtime_state_mut(state: &mut JsRuntimeState);
-    (Ref(Mut, JsRuntimeState)) -> Infallible(Void, false)
+    (Ref(Mut, JsRuntimeState)) -> Value(Void)
   );
   test!(
     fn op_js_runtime_state_rc(state: Rc<JsRuntimeState>);
-    (Rc(JsRuntimeState)) -> Infallible(Void, false)
+    (Rc(JsRuntimeState)) -> Value(Void)
   );
   expect_fail!(
     op_isolate_bare,
@@ -2232,11 +2153,11 @@ mod tests {
   );
   test!(
     fn op_isolate_ref(isolate: &v8::Isolate);
-    (Ref(Ref, Isolate)) -> Infallible(Void, false)
+    (Ref(Ref, Isolate)) -> Value(Void)
   );
   test!(
     fn op_isolate_mut(isolate: &mut v8::Isolate);
-    (Ref(Mut, Isolate)) -> Infallible(Void, false)
+    (Ref(Mut, Isolate)) -> Value(Void)
   );
   test!(
     #[serde]
@@ -2247,7 +2168,7 @@ mod tests {
       ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas,
       JsErrorBox,
     >;
-    (RcRefCell(OpState), Numeric(__SMI__, None)) -> FutureResult(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))
+    (RcRefCell(OpState), Numeric(__SMI__, None)) -> Future(Result(Value(SerdeV8(ExtremelyLongTypeNameThatForcesEverythingToWrapAndAddsCommas))))
   );
   expect_fail!(
     op_cppgc_resource_owned,
@@ -2326,22 +2247,6 @@ mod tests {
     fn f(#[badattr] a: u32) {}
   );
   expect_fail!(
-    op_with_missing_global,
-    ArgError(
-      "g".into(),
-      MissingAttribute(Span::call_site(), "global")
-    ),
-    fn f(g: v8::Global<v8::String>) {}
-  );
-  expect_fail!(
-    op_with_invalid_global,
-    ArgError(
-      "l".into(),
-      InvalidAttributeType(Span::call_site(), "global")
-    ),
-    fn f(#[global] l: v8::Local<v8::String>) {}
-  );
-  expect_fail!(
     op_duplicate_js_runtime_state,
     InvalidMultipleJsRuntimeState,
     fn f(s1: &JsRuntimeState, s2: &mut JsRuntimeState) {}
@@ -2412,29 +2317,5 @@ mod tests {
     op_with_bad_serde_str,
     ArgError("s".into(), InvalidAttributeType(Span::call_site(), "serde")),
     fn f(#[serde] s: &str) {}
-  );
-
-  expect_fail!(
-    op_with_bad_from_v8_string,
-    ArgError("s".into(), InvalidAttributeType(Span::call_site(), "from_v8")),
-    fn f(#[from_v8] s: String) {}
-  );
-
-  expect_fail!(
-    op_with_to_v8_arg,
-    ArgError(
-      "s".into(),
-      InvalidAttributePosition("to_v8", "return value")
-    ),
-    fn f(#[to_v8] s: Foo) {}
-  );
-
-  expect_fail!(
-    op_with_from_v8_ret,
-    RetError(super::RetError::InvalidType(InvalidAttributePosition(
-      "from_v8", "argument"
-    ))),
-    #[from_v8]
-    fn f() -> Foo {}
   );
 }

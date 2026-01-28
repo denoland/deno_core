@@ -18,7 +18,6 @@ impl<'a> ToV8<'a> for Foo {
 }
 
 #[op2]
-#[to_v8]
 pub fn op_to_v8_return() -> Foo {
   Foo
 }

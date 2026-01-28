@@ -69,6 +69,7 @@ pub use crate::async_cell::AsyncRefFuture;
 pub use crate::async_cell::RcLike;
 pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
+pub use crate::convert::FromV8Scopeless;
 pub use crate::convert::ToV8;
 pub use crate::cppgc::GarbageCollected;
 pub use crate::extensions::AccessorType;
@@ -88,12 +89,14 @@ pub use crate::fast_string::FastStringV8AllocationError;
 pub use crate::flags::v8_set_flags;
 pub use crate::inspector::InspectorMsg;
 pub use crate::inspector::InspectorMsgKind;
+pub use crate::inspector::InspectorSessionChannels;
 pub use crate::inspector::InspectorSessionKind;
 pub use crate::inspector::InspectorSessionProxy;
 pub use crate::inspector::InspectorSessionSend;
 pub use crate::inspector::JsRuntimeInspector;
 pub use crate::inspector::LocalInspectorSession;
 pub use crate::inspector::SessionContainer;
+pub use crate::inspector::create_worker_inspector_session_pair;
 pub use crate::io::AsyncResult;
 pub use crate::io::BufMutView;
 pub use crate::io::BufView;
@@ -153,8 +156,6 @@ pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::ContextState;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
-pub use crate::runtime::ImportAssertionsSupport;
-pub use crate::runtime::ImportAssertionsSupportCustomCallbackArgs;
 pub use crate::runtime::JsRuntime;
 pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::MODULE_MAP_SLOT_INDEX;
@@ -251,6 +252,7 @@ mod tests {
 
   // If the deno command is available, we ensure the async stubs are correctly rebuilt.
   #[test]
+  #[cfg_attr(all(target_os = "windows", target_arch = "aarch64"), ignore)]
   fn test_rebuild_async_stubs() {
     // Check for deno first
     if let Err(e) = Command::new("deno")

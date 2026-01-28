@@ -2,11 +2,13 @@
 
 use super::RequestedModuleType;
 use crate::ModuleCodeString;
+use crate::ModuleSource;
 use crate::fast_string::FastString;
 use crate::modules::ModuleId;
 use crate::modules::ModuleInfo;
 use crate::modules::ModuleLoadId;
 use crate::modules::ModuleName;
+use crate::modules::ModuleReference;
 use crate::modules::ModuleRequest;
 use crate::modules::ModuleType;
 use crate::runtime::SnapshotDataId;
@@ -125,6 +127,57 @@ pub(crate) type SyntheticModuleExports =
 pub(crate) type SyntheticModuleExportsStore =
   HashMap<v8::Global<v8::Module>, SyntheticModuleExports>;
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub(crate) enum ModuleSourceKind {
+  Wasm,
+}
+
+impl ModuleSourceKind {
+  pub fn from_module_type(module_type: &ModuleType) -> Option<Self> {
+    match module_type {
+      ModuleType::Wasm => Some(Self::Wasm),
+      _ => None,
+    }
+  }
+}
+
+#[derive(Debug, Clone, Eq, PartialEq, Hash)]
+enum ModuleSourceType {
+  Loaded(ModuleType),
+  Requested(RequestedModuleType),
+}
+
+#[derive(Debug, Eq, PartialEq, Hash)]
+pub(crate) struct ModuleSourceKey {
+  pub name: ModuleName,
+  typ: ModuleSourceType,
+}
+
+impl ModuleSourceKey {
+  pub fn from_reference(module_reference: &ModuleReference) -> Self {
+    Self {
+      name: module_reference.specifier.to_string().into(),
+      typ: ModuleSourceType::Requested(
+        module_reference.requested_module_type.clone(),
+      ),
+    }
+  }
+
+  pub fn from_loaded_source(loaded_source: &mut ModuleSource) -> Self {
+    let name = if let Some(module_url_found) =
+      loaded_source.cheap_copy_module_url_found()
+    {
+      module_url_found
+    } else {
+      loaded_source.cheap_copy_module_url_specified()
+    };
+    Self {
+      name,
+      typ: ModuleSourceType::Loaded(loaded_source.module_type.clone()),
+    }
+  }
+}
+
 #[derive(Default)]
 pub(crate) struct ModuleMapData {
   /// Inverted index from module to index in `info`.
@@ -145,6 +198,7 @@ pub(crate) struct ModuleMapData {
   pub(crate) synthetic_module_exports_store: SyntheticModuleExportsStore,
   pub(crate) lazy_esm_sources:
     Rc<RefCell<HashMap<ModuleName, ModuleCodeString>>>,
+  pub(crate) sources: HashMap<ModuleSourceKey, Rc<v8::Global<v8::Object>>>,
 }
 
 /// Snapshot-compatible representation of this data.
@@ -269,6 +323,16 @@ impl ModuleMapData {
         let info = self.info.get(*id).unwrap();
         Some(info.module_type.clone())
       }
+      _ => None,
+    }
+  }
+
+  pub(crate) fn get_info_by_module(
+    &self,
+    global: &v8::Global<v8::Module>,
+  ) -> Option<&ModuleInfo> {
+    match self.handles_inverted.get(global) {
+      Some(id) => Some(self.info.get(*id).unwrap()),
       _ => None,
     }
   }

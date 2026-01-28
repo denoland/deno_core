@@ -193,6 +193,7 @@ pub(crate) enum V8FastCallType {
   AnyArray,
   Uint8Array,
   Uint32Array,
+  Float32Array,
   Float64Array,
   SeqOneByteString,
   CallbackOptions,
@@ -220,6 +221,7 @@ impl V8FastCallType {
       V8FastCallType::V8Value
       | V8FastCallType::Uint8Array
       | V8FastCallType::Uint32Array
+      | V8FastCallType::Float32Array
       | V8FastCallType::Float64Array => {
         quote!(deno_core::v8::Local<deno_core::v8::Value>)
       }
@@ -261,6 +263,7 @@ impl V8FastCallType {
       V8FastCallType::AnyArray => quote!(CType::V8Value.as_info()),
       V8FastCallType::Uint8Array => quote!(CType::V8Value.as_info()),
       V8FastCallType::Uint32Array => quote!(CType::V8Value.as_info()),
+      V8FastCallType::Float32Array => quote!(CType::V8Value.as_info()),
       V8FastCallType::Float64Array => quote!(CType::V8Value.as_info()),
       V8FastCallType::SeqOneByteString => {
         quote!(CType::SeqOneByteString.as_info())
@@ -398,6 +401,7 @@ pub(crate) fn generate_dispatch_fast(
   if signature.ret_val.is_async()
     && !config.async_lazy
     && !config.async_deferred
+    || config.fake_async
   {
     return Ok(None);
   }
@@ -874,6 +878,14 @@ fn map_arg_to_v8_fastcall_type(
       BufferSource::TypedArray,
     ) => V8FastCallType::Uint32Array,
     Arg::Buffer(
+      BufferType::Slice(.., NumericArg::f32)
+      | BufferType::Ptr(.., NumericArg::f32)
+      | BufferType::Vec(.., NumericArg::f32)
+      | BufferType::BoxSlice(.., NumericArg::f32),
+      _,
+      BufferSource::TypedArray,
+    ) => V8FastCallType::Float32Array,
+    Arg::Buffer(
       BufferType::Slice(.., NumericArg::f64)
       | BufferType::Ptr(.., NumericArg::f64)
       | BufferType::Vec(.., NumericArg::f64)
@@ -897,11 +909,9 @@ fn map_arg_to_v8_fastcall_type(
     | Arg::OptionString(_)
     | Arg::OptionBuffer(..)
     | Arg::SerdeV8(_)
-    | Arg::FromV8(_)
+    | Arg::FromV8(_, _)
     | Arg::WebIDL(_, _, _)
     | Arg::Ref(..) => return Ok(None),
-    // We don't support v8 global arguments
-    Arg::V8Global(_) | Arg::OptionV8Global(_) => return Ok(None),
     // We do support v8 type arguments (including Option<...>)
     Arg::V8Ref(RefType::Ref, _)
     | Arg::V8Local(_)
@@ -981,10 +991,8 @@ fn map_retval_to_v8_fastcall_type(
     Arg::String(_) => return Ok(None),
     // We don't support returning v8 types
     Arg::V8Ref(..)
-    | Arg::V8Global(_)
     | Arg::V8Local(_)
     | Arg::OptionV8Local(_)
-    | Arg::OptionV8Global(_)
     | Arg::OptionV8Ref(..)
     | Arg::CppGcResource(..)
     | Arg::OptionCppGcResource(..) => return Ok(None),

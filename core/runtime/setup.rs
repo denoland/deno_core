@@ -1,8 +1,5 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-use crate::V8_WRAPPER_OBJECT_INDEX;
-use crate::V8_WRAPPER_TYPE_INDEX;
-
 use super::bindings;
 use super::snapshot;
 use super::snapshot::V8Snapshot;
@@ -16,11 +13,10 @@ fn v8_init(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
   snapshot: bool,
   expose_natives: bool,
-  import_assertions_enabled: bool,
 ) {
   #[cfg(feature = "include_icu_data")]
   {
-    v8::icu::set_common_data_74(deno_core_icudata::ICU_DATA).unwrap();
+    v8::icu::set_common_data_77(deno_core_icudata::ICU_DATA).unwrap();
   }
 
   let base_flags = concat!(
@@ -30,6 +26,7 @@ fn v8_init(
     " --harmony-temporal",
     " --js-float16array",
     " --js-explicit-resource-management",
+    " --js-source-phase-imports"
   );
   let snapshot_flags = "--predictable --random-seed=42";
   let expose_natives_flags = "--expose_gc --allow_natives_syntax";
@@ -38,34 +35,15 @@ fn v8_init(
   } else {
     ""
   };
-  let import_assertions_flag = if import_assertions_enabled {
-    "--harmony-import-assertions"
-  } else {
-    "--no-harmony-import-assertions"
-  };
-  // TODO(bartlomieju): this is ridiculous, rewrite this
-  #[allow(clippy::useless_format)]
-  let flags = match (snapshot, expose_natives, import_assertions_enabled) {
-    (false, false, false) => format!("{base_flags}"),
-    (false, false, true) => format!("{base_flags} {import_assertions_flag}"),
-    (true, false, false) => {
+  let flags = match (snapshot, expose_natives) {
+    (false, false) => base_flags.to_string(),
+    (true, false) => {
       format!("{base_flags} {snapshot_flags} {lazy_flags}")
     }
-    (true, false, true) => format!(
-      "{base_flags} {snapshot_flags} {lazy_flags} {import_assertions_flag}"
-    ),
-    (false, true, false) => format!("{base_flags} {expose_natives_flags}"),
-    (false, true, true) => {
-      format!("{base_flags} {expose_natives_flags} {import_assertions_flag}")
-    }
-    (true, true, false) => {
+    (false, true) => format!("{base_flags} {expose_natives_flags}"),
+    (true, true) => {
       format!(
         "{base_flags} {snapshot_flags} {lazy_flags} {expose_natives_flags}"
-      )
-    }
-    (true, true, true) => {
-      format!(
-        "{base_flags} {snapshot_flags} {lazy_flags} {expose_natives_flags} {import_assertions_flag}"
       )
     }
   };
@@ -88,7 +66,6 @@ pub fn init_v8(
   v8_platform: Option<v8::SharedRef<v8::Platform>>,
   snapshot: bool,
   expose_natives: bool,
-  import_assertions_enabled: bool,
 ) {
   static DENO_INIT: Once = Once::new();
   static DENO_SNAPSHOT: AtomicBool = AtomicBool::new(false);
@@ -104,14 +81,7 @@ pub fn init_v8(
     DENO_SNAPSHOT.store(snapshot, Ordering::SeqCst);
   }
 
-  DENO_INIT.call_once(move || {
-    v8_init(
-      v8_platform,
-      snapshot,
-      expose_natives,
-      import_assertions_enabled,
-    )
-  });
+  DENO_INIT.call_once(move || v8_init(v8_platform, snapshot, expose_natives));
 }
 
 pub fn create_isolate(
@@ -120,12 +90,7 @@ pub fn create_isolate(
   maybe_startup_snapshot: Option<V8Snapshot>,
   external_refs: Cow<'static, [v8::ExternalReference]>,
 ) -> v8::OwnedIsolate {
-  let mut params = maybe_create_params
-    .unwrap_or_default()
-    .embedder_wrapper_type_info_offsets(
-      V8_WRAPPER_TYPE_INDEX,
-      V8_WRAPPER_OBJECT_INDEX,
-    );
+  let mut params = maybe_create_params.unwrap_or_default();
   let mut isolate = if will_snapshot {
     snapshot::create_snapshot_creator(
       external_refs,
@@ -167,6 +132,9 @@ pub fn create_isolate(
   );
   isolate.set_host_import_module_dynamically_callback(
     bindings::host_import_module_dynamically_callback,
+  );
+  isolate.set_host_import_module_with_phase_dynamically_callback(
+    bindings::host_import_module_with_phase_dynamically_callback,
   );
   isolate.set_wasm_async_resolve_promise_callback(
     bindings::wasm_async_resolve_promise_callback,
