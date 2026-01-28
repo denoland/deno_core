@@ -1222,14 +1222,14 @@ impl ModuleMap {
     self: Rc<Self>,
     scope: &mut v8::PinScope,
     specifier: String,
-    referrer: String,
+    referrer: &str,
     requested_module_type: RequestedModuleType,
     phase: ModuleImportPhase,
     resolver_handle: v8::Global<v8::PromiseResolver>,
     cped_handle: v8::Global<v8::Value>,
   ) -> bool {
     let resolve_result =
-      self.resolve(&specifier, &referrer, ResolutionKind::DynamicImport);
+      self.resolve(&specifier, referrer, ResolutionKind::DynamicImport);
 
     if phase == ModuleImportPhase::Evaluation
       && let Ok(module_specifier) = &resolve_result

@@ -753,7 +753,7 @@ pub fn host_import_module_with_phase_dynamically_callback<'s, 'i>(
       module_map_rc,
       tc_scope,
       specifier_str,
-      referrer_name_str,
+      &referrer_name_str,
       requested_module_type,
       phase,
       resolver_handle,
