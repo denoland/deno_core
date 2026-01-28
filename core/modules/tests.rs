@@ -601,7 +601,8 @@ fn test_json_text_bytes_modules() {
           assert(bytes[1] === 2);
           assert(bytes[2] === 3);
         "#
-        ),
+        )
+        .into(),
         false,
         None,
       )
