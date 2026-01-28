@@ -405,7 +405,7 @@ pub(crate) fn generate_op2(
 }
 
 fn combine_err(e: syn::Error, msg: String) -> syn::Error {
-  syn::Error::new(e.span(), format!("{}: {}", msg, e.to_string()))
+  syn::Error::new(e.span(), format!("{msg}: {e}"))
 }
 
 mod kw {
