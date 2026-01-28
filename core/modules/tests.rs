@@ -468,13 +468,16 @@ fn test_mods() {
       .new_es_module(
         scope,
         true,
-        "file:///a.js",
-        r#"
+        ascii_str!("file:///a.js").into(),
+        ascii_str!(
+          r#"
           import { b } from './b.js'
           if (b() != 'b') throw Error();
           let control = 42;
           Deno.core.ops.op_test(control);
-        "#,
+        "#
+        )
+        .into(),
         false,
         None,
       )
@@ -499,8 +502,8 @@ fn test_mods() {
       .new_es_module(
         scope,
         false,
-        ascii_str!("file:///b.js"),
-        ascii_str!("export function b() { return 'b' }"),
+        ascii_str!("file:///b.js").into(),
+        ascii_str!("export function b() { return 'b' }").into(),
         false,
         None,
       )
@@ -584,7 +587,7 @@ fn test_json_text_bytes_modules() {
       .new_es_module(
         scope,
         false,
-        specifier_b,
+        specifier_b.into(),
         ascii_str!(
           r#"
           import jsonData from './c.json' with {type: "json"};
@@ -699,8 +702,9 @@ fn test_validate_import_attributes_default() {
     .new_es_module(
       scope,
       false,
-      ascii_str!("file:///a.js"),
-      ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
+      ascii_str!("file:///a.js").into(),
+      ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#)
+        .into(),
       false,
       None,
     )
@@ -710,8 +714,9 @@ fn test_validate_import_attributes_default() {
     .new_es_module(
       scope,
       true,
-      ascii_str!("file:///a.js"),
-      ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#),
+      ascii_str!("file:///a.js").into(),
+      ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#)
+        .into(),
       false,
       None,
     )
@@ -762,8 +767,9 @@ fn test_validate_import_attributes_callback() {
       .new_es_module(
         scope,
         true,
-        ascii_str!("file:///a.js"),
-        ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
+        ascii_str!("file:///a.js").into(),
+        ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#)
+          .into(),
         false,
         None,
       )
@@ -787,8 +793,9 @@ fn test_validate_import_attributes_callback() {
       .new_es_module(
         scope,
         true,
-        ascii_str!("file:///a.js"),
-        ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#),
+        ascii_str!("file:///a.js").into(),
+        ascii_str!(r#"import jsonData from './c.json' with {type: "bar"};"#)
+          .into(),
         false,
         None,
       )
@@ -833,8 +840,9 @@ fn test_validate_import_attributes_callback2() {
       .new_es_module(
         scope,
         true,
-        ascii_str!("file:///a.js"),
-        ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#),
+        ascii_str!("file:///a.js").into(),
+        ascii_str!(r#"import jsonData from './c.json' with {foo: "bar"};"#)
+          .into(),
         false,
         None,
       )

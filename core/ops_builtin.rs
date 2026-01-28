@@ -516,16 +516,11 @@ async fn do_load_job<'s, 'i>(
   specifier: &str,
   code: Option<String>,
 ) -> Result<ModuleId, CoreError> {
-  if let Some(code) = code {
-    module_map_rc
-      .new_es_module(scope, false, specifier.to_owned(), code, false, None)
-      .map_err(|e| e.into_error(scope, false, false))?;
-  }
-
   let mut load = ModuleMap::load_side(
     module_map_rc.clone(),
-    specifier,
+    specifier.to_string(),
     crate::modules::SideModuleKind::Sync,
+    code,
   )
   .await?;
 
