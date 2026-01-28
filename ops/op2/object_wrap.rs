@@ -128,7 +128,7 @@ pub(crate) fn generate_impl_ops(
       let ident = func.sig.ident.clone();
       if config.constructor {
         if constructor.is_some() {
-          return Err(Op2Error::MultipleConstructors);
+          return Err(Op2Error::MultipleConstructors(func.span()));
         }
 
         constructor = Some(ident);

@@ -58,7 +58,7 @@ pub enum Op2Error {
   #[error("This op is not fast-compatible and should not be marked as ({0})")]
   ShouldNotBeFast(&'static str),
   #[error("Only one constructor is allowed per object")]
-  MultipleConstructors,
+  MultipleConstructors(Span),
   #[error("Only identifiers are supported in impl blocks")]
   NonIdentifierImplBlock,
 }
@@ -73,9 +73,8 @@ impl From<Op2Error> for syn::Error {
       Op2Error::InvalidAttributeCombination(_, _) => Span::call_site(),
       Op2Error::ShouldBeFast => Span::call_site(),
       Op2Error::ShouldNotBeFast(_) => Span::call_site(),
-      Op2Error::ShouldBeAsync => Span::call_site(),
-      Op2Error::ShouldNotBeAsync => Span::call_site(),
-      Op2Error::MultipleConstructors => Span::call_site(), // TODO: should contain the constructors spans
+      Op2Error::MultipleConstructors(span) => span,
+      Op2Error::NonIdentifierImplBlock => Span::call_site(),
     };
 
     syn::Error::new(span, msg)

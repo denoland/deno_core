@@ -129,7 +129,7 @@ impl RetVal {
 }
 
 impl RetVal {
-  pub fn try_parse(
+  pub(crate) fn try_parse(
     is_async: bool,
     attrs: Attributes,
     rt: &ReturnType,

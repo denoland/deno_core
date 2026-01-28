@@ -1434,7 +1434,7 @@ fn parse_type_path(
           } else if attrs.primary.is_none() || attrs.primary.as_ref().is_some_and(|primary| matches!(primary, AttributeModifier::Scoped)) {
             Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped))))
           } else {
-            Err(ArgError::InvalidAttributeType("buffer", stringify_token(tp)))
+            Err(ArgError::InvalidAttributeType(tp.span(), "buffer"))
           }
         },
         std?::boxed?::Box<[$ty]> => {
