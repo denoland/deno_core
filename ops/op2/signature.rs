@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 
+use super::signature_retval::RetVal;
+use crate::op2::combine_err;
 use strum::{IntoEnumIterator, IntoStaticStr};
 use strum_macros::EnumIter;
 use strum_macros::EnumString;
@@ -27,10 +29,9 @@ use syn::TypeParamBound;
 use syn::TypePath;
 use syn::WherePredicate;
 use syn::punctuated::Punctuated;
+use syn::spanned::Spanned;
 use syn::{AttrStyle, GenericArgument, PathArguments};
 use thiserror::Error;
-
-use super::signature_retval::RetVal;
 
 #[allow(non_camel_case_types)]
 #[derive(
@@ -366,18 +367,19 @@ impl Arg {
     parsed: ParsedTypeContainer,
     position: Position,
     attr: Attributes,
+    span: Span,
   ) -> Result<Self, ArgError> {
     use ParsedType::*;
     use ParsedTypeContainer::*;
 
     let buffer_mode = || match attr.primary {
       Some(AttributeModifier::Buffer(mode, _)) => Ok(mode),
-      _ => Err(ArgError::MissingAttribute("buffer", format!("{parsed:?}"))),
+      _ => Err(ArgError::MissingAttribute(span, "buffer")),
     };
 
     let buffer_source = || match attr.primary {
       Some(AttributeModifier::Buffer(_, source)) => Ok(source),
-      _ => Err(ArgError::MissingAttribute("buffer", format!("{parsed:?}"))),
+      _ => Err(ArgError::MissingAttribute(span, "buffer")),
     };
 
     match parsed {
@@ -682,28 +684,22 @@ impl ParsedTypeContainer {
       None => match attrs.primary {
         None => {}
         Some(attr) => {
-          return Err(ArgError::InvalidAttributeType(
-            attr.name(),
-            stringify_token(tp),
-          ));
+          return Err(ArgError::InvalidAttributeType(tp.span(), attr.name()));
         }
       },
       Some(attr) => {
         if attr.is_empty() {
-          return Err(ArgError::NotAllowedInThisPosition(stringify_token(tp)));
+          return Err(ArgError::NotAllowedInThisPosition(tp.span()));
         }
         match attrs.primary {
           None => {
-            return Err(ArgError::MissingAttribute(
-              attr[0].name(),
-              stringify_token(tp),
-            ));
+            return Err(ArgError::MissingAttribute(tp.span(), attr[0].name()));
           }
           Some(primary) => {
             if !attr.contains(&primary) {
               return Err(ArgError::MissingAttribute(
+                tp.span(),
                 attr[0].name(),
-                stringify_token(tp),
               ));
             }
           }
@@ -822,80 +818,144 @@ impl AttributeModifier {
 
 #[derive(Error, Debug)]
 pub enum SignatureError {
-  #[error("Invalid argument: '{0}'")]
+  #[error("Invalid argument")]
   ArgError(String, #[source] ArgError),
   #[error("Invalid return type")]
   RetError(#[from] RetError),
   #[error(
-    "Generic '{0}' must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)"
+    "Generic must have one and only bound (either <T> and 'where T: Trait', or <T: Trait>)"
   )]
-  GenericBoundCardinality(String),
+  GenericBoundCardinality(Span),
   #[error(
-    "Where clause predicate '{0}' (eg: where T: Trait) must appear in generics list (eg: <T>)"
+    "Where clause predicate (eg: where T: Trait) must appear in generics list (eg: <T>)"
   )]
-  WherePredicateMustAppearInGenerics(String),
+  WherePredicateMustAppearInGenerics(Span),
   #[error(
     "All generics must appear only once in the generics parameter list or where clause"
   )]
   DuplicateGeneric(String),
-  #[error("Generic lifetime '{0}' may not have bounds (eg: <'a: 'b>)")]
-  LifetimesMayNotHaveBounds(String),
+  #[error("Generic lifetime may not have bounds (eg: <'a: 'b>)")]
+  LifetimesMayNotHaveBounds(Span),
   #[error(
-    "Invalid predicate: '{0}' Only simple where predicates are allowed (eg: T: Trait)"
+    "Invalid predicate: Only simple where predicates are allowed (eg: T: Trait)"
   )]
-  InvalidWherePredicate(String),
+  InvalidWherePredicate(Span),
   #[error("JsRuntimeState may only be used in one parameter")]
   InvalidMultipleJsRuntimeState,
-  #[error("Invalid metadata attribute: {0}")]
+  #[error("Invalid metadata attribute")]
   InvalidMetaAttribute(#[source] syn::Error),
+}
+
+impl From<SignatureError> for syn::Error {
+  fn from(value: SignatureError) -> Self {
+    let msg = value.to_string();
+    let span = match value {
+      SignatureError::ArgError(_, e) => return combine_err(e.into(), msg),
+      SignatureError::RetError(e) => return combine_err(e.into(), msg),
+      SignatureError::GenericBoundCardinality(span) => span,
+      SignatureError::WherePredicateMustAppearInGenerics(span) => span,
+      SignatureError::DuplicateGeneric(_) => Span::call_site(),
+      SignatureError::LifetimesMayNotHaveBounds(span) => span,
+      SignatureError::InvalidWherePredicate(span) => span,
+      SignatureError::InvalidMultipleJsRuntimeState => Span::call_site(),
+      SignatureError::InvalidMetaAttribute(e) => return combine_err(e, msg),
+    };
+
+    syn::Error::new(span, msg)
+  }
 }
 
 #[derive(Error, Debug)]
 pub enum AttributeError {
-  #[error("Unknown or invalid attribute '{0}'")]
-  InvalidAttribute(String),
+  #[error("Unknown or invalid attribute")]
+  InvalidAttribute(syn::Error),
   #[error(
     "Invalid inner attribute (#![attr]) in this position. Use an equivalent outer attribute (#[attr]) on the function instead."
   )]
-  InvalidInnerAttribute,
+  InvalidInnerAttribute(Span),
+}
+
+impl From<AttributeError> for syn::Error {
+  fn from(value: AttributeError) -> Self {
+    match value {
+      AttributeError::InvalidAttribute(e) => e,
+      AttributeError::InvalidInnerAttribute(span) => {
+        syn::Error::new(span, value.to_string())
+      }
+    }
+  }
 }
 
 #[derive(Error, Debug)]
 pub enum ArgError {
-  #[error("Invalid argument type: {0} ({1})")]
-  InvalidType(String, &'static str),
-  #[error("Invalid numeric argument type: {0}")]
-  InvalidNumericType(String),
-  #[error("Invalid numeric #[smi] argument type: {0}")]
-  InvalidSmiType(String),
-  #[error("The type {0} cannot be a reference")]
-  InvalidReference(String),
-  #[error("The type {0} must be a reference")]
-  MissingReference(String),
-  #[error("Invalid or deprecated #[serde] type '{0}': {1}")]
-  InvalidSerdeType(String, &'static str),
-  #[error("Invalid #[{0}] for type: {1}")]
-  InvalidAttributeType(&'static str, String),
-  #[error("Cannot use #[number] for type: {0}")]
-  InvalidNumberAttributeType(String),
-  #[error("Invalid v8 type: {0}")]
-  InvalidV8Type(String),
-  #[error("Missing a #[{0}] attribute for type: {1}")]
-  MissingAttribute(&'static str, String),
+  #[error("Invalid self argument")]
+  InvalidSelf(Span),
+  #[error("Invalid argument type ({1})")]
+  InvalidType(Span, &'static str),
+  #[error("Invalid numeric argument type")]
+  InvalidNumericType(Span),
+  #[error("Invalid numeric #[smi] argument type")]
+  InvalidSmiType(Span),
+  #[error(
+    "Invalid argument type path (should this be #[smi], #[serde], or #[to_v8]?)"
+  )]
+  InvalidTypePath(Span),
+  #[error("Type cannot be a reference")]
+  InvalidReference(Span),
+  #[error("Type must be a reference")]
+  MissingReference(Span),
+  #[error("Invalid or deprecated #[serde] type: {1}")]
+  InvalidSerdeType(Span, &'static str),
+  #[error("Invalid #[{1}] for type")]
+  InvalidAttributeType(Span, &'static str),
+  #[error("Cannot use #[number] for type")]
+  InvalidNumberAttributeType(Span),
+  #[error("Invalid v8 type")]
+  InvalidV8Type(Span),
+  #[error("Missing a #[{1}] attribute for type")]
+  MissingAttribute(Span, &'static str),
   #[error("Argument attribute error")]
   AttributeError(#[from] AttributeError),
-  #[error("The type '{0}' is not allowed in this position")]
-  NotAllowedInThisPosition(String),
+  #[error("Type is not allowed in this position")]
+  NotAllowedInThisPosition(Span),
   #[error(
-    "Invalid deno_core:: prefix for type '{0}'. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position."
+    "Invalid deno_core:: prefix for type. Try adding `use deno_core::{1}` at the top of the file and specifying `{2}` in this position."
   )]
-  InvalidDenoCorePrefix(String, String, String),
-  #[error("Expected a reference. Use '#[cppgc] &{0}' instead.")]
-  ExpectedCppGcReference(String),
-  #[error("Invalid #[cppgc] type '{0}'")]
-  InvalidCppGcType(String),
+  InvalidDenoCorePrefix(Span, String, String),
+  #[error("Expected a reference. Use '#[cppgc] &{1}' instead.")]
+  ExpectedCppGcReference(Span, String),
+  #[error("Invalid #[cppgc] type")]
+  InvalidCppGcType(Span),
   #[error("#[{0}] is only valid in {1} position")]
   InvalidAttributePosition(&'static str, &'static str),
+}
+
+impl From<ArgError> for syn::Error {
+  fn from(value: ArgError) -> Self {
+    let msg = value.to_string();
+    let span = match value {
+      ArgError::InvalidSelf(span) => span,
+      ArgError::InvalidType(span, _) => span,
+      ArgError::InvalidNumericType(span) => span,
+      ArgError::InvalidSmiType(span) => span,
+      ArgError::InvalidTypePath(span) => span,
+      ArgError::InvalidReference(span) => span,
+      ArgError::MissingReference(span) => span,
+      ArgError::InvalidSerdeType(span, _) => span,
+      ArgError::InvalidAttributeType(span, _) => span,
+      ArgError::InvalidNumberAttributeType(span) => span,
+      ArgError::InvalidV8Type(span) => span,
+      ArgError::MissingAttribute(span, _) => span,
+      ArgError::AttributeError(err) => return combine_err(err.into(), msg),
+      ArgError::NotAllowedInThisPosition(span) => span,
+      ArgError::InvalidDenoCorePrefix(span, _, _) => span,
+      ArgError::ExpectedCppGcReference(span, _) => span,
+      ArgError::InvalidCppGcType(span) => span,
+      ArgError::InvalidAttributePosition(_, _) => Span::call_site(),
+    };
+
+    syn::Error::new(span, msg)
+  }
 }
 
 #[derive(Error, Debug)]
@@ -904,6 +964,16 @@ pub enum RetError {
   InvalidType(#[from] ArgError),
   #[error("Return value attribute error")]
   AttributeError(#[from] AttributeError),
+}
+
+impl From<RetError> for syn::Error {
+  fn from(value: RetError) -> Self {
+    let msg = value.to_string();
+    match value {
+      RetError::InvalidType(e) => combine_err(e.into(), msg),
+      RetError::AttributeError(e) => combine_err(e.into(), msg),
+    }
+  }
 }
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
@@ -1072,9 +1142,7 @@ fn parse_lifetimes(generics: &Generics) -> Result<Vec<Ident>, SignatureError> {
   for param in &generics.params {
     if let GenericParam::Lifetime(lt) = param {
       if !lt.bounds.is_empty() {
-        return Err(SignatureError::LifetimesMayNotHaveBounds(
-          lt.lifetime.to_string(),
-        ));
+        return Err(SignatureError::LifetimesMayNotHaveBounds(lt.span()));
       }
       res.push(lt.lifetime.ident.clone());
     }
@@ -1087,11 +1155,7 @@ fn parse_lifetimes(generics: &Generics) -> Result<Vec<Ident>, SignatureError> {
 fn parse_bound(
   bounds: &Punctuated<TypeParamBound, Token![+]>,
 ) -> Result<String, SignatureError> {
-  let error = || {
-    Err(SignatureError::InvalidWherePredicate(stringify_token(
-      bounds,
-    )))
-  };
+  let error = || Err(SignatureError::InvalidWherePredicate(bounds.span()));
 
   let mut has_static_lifetime = false;
   let mut bound = None;
@@ -1144,9 +1208,7 @@ fn parse_generics(
           return Err(SignatureError::DuplicateGeneric(ident.to_string()));
         }
       } else {
-        return Err(SignatureError::InvalidWherePredicate(
-          predicate.to_token_stream().to_string(),
-        ));
+        return Err(SignatureError::InvalidWherePredicate(predicate.span()));
       }
     }
   }
@@ -1158,16 +1220,12 @@ fn parse_generics(
 
       let bound = if !ty.bounds.is_empty() {
         if where_clauses.contains_key(name) {
-          return Err(SignatureError::GenericBoundCardinality(
-            name.to_string(),
-          ));
+          return Err(SignatureError::GenericBoundCardinality(name.span()));
         }
         parse_bound(&ty.bounds)?
       } else {
         let Some(bound) = where_clauses.remove(name) else {
-          return Err(SignatureError::GenericBoundCardinality(
-            name.to_string(),
-          ));
+          return Err(SignatureError::GenericBoundCardinality(name.span()));
         };
         bound
       };
@@ -1180,7 +1238,7 @@ fn parse_generics(
   }
   if !where_clauses.is_empty() {
     return Err(SignatureError::WherePredicateMustAppearInGenerics(
-      where_clauses.into_keys().next().unwrap().to_string(),
+      where_clauses.into_keys().next().unwrap().span(),
     ));
   }
 
@@ -1238,7 +1296,7 @@ fn parse_attribute(
   attr: &Attribute,
 ) -> Result<Option<AttributeModifier>, AttributeError> {
   if matches!(attr.style, AttrStyle::Inner(_)) {
-    return Err(AttributeError::InvalidInnerAttribute);
+    return Err(AttributeError::InvalidInnerAttribute(attr.span()));
   }
 
   let Some(ident) = attr.path().get_ident() else {
@@ -1258,9 +1316,9 @@ fn parse_attribute(
     "scoped" => Some(AttributeModifier::Scoped),
 
     "validate" => {
-      let value: Path = attr
+      let value = attr
         .parse_args()
-        .map_err(|_| AttributeError::InvalidAttribute(stringify_token(attr)))?;
+        .map_err(AttributeError::InvalidAttribute)?;
       Some(AttributeModifier::Validate(value))
     }
 
@@ -1271,9 +1329,9 @@ fn parse_attribute(
           options: Vec::new(),
         }
       } else {
-        attr.parse_args().map_err(|_| {
-          AttributeError::InvalidAttribute(stringify_token(attr))
-        })?
+        attr
+          .parse_args()
+          .map_err(AttributeError::InvalidAttribute)?
       };
 
       Some(AttributeModifier::WebIDL(args))
@@ -1288,7 +1346,10 @@ fn parse_attribute(
       {
         Some(AttributeModifier::String(StringMode::OneByte))
       } else {
-        return Err(AttributeError::InvalidAttribute(stringify_token(attr)));
+        return Err(AttributeError::InvalidAttribute(syn::Error::new(
+          attr.span(),
+          "invalid attribute for `string` modifier",
+        )));
       }
     }
 
@@ -1296,9 +1357,9 @@ fn parse_attribute(
       let mode = if matches!(attr.meta, Meta::Path(_)) {
         BufferMode::Default
       } else {
-        let ident: Ident = attr.parse_args().map_err(|_| {
-          AttributeError::InvalidAttribute(stringify_token(attr))
-        })?;
+        let ident: Ident = attr
+          .parse_args()
+          .map_err(AttributeError::InvalidAttribute)?;
         if ident == "unsafe" {
           BufferMode::Unsafe
         } else if ident == "copy" {
@@ -1306,7 +1367,10 @@ fn parse_attribute(
         } else if ident == "detach" {
           BufferMode::Detach
         } else {
-          return Err(AttributeError::InvalidAttribute(stringify_token(attr)));
+          return Err(AttributeError::InvalidAttribute(syn::Error::new(
+            attr.span(),
+            format!("invalid attribute for `{buf}` modifier"),
+          )));
         }
       };
 
@@ -1327,7 +1391,12 @@ fn parse_attribute(
     }
 
     "allow" | "doc" | "cfg" => None,
-    _ => return Err(AttributeError::InvalidAttribute(stringify_token(attr))),
+    attr_name => {
+      return Err(AttributeError::InvalidAttribute(syn::Error::new(
+        attr.meta.span(),
+        format!("Unknown attribute `{attr_name}`"),
+      )));
+    }
   };
 
   Ok(modifier)
@@ -1346,7 +1415,7 @@ fn parse_numeric_type(tp: &Path) -> Result<NumericArg, ArgError> {
   syn_match::path_match!(
     &tp,
     std?::ffi?::c_void => Ok(NumericArg::__VOID__),
-    _ => Err(ArgError::InvalidNumericType(stringify_token(tp))),
+    _ => Err(ArgError::InvalidNumericType(tp.span())),
   )
 }
 
@@ -1383,14 +1452,14 @@ fn parse_type_path(
           } else if attrs.primary.is_none() || attrs.primary.as_ref().is_some_and(|primary| matches!(primary, AttributeModifier::Scoped)) {
             Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped))))
           } else {
-            Err(ArgError::InvalidAttributeType("buffer", stringify_token(tp)))
+            Err(ArgError::InvalidAttributeType(tp.span(), "buffer"))
           }
         },
         std?::boxed?::Box<[$ty]> => {
           if let Type::Path(tp) = ty {
             Ok(CBare(TBuffer(BufferType::BoxSlice(parse_numeric_type(&tp.path)?))))
           } else {
-            Err(ArgError::InvalidNumericType(stringify_token(ty)))
+            Err(ArgError::InvalidNumericType(ty.span()))
           }
         }
         serde_v8?::V8Slice<::$ty> => Ok(CBare(TBuffer(BufferType::V8Slice(parse_numeric_type(ty)?)))),
@@ -1410,7 +1479,7 @@ fn parse_type_path(
         Option<$ty> => {
           let syn::GenericArgument::Type(ty) = ty else {
             return Err(ArgError::InvalidType(
-              stringify_token(ty),
+              ty.span(),
               "for option",
             ))
           };
@@ -1431,7 +1500,7 @@ fn parse_type_path(
           let next = stringify_token(next);
           let any = any.map(|any| format!("::{}", any.into_token_stream())).unwrap_or_default();
           let instead = format!("{next}{any}");
-          Err(ArgError::InvalidDenoCorePrefix(stringify_token(tp), next, instead))
+          Err(ArgError::InvalidDenoCorePrefix(tp.span(), next, instead))
         }
         _ => Ok(CUnknown(Type::Path(tp.clone()), matches!(attrs.primary, Some(AttributeModifier::Scoped)))),
       )?
@@ -1445,19 +1514,19 @@ fn parse_type_path(
     CBare(TSpecial(Special::OpState | Special::JsRuntimeState)) => {}
     CBare(TSpecial(Special::Isolate)) => {
       if ctx != TypePathContext::Ref {
-        return Err(ArgError::MissingReference(stringify_token(tp)));
+        return Err(ArgError::MissingReference(tp.span()));
       }
     }
     CBare(
       TString(Strings::RefStr) | TSpecial(Special::HandleScope) | TV8(_),
     ) => {
       if ctx != TypePathContext::Ref {
-        return Err(ArgError::MissingReference(stringify_token(tp)));
+        return Err(ArgError::MissingReference(tp.span()));
       }
     }
     _ => {
       if ctx == TypePathContext::Ref {
-        return Err(ArgError::InvalidReference(stringify_token(tp)));
+        return Err(ArgError::InvalidReference(tp.span()));
       }
     }
   }
@@ -1472,8 +1541,8 @@ fn parse_type_path(
 }
 
 fn parse_v8_type(v8: &syn::PathSegment) -> Result<V8Arg, ArgError> {
-  let v8 = v8.ident.to_string();
-  V8Arg::try_from(v8.as_str()).map_err(|_| ArgError::InvalidV8Type(v8))
+  V8Arg::try_from(v8.ident.to_string().as_str())
+    .map_err(|_| ArgError::InvalidV8Type(v8.span()))
 }
 
 fn parse_type_special(
@@ -1482,17 +1551,11 @@ fn parse_type_special(
   ty: &syn::GenericArgument,
 ) -> Result<Special, ArgError> {
   let syn::GenericArgument::Type(ty) = ty else {
-    return Err(ArgError::InvalidType(
-      stringify_token(ty),
-      "for special type",
-    ));
+    return Err(ArgError::InvalidType(ty.span(), "for special type"));
   };
   match parse_type(position, attrs, ty)? {
     Arg::Special(special) => Ok(special),
-    _ => Err(ArgError::InvalidType(
-      stringify_token(ty),
-      "for special type",
-    )),
+    _ => Err(ArgError::InvalidType(ty.span(), "for special type")),
   }
 }
 
@@ -1507,7 +1570,7 @@ fn parse_cppgc(
         Type::Path(of) => {
           Ok(Arg::CppGcResource(proto, stringify_token(&of.path)))
         }
-        _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+        _ => Err(ArgError::InvalidCppGcType(of.elem.span())),
       }
     }
     (Position::Arg, Type::Path(of)) => {
@@ -1521,17 +1584,24 @@ fn parse_cppgc(
             Type::Path(of) => {
               Ok(Arg::OptionCppGcResource(stringify_token(&of.path)))
             }
-            _ => Err(ArgError::InvalidCppGcType(stringify_token(&of.elem))),
+            _ => Err(ArgError::InvalidCppGcType(of.elem.span())),
           },
-          _ => Err(ArgError::ExpectedCppGcReference(stringify_token(ty))),
+          _ => Err(ArgError::ExpectedCppGcReference(
+            ty.span(),
+            stringify_token(ty),
+          )),
         }
       } else {
-        Err(ArgError::ExpectedCppGcReference(stringify_token(ty)))
+        Err(ArgError::ExpectedCppGcReference(
+          ty.span(),
+          stringify_token(ty),
+        ))
       }
     }
-    (Position::Arg, _) => {
-      Err(ArgError::ExpectedCppGcReference(stringify_token(ty)))
-    }
+    (Position::Arg, _) => Err(ArgError::ExpectedCppGcReference(
+      ty.span(),
+      stringify_token(ty),
+    )),
     (Position::RetVal, ty) => match ty {
       Type::Path(tp) => {
         if let Some(seg) = tp.path.segments.first()
@@ -1551,10 +1621,10 @@ fn parse_cppgc(
             stringify_token(&sup.path),
             stringify_token(&ty.path),
           ])),
-          _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+          _ => Err(ArgError::InvalidCppGcType(ty.span())),
         }
       }
-      _ => Err(ArgError::InvalidCppGcType(stringify_token(ty))),
+      _ => Err(ArgError::InvalidCppGcType(ty.span())),
     },
   }
 }
@@ -1635,8 +1705,8 @@ pub(crate) fn parse_type(
               && better_alternative_exists(position, of)
             {
               return Err(ArgError::InvalidAttributeType(
+                ty.span(),
                 primary.name(),
-                stringify_token(ty),
               ));
             }
 
@@ -1658,13 +1728,13 @@ pub(crate) fn parse_type(
               if invalid {
                 if primary == AttributeModifier::Serde {
                   return Err(ArgError::InvalidSerdeType(
-                    stringify_token(of),
+                    of.span(),
                     "a fully-qualified type: v8::Value or serde_json::Value",
                   ));
                 } else {
                   return Err(ArgError::InvalidAttributeType(
+                    of.span(),
                     primary.name(),
-                    stringify_token(of),
                   ));
                 }
               }
@@ -1674,8 +1744,8 @@ pub(crate) fn parse_type(
           }
           _ => {
             return Err(ArgError::InvalidAttributeType(
+              ty.span(),
               primary.name(),
-              stringify_token(ty),
             ));
           }
         }
@@ -1717,16 +1787,12 @@ pub(crate) fn parse_type(
               | NumericArg::isize),
             )) => return Ok(Arg::Numeric(n, NumericFlag::Number)),
             _ => {
-              return Err(ArgError::InvalidNumberAttributeType(
-                stringify_token(ty),
-              ));
+              return Err(ArgError::InvalidNumberAttributeType(ty.span()));
             }
           }
         }
         _ => {
-          return Err(ArgError::InvalidNumberAttributeType(stringify_token(
-            ty,
-          )));
+          return Err(ArgError::InvalidNumberAttributeType(ty.span()));
         }
       },
       AttributeModifier::Smi => match ty {
@@ -1740,7 +1806,7 @@ pub(crate) fn parse_type(
             return Ok(Arg::Numeric(NumericArg::__SMI__, NumericFlag::None));
           }
         }
-        _ => return Err(ArgError::InvalidSmiType(stringify_token(ty))),
+        _ => return Err(ArgError::InvalidSmiType(ty.span())),
       },
     }
   };
@@ -1774,12 +1840,11 @@ pub(crate) fn parse_type(
             numeric => {
               let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, position, attrs.clone()).map_err(|_| {
-                ArgError::InvalidType(stringify_token(ty), "for slice")
-              })
+              Arg::from_parsed(res, position, attrs.clone(), ty.span())
+                .map_err(|_| ArgError::InvalidType(ty.span(), "for slice"))
             }
           },
-          _ => Err(ArgError::InvalidType(stringify_token(ty), "for slice")),
+          _ => Err(ArgError::InvalidType(ty.span(), "for slice")),
         },
         Type::Path(of) => {
           match parse_type_path(
@@ -1794,13 +1859,10 @@ pub(crate) fn parse_type(
             }
             CBare(TV8(v8)) => Ok(Arg::V8Ref(mut_type, v8)),
             CBare(TSpecial(special)) => Ok(Arg::Ref(mut_type, special)),
-            _ => Err(ArgError::InvalidType(
-              stringify_token(ty),
-              "for reference path",
-            )),
+            _ => Err(ArgError::InvalidType(ty.span(), "for reference path")),
           }
         }
-        _ => Err(ArgError::InvalidType(stringify_token(ty), "for reference")),
+        _ => Err(ArgError::InvalidType(ty.span(), "for reference")),
       }
     }
     Type::Ptr(of) => {
@@ -1823,23 +1885,19 @@ pub(crate) fn parse_type(
             CBare(TNumeric(numeric)) => {
               let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, position, attrs.clone()).map_err(|_| {
-                ArgError::InvalidType(
-                  stringify_token(ty),
-                  "for numeric pointer",
-                )
-              })
+              Arg::from_parsed(res, position, attrs.clone(), of.span()).map_err(
+                |_| ArgError::InvalidType(ty.span(), "for numeric pointer"),
+              )
             }
             CBare(TSpecial(Special::Isolate)) => {
               Ok(Arg::Special(Special::Isolate))
             }
-            _ => Err(ArgError::InvalidType(
-              stringify_token(of),
-              "for pointer to type path",
-            )),
+            _ => {
+              Err(ArgError::InvalidType(of.span(), "for pointer to type path"))
+            }
           }
         }
-        _ => Err(ArgError::InvalidType(stringify_token(ty), "for pointer")),
+        _ => Err(ArgError::InvalidType(ty.span(), "for pointer")),
       }
     }
     Type::Path(of) => {
@@ -1848,13 +1906,10 @@ pub(crate) fn parse_type(
       if let CBare(TSpecial(Special::Isolate)) = typath {
         return Ok(Arg::Special(Special::Isolate));
       }
-      Arg::from_parsed(typath, position, attrs)
-        .map_err(|_| ArgError::InvalidType(stringify_token(ty), "for path"))
+      Arg::from_parsed(typath, position, attrs, ty.span())
+        .map_err(|_| ArgError::InvalidType(ty.span(), "for path"))
     }
-    _ => Err(ArgError::InvalidType(
-      stringify_token(ty),
-      "for top-level type",
-    )),
+    _ => Err(ArgError::InvalidType(ty.span(), "for top-level type")),
   }
 }
 
@@ -2111,7 +2166,7 @@ mod tests {
   );
   expect_fail!(
     op_isolate_bare,
-    ArgError("isolate".into(), MissingReference("v8::Isolate".into())),
+    ArgError("isolate".into(), MissingReference(Span::call_site())),
     fn f(isolate: v8::Isolate) {}
   );
   test!(
@@ -2137,7 +2192,7 @@ mod tests {
     op_cppgc_resource_owned,
     ArgError(
       "resource".into(),
-      ExpectedCppGcReference("std::fs::File".into())
+      ExpectedCppGcReference(Span::call_site(), "std::fs::File".into())
     ),
     fn f(#[cppgc] resource: std::fs::File) {}
   );
@@ -2145,24 +2200,18 @@ mod tests {
     op_cppgc_resource_option_owned,
     ArgError(
       "resource".into(),
-      ExpectedCppGcReference("std::fs::File".into())
+      ExpectedCppGcReference(Span::call_site(), "std::fs::File".into())
     ),
     fn f(#[cppgc] resource: Option<std::fs::File>) {}
   );
   expect_fail!(
     op_cppgc_resource_invalid_type,
-    ArgError(
-      "resource".into(),
-      InvalidCppGcType("[std :: fs :: File]".into())
-    ),
+    ArgError("resource".into(), InvalidCppGcType(Span::call_site())),
     fn f(#[cppgc] resource: &[std::fs::File]) {}
   );
   expect_fail!(
     op_cppgc_resource_option_invalid_type,
-    ArgError(
-      "resource".into(),
-      InvalidCppGcType("[std :: fs :: File]".into())
-    ),
+    ArgError("resource".into(), InvalidCppGcType(Span::call_site())),
     fn f(#[cppgc] resource: Option<&[std::fs::File]>) {}
   );
 
@@ -2170,33 +2219,39 @@ mod tests {
 
   expect_fail!(
     op_with_bad_string1,
-    ArgError("s".into(), MissingAttribute("string", "str".into())),
+    ArgError("s".into(), MissingAttribute(Span::call_site(), "string")),
     fn f(s: &str) {}
   );
   expect_fail!(
     op_with_bad_string2,
-    ArgError("s".into(), MissingAttribute("string", "String".into())),
+    ArgError("s".into(), MissingAttribute(Span::call_site(), "string")),
     fn f(s: String) {}
   );
   expect_fail!(
     op_with_bad_string3,
-    ArgError("s".into(), MissingAttribute("string", "Cow<str>".into())),
+    ArgError("s".into(), MissingAttribute(Span::call_site(), "string")),
     fn f(s: Cow<str>) {}
   );
   expect_fail!(
     op_with_invalid_string,
-    ArgError("x".into(), InvalidAttributeType("string", "u32".into())),
+    ArgError(
+      "x".into(),
+      InvalidAttributeType(Span::call_site(), "string")
+    ),
     fn f(#[string] x: u32) {}
   );
   expect_fail!(
     op_with_invalid_buffer,
-    ArgError("x".into(), InvalidAttributeType("buffer", "u32".into())),
+    ArgError(
+      "x".into(),
+      InvalidAttributeType(Span::call_site(), "buffer")
+    ),
     fn f(#[buffer] x: u32) {}
   );
   expect_fail!(
     op_with_bad_attr,
     RetError(super::RetError::AttributeError(InvalidAttribute(
-      "#[badattr]".into()
+      syn::Error::new(Span::call_site(), "Unknown attribute `badattr`")
     ))),
     #[badattr]
     fn f() {}
@@ -2205,7 +2260,10 @@ mod tests {
     op_with_bad_attr2,
     ArgError(
       "a".into(),
-      AttributeError(InvalidAttribute("#[badattr]".into()))
+      AttributeError(InvalidAttribute(syn::Error::new(
+        Span::call_site(),
+        "Unknown attribute `badattr`"
+      )))
     ),
     fn f(#[badattr] a: u32) {}
   );
@@ -2219,7 +2277,7 @@ mod tests {
     ArgError(
       "a".into(),
       InvalidDenoCorePrefix(
-        "deno_core::v8::Function".into(),
+        Span::call_site(),
         "v8".into(),
         "v8::Function".into()
       )
@@ -2231,7 +2289,7 @@ mod tests {
     ArgError(
       "a".into(),
       InvalidDenoCorePrefix(
-        "deno_core::OpState".into(),
+        Span::call_site(),
         "OpState".into(),
         "OpState".into()
       )
@@ -2243,17 +2301,17 @@ mod tests {
 
   expect_fail!(
     op_with_lifetime_bounds,
-    LifetimesMayNotHaveBounds("'a".into()),
+    LifetimesMayNotHaveBounds(Span::call_site()),
     fn f<'a: 'b, 'b>() {}
   );
   expect_fail!(
     op_with_missing_bounds,
-    GenericBoundCardinality("B".into()),
+    GenericBoundCardinality(Span::call_site()),
     fn f<'a, B>() {}
   );
   expect_fail!(
     op_with_duplicate_bounds,
-    GenericBoundCardinality("B".into()),
+    GenericBoundCardinality(Span::call_site()),
     fn f<'a, B: Trait>()
     where
       B: Trait,
@@ -2262,7 +2320,7 @@ mod tests {
   );
   expect_fail!(
     op_with_extra_bounds,
-    WherePredicateMustAppearInGenerics("C".into()),
+    WherePredicateMustAppearInGenerics(Span::call_site()),
     fn f<'a, B>()
     where
       B: Trait,
@@ -2273,12 +2331,12 @@ mod tests {
 
   expect_fail!(
     op_with_bad_serde_string,
-    ArgError("s".into(), InvalidAttributeType("serde", "String".into())),
+    ArgError("s".into(), InvalidAttributeType(Span::call_site(), "serde")),
     fn f(#[serde] s: String) {}
   );
   expect_fail!(
     op_with_bad_serde_str,
-    ArgError("s".into(), InvalidAttributeType("serde", "&str".into())),
+    ArgError("s".into(), InvalidAttributeType(Span::call_site(), "serde")),
     fn f(#[serde] s: &str) {}
   );
 }

@@ -135,13 +135,20 @@ impl MacroConfig {
 
     // Test for invalid attribute combinations
     if config.fast && config.nofast {
-      return Err(Op2Error::InvalidAttributeCombination("fast", "nofast"));
+      return Err(Op2Error::InvalidAttributeCombination(
+        span, "fast", "nofast",
+      ));
     }
     if config.fast && config.fast_alternative.is_some() {
-      return Err(Op2Error::InvalidAttributeCombination("fast", "fast(...)"));
+      return Err(Op2Error::InvalidAttributeCombination(
+        span,
+        "fast",
+        "fast(...)",
+      ));
     }
     if config.no_side_effects && config.reentrant {
       return Err(Op2Error::InvalidAttributeCombination(
+        span,
         "no_side_effects",
         "reentrant",
       ));

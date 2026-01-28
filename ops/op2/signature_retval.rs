@@ -4,9 +4,9 @@ use crate::op2::signature::*;
 
 use syn::PathArguments;
 use syn::ReturnType;
-
 use syn::Type;
 use syn::TypeParamBound;
+use syn::spanned::Spanned;
 
 /// One level of type unwrapping for a return value. We cannot rely on `proc-macro-rules` to correctly
 /// unwrap `impl Future<...>`, so we do it by hand.
@@ -34,7 +34,7 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
         > 1
       {
         return Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(ty),
+          ty.span(),
           "for impl trait bounds",
         )));
       }
@@ -50,13 +50,13 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
             Ok(UnwrappedReturn::Future(assoc.ty.clone()))
           } else {
             Err(RetError::InvalidType(ArgError::InvalidType(
-              stringify_token(ty),
+              ty.span(),
               "for impl Future",
             )))
           }
         }
         _ => Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(ty),
+          ty.span(),
           "for impl",
         ))),
       }
@@ -76,7 +76,7 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
     Type::Ptr(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     Type::Reference(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     _ => Err(RetError::InvalidType(ArgError::InvalidType(
-      stringify_token(ty),
+      ty.span(),
       "for return type",
     ))),
   }
@@ -129,7 +129,7 @@ impl RetVal {
 }
 
 impl RetVal {
-  pub fn try_parse(
+  pub(crate) fn try_parse(
     is_async: bool,
     attrs: Attributes,
     rt: &ReturnType,
