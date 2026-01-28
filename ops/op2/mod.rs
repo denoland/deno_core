@@ -51,12 +51,12 @@ pub enum Op2Error {
   V8SignatureMappingError(#[from] V8SignatureMappingError),
   #[error("Failed to parse signature")]
   SignatureError(#[from] SignatureError),
-  #[error("This op cannot use both ({0}) and ({1})")]
-  InvalidAttributeCombination(&'static str, &'static str),
+  #[error("This op cannot use both ({1}) and ({2})")]
+  InvalidAttributeCombination(Span, &'static str, &'static str),
   #[error("This op is fast-compatible and should be marked as (fast)")]
-  ShouldBeFast,
-  #[error("This op is not fast-compatible and should not be marked as ({0})")]
-  ShouldNotBeFast(&'static str),
+  ShouldBeFast(Span),
+  #[error("This op is not fast-compatible and should not be marked as ({1})")]
+  ShouldNotBeFast(Span, &'static str),
   #[error("Only one constructor is allowed per object")]
   MultipleConstructors(Span),
   #[error("Only identifiers are supported in impl blocks")]
@@ -68,11 +68,13 @@ impl From<Op2Error> for syn::Error {
     let msg = value.to_string();
     let span = match value {
       Op2Error::ParseError(e) => return e,
-      Op2Error::V8SignatureMappingError(e) => return combine_err(e.into(), msg),
+      Op2Error::V8SignatureMappingError(e) => {
+        return combine_err(e.into(), msg);
+      }
       Op2Error::SignatureError(e) => return combine_err(e.into(), msg),
-      Op2Error::InvalidAttributeCombination(_, _) => Span::call_site(),
-      Op2Error::ShouldBeFast => Span::call_site(),
-      Op2Error::ShouldNotBeFast(_) => Span::call_site(),
+      Op2Error::InvalidAttributeCombination(span, _, _) => span,
+      Op2Error::ShouldBeFast(span) => span,
+      Op2Error::ShouldNotBeFast(span, _) => span,
       Op2Error::MultipleConstructors(span) => span,
       Op2Error::NonIdentifierImplBlock => Span::call_site(),
     };
@@ -101,8 +103,6 @@ impl From<V8SignatureMappingError> for syn::Error {
     syn::Error::new(span, msg)
   }
 }
-
-
 
 pub type V8MappingError = &'static str;
 
@@ -280,7 +280,7 @@ pub(crate) fn generate_op2(
           && !config.setter
           && !config.fake_async
         {
-          return Err(Op2Error::ShouldBeFast);
+          return Err(Op2Error::ShouldBeFast(op_fn.sig.span()));
         }
         // nofast requires the function to be valid for fast
         if config.nofast || config.getter || config.setter {
@@ -295,10 +295,10 @@ pub(crate) fn generate_op2(
       }
       None => {
         if config.fast {
-          return Err(Op2Error::ShouldNotBeFast("fast"));
+          return Err(Op2Error::ShouldNotBeFast(op_fn.sig.span(), "fast"));
         }
         if config.nofast {
-          return Err(Op2Error::ShouldNotBeFast("nofast"));
+          return Err(Op2Error::ShouldNotBeFast(op_fn.sig.span(), "nofast"));
         }
         (quote!(None), quote!(None), quote!())
       }
@@ -405,10 +405,7 @@ pub(crate) fn generate_op2(
 }
 
 fn combine_err(e: syn::Error, msg: String) -> syn::Error {
-  syn::Error::new(
-    e.span(),
-    format!("{}: {}", msg, e.to_string()),
-  )
+  syn::Error::new(e.span(), format!("{}: {}", msg, e.to_string()))
 }
 
 mod kw {

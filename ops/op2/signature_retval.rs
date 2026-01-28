@@ -4,9 +4,9 @@ use crate::op2::signature::*;
 
 use syn::PathArguments;
 use syn::ReturnType;
-use syn::spanned::Spanned;
 use syn::Type;
 use syn::TypeParamBound;
+use syn::spanned::Spanned;
 
 /// One level of type unwrapping for a return value. We cannot rely on `proc-macro-rules` to correctly
 /// unwrap `impl Future<...>`, so we do it by hand.

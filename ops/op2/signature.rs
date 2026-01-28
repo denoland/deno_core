@@ -10,6 +10,8 @@ use std::collections::BTreeMap;
 use syn::parse::Parse;
 use syn::parse::ParseStream;
 
+use super::signature_retval::RetVal;
+use crate::op2::combine_err;
 use strum::{IntoEnumIterator, IntoStaticStr};
 use strum_macros::EnumIter;
 use strum_macros::EnumString;
@@ -27,11 +29,9 @@ use syn::TypeParamBound;
 use syn::TypePath;
 use syn::WherePredicate;
 use syn::punctuated::Punctuated;
-use syn::{AttrStyle, GenericArgument, PathArguments};
 use syn::spanned::Spanned;
+use syn::{AttrStyle, GenericArgument, PathArguments};
 use thiserror::Error;
-use crate::op2::combine_err;
-use super::signature_retval::RetVal;
 
 #[allow(non_camel_case_types)]
 #[derive(
@@ -697,7 +697,10 @@ impl ParsedTypeContainer {
           }
           Some(primary) => {
             if !attr.contains(&primary) {
-              return Err(ArgError::MissingAttribute(tp.span(), attr[0].name()));
+              return Err(ArgError::MissingAttribute(
+                tp.span(),
+                attr[0].name(),
+              ));
             }
           }
         }
@@ -862,7 +865,6 @@ impl From<SignatureError> for syn::Error {
   }
 }
 
-
 #[derive(Error, Debug)]
 pub enum AttributeError {
   #[error("Unknown or invalid attribute")]
@@ -877,7 +879,9 @@ impl From<AttributeError> for syn::Error {
   fn from(value: AttributeError) -> Self {
     match value {
       AttributeError::InvalidAttribute(e) => e,
-      AttributeError::InvalidInnerAttribute(span) => syn::Error::new(span, value.to_string()),
+      AttributeError::InvalidInnerAttribute(span) => {
+        syn::Error::new(span, value.to_string())
+      }
     }
   }
 }
@@ -953,7 +957,6 @@ impl From<ArgError> for syn::Error {
     syn::Error::new(span, msg)
   }
 }
-
 
 #[derive(Error, Debug)]
 pub enum RetError {
@@ -1152,9 +1155,7 @@ fn parse_lifetimes(generics: &Generics) -> Result<Vec<Ident>, SignatureError> {
 fn parse_bound(
   bounds: &Punctuated<TypeParamBound, Token![+]>,
 ) -> Result<String, SignatureError> {
-  let error = || {
-    Err(SignatureError::InvalidWherePredicate(bounds.span()))
-  };
+  let error = || Err(SignatureError::InvalidWherePredicate(bounds.span()));
 
   let mut has_static_lifetime = false;
   let mut bound = None;
@@ -1315,7 +1316,9 @@ fn parse_attribute(
     "scoped" => Some(AttributeModifier::Scoped),
 
     "validate" => {
-      let value = attr.parse_args().map_err(AttributeError::InvalidAttribute)?;
+      let value = attr
+        .parse_args()
+        .map_err(AttributeError::InvalidAttribute)?;
       Some(AttributeModifier::Validate(value))
     }
 
@@ -1326,7 +1329,9 @@ fn parse_attribute(
           options: Vec::new(),
         }
       } else {
-        attr.parse_args().map_err(AttributeError::InvalidAttribute)?
+        attr
+          .parse_args()
+          .map_err(AttributeError::InvalidAttribute)?
       };
 
       Some(AttributeModifier::WebIDL(args))
@@ -1341,7 +1346,10 @@ fn parse_attribute(
       {
         Some(AttributeModifier::String(StringMode::OneByte))
       } else {
-        return Err(AttributeError::InvalidAttribute(syn::Error::new(attr.span(), "invalid attribute for `string` modifier")));
+        return Err(AttributeError::InvalidAttribute(syn::Error::new(
+          attr.span(),
+          "invalid attribute for `string` modifier",
+        )));
       }
     }
 
@@ -1349,7 +1357,9 @@ fn parse_attribute(
       let mode = if matches!(attr.meta, Meta::Path(_)) {
         BufferMode::Default
       } else {
-        let ident: Ident = attr.parse_args().map_err(AttributeError::InvalidAttribute)?;
+        let ident: Ident = attr
+          .parse_args()
+          .map_err(AttributeError::InvalidAttribute)?;
         if ident == "unsafe" {
           BufferMode::Unsafe
         } else if ident == "copy" {
@@ -1357,7 +1367,10 @@ fn parse_attribute(
         } else if ident == "detach" {
           BufferMode::Detach
         } else {
-          return Err(AttributeError::InvalidAttribute(syn::Error::new(attr.span(), format!("invalid attribute for `{buf}` modifier"))));
+          return Err(AttributeError::InvalidAttribute(syn::Error::new(
+            attr.span(),
+            format!("invalid attribute for `{buf}` modifier"),
+          )));
         }
       };
 
@@ -1378,7 +1391,12 @@ fn parse_attribute(
     }
 
     "allow" | "doc" | "cfg" => None,
-    attr_name => return Err(AttributeError::InvalidAttribute(syn::Error::new(attr.meta.span(), format!("Unknown attribute `{attr_name}`")))),
+    attr_name => {
+      return Err(AttributeError::InvalidAttribute(syn::Error::new(
+        attr.meta.span(),
+        format!("Unknown attribute `{attr_name}`"),
+      )));
+    }
   };
 
   Ok(modifier)
@@ -1523,7 +1541,8 @@ fn parse_type_path(
 }
 
 fn parse_v8_type(v8: &syn::PathSegment) -> Result<V8Arg, ArgError> {
-  V8Arg::try_from(v8.ident.to_string().as_str()).map_err(|_| ArgError::InvalidV8Type(v8.span()))
+  V8Arg::try_from(v8.ident.to_string().as_str())
+    .map_err(|_| ArgError::InvalidV8Type(v8.span()))
 }
 
 fn parse_type_special(
@@ -1532,17 +1551,11 @@ fn parse_type_special(
   ty: &syn::GenericArgument,
 ) -> Result<Special, ArgError> {
   let syn::GenericArgument::Type(ty) = ty else {
-    return Err(ArgError::InvalidType(
-      ty.span(),
-      "for special type",
-    ));
+    return Err(ArgError::InvalidType(ty.span(), "for special type"));
   };
   match parse_type(position, attrs, ty)? {
     Arg::Special(special) => Ok(special),
-    _ => Err(ArgError::InvalidType(
-      ty.span(),
-      "for special type",
-    )),
+    _ => Err(ArgError::InvalidType(ty.span(), "for special type")),
   }
 }
 
@@ -1573,15 +1586,22 @@ fn parse_cppgc(
             }
             _ => Err(ArgError::InvalidCppGcType(of.elem.span())),
           },
-          _ => Err(ArgError::ExpectedCppGcReference(ty.span(), stringify_token(ty))),
+          _ => Err(ArgError::ExpectedCppGcReference(
+            ty.span(),
+            stringify_token(ty),
+          )),
         }
       } else {
-        Err(ArgError::ExpectedCppGcReference(ty.span(), stringify_token(ty)))
+        Err(ArgError::ExpectedCppGcReference(
+          ty.span(),
+          stringify_token(ty),
+        ))
       }
     }
-    (Position::Arg, _) => {
-      Err(ArgError::ExpectedCppGcReference(ty.span(), stringify_token(ty)))
-    }
+    (Position::Arg, _) => Err(ArgError::ExpectedCppGcReference(
+      ty.span(),
+      stringify_token(ty),
+    )),
     (Position::RetVal, ty) => match ty {
       Type::Path(tp) => {
         if let Some(seg) = tp.path.segments.first()
@@ -1684,7 +1704,10 @@ pub(crate) fn parse_type(
             if !matches!(primary, AttributeModifier::WebIDL(_))
               && better_alternative_exists(position, of)
             {
-              return Err(ArgError::InvalidAttributeType(ty.span(), primary.name()));
+              return Err(ArgError::InvalidAttributeType(
+                ty.span(),
+                primary.name(),
+              ));
             }
 
             if let Some(seg) = of.path.segments.first()
@@ -1709,7 +1732,10 @@ pub(crate) fn parse_type(
                     "a fully-qualified type: v8::Value or serde_json::Value",
                   ));
                 } else {
-                  return Err(ArgError::InvalidAttributeType(of.span(), primary.name()));
+                  return Err(ArgError::InvalidAttributeType(
+                    of.span(),
+                    primary.name(),
+                  ));
                 }
               }
             }
@@ -1717,7 +1743,10 @@ pub(crate) fn parse_type(
             return Ok(make_arg(stringify_token(of.path.clone())));
           }
           _ => {
-            return Err(ArgError::InvalidAttributeType(ty.span(), primary.name()));
+            return Err(ArgError::InvalidAttributeType(
+              ty.span(),
+              primary.name(),
+            ));
           }
         }
       }
@@ -1811,9 +1840,8 @@ pub(crate) fn parse_type(
             numeric => {
               let res = CBare(TBuffer(BufferType::Slice(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, position, attrs.clone(), ty.span()).map_err(|_| {
-                ArgError::InvalidType(ty.span(), "for slice")
-              })
+              Arg::from_parsed(res, position, attrs.clone(), ty.span())
+                .map_err(|_| ArgError::InvalidType(ty.span(), "for slice"))
             }
           },
           _ => Err(ArgError::InvalidType(ty.span(), "for slice")),
@@ -1831,10 +1859,7 @@ pub(crate) fn parse_type(
             }
             CBare(TV8(v8)) => Ok(Arg::V8Ref(mut_type, v8)),
             CBare(TSpecial(special)) => Ok(Arg::Ref(mut_type, special)),
-            _ => Err(ArgError::InvalidType(
-              ty.span(),
-              "for reference path",
-            )),
+            _ => Err(ArgError::InvalidType(ty.span(), "for reference path")),
           }
         }
         _ => Err(ArgError::InvalidType(ty.span(), "for reference")),
@@ -1860,20 +1885,16 @@ pub(crate) fn parse_type(
             CBare(TNumeric(numeric)) => {
               let res = CBare(TBuffer(BufferType::Ptr(mut_type, numeric)));
               res.validate_attributes(position, attrs.clone(), &of)?;
-              Arg::from_parsed(res, position, attrs.clone(), of.span()).map_err(|_| {
-                ArgError::InvalidType(
-                  ty.span(),
-                  "for numeric pointer",
-                )
-              })
+              Arg::from_parsed(res, position, attrs.clone(), of.span()).map_err(
+                |_| ArgError::InvalidType(ty.span(), "for numeric pointer"),
+              )
             }
             CBare(TSpecial(Special::Isolate)) => {
               Ok(Arg::Special(Special::Isolate))
             }
-            _ => Err(ArgError::InvalidType(
-              of.span(),
-              "for pointer to type path",
-            )),
+            _ => {
+              Err(ArgError::InvalidType(of.span(), "for pointer to type path"))
+            }
           }
         }
         _ => Err(ArgError::InvalidType(ty.span(), "for pointer")),
@@ -1888,10 +1909,7 @@ pub(crate) fn parse_type(
       Arg::from_parsed(typath, position, attrs, ty.span())
         .map_err(|_| ArgError::InvalidType(ty.span(), "for path"))
     }
-    _ => Err(ArgError::InvalidType(
-      ty.span(),
-      "for top-level type",
-    )),
+    _ => Err(ArgError::InvalidType(ty.span(), "for top-level type")),
   }
 }
 
@@ -2188,18 +2206,12 @@ mod tests {
   );
   expect_fail!(
     op_cppgc_resource_invalid_type,
-    ArgError(
-      "resource".into(),
-      InvalidCppGcType(Span::call_site())
-    ),
+    ArgError("resource".into(), InvalidCppGcType(Span::call_site())),
     fn f(#[cppgc] resource: &[std::fs::File]) {}
   );
   expect_fail!(
     op_cppgc_resource_option_invalid_type,
-    ArgError(
-      "resource".into(),
-      InvalidCppGcType(Span::call_site())
-    ),
+    ArgError("resource".into(), InvalidCppGcType(Span::call_site())),
     fn f(#[cppgc] resource: Option<&[std::fs::File]>) {}
   );
 
@@ -2222,12 +2234,18 @@ mod tests {
   );
   expect_fail!(
     op_with_invalid_string,
-    ArgError("x".into(), InvalidAttributeType(Span::call_site(), "string")),
+    ArgError(
+      "x".into(),
+      InvalidAttributeType(Span::call_site(), "string")
+    ),
     fn f(#[string] x: u32) {}
   );
   expect_fail!(
     op_with_invalid_buffer,
-    ArgError("x".into(), InvalidAttributeType(Span::call_site(), "buffer")),
+    ArgError(
+      "x".into(),
+      InvalidAttributeType(Span::call_site(), "buffer")
+    ),
     fn f(#[buffer] x: u32) {}
   );
   expect_fail!(
@@ -2242,7 +2260,10 @@ mod tests {
     op_with_bad_attr2,
     ArgError(
       "a".into(),
-      AttributeError(InvalidAttribute(syn::Error::new(Span::call_site(), "Unknown attribute `badattr`")))
+      AttributeError(InvalidAttribute(syn::Error::new(
+        Span::call_site(),
+        "Unknown attribute `badattr`"
+      )))
     ),
     fn f(#[badattr] a: u32) {}
   );
