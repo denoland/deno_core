@@ -94,11 +94,11 @@ pub fn get_body(span: Span, data: DataStruct) -> Result<TokenStream, Error> {
   }
 }
 
-struct StructField {
-  name: Ident,
+pub struct StructField {
+  pub name: Ident,
   serde: bool,
   ty: Type,
-  js_name: Ident,
+  pub js_name: Ident,
 }
 
 impl TryFrom<Field> for StructField {

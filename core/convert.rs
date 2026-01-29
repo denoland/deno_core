@@ -325,6 +325,7 @@ impl_number_types!(
   u8, i8, u16, i16, u32, i32, u64, i64, usize, isize, f32, f64
 );
 
+#[derive(Debug)]
 pub struct BigInt {
   pub sign_bit: bool,
   pub words: Vec<u64>,

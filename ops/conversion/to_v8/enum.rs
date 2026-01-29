@@ -170,33 +170,10 @@ fn get_serde_variant_conversion(
       let mut field_strs = Vec::with_capacity(named.named.len());
 
       for field in named.named {
-        let field_span = field.span();
-        let crate::conversion::SharedAttribute { rename, .. } =
-          crate::conversion::StructFieldArgumentShared::parse(&field.attrs)?;
+        let field = super::r#struct::StructField::try_from(field)?;
 
-        let mut final_rename = rename;
-        for attr in &field.attrs {
-          if attr.path().is_ident("to_v8") {
-            let list = attr.meta.require_list()?;
-            let args = list.parse_args_with(
-              Punctuated::<super::r#struct::StructFieldArgument, Token![,]>::parse_terminated,
-            )?;
-
-            for arg in args {
-              if let super::r#struct::StructFieldArgument::Rename { value, .. } = arg {
-                final_rename = Some(value.value());
-              }
-            }
-          }
-        }
-
-        let name = field.ident.unwrap();
-        let js_name = final_rename
-          .unwrap_or_else(|| camel_case(&name.unraw().to_string()));
-        let js_name = Ident::new(&js_name, field_span);
-
-        field_names.push(name);
-        field_strs.push(js_name);
+        field_names.push(field.name);
+        field_strs.push(field.js_name);
       }
 
       Ok(quote! {
