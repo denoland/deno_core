@@ -498,12 +498,20 @@ impl JsRealm {
       context_scope!(scope, self, isolate);
       // true for main module
       module_map_rc
-        .new_es_module(scope, true, specifier.to_owned(), code, false, None)
+        .new_es_module(
+          scope,
+          true,
+          specifier.to_string().into(),
+          code,
+          false,
+          None,
+        )
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load =
-      ModuleMap::load_main(module_map_rc.clone(), &specifier).await?;
+      ModuleMap::load_main(module_map_rc.clone(), specifier.to_string())
+        .await?;
 
     while let Some(load_result) = load.next().await {
       let (request, info) = load_result?;
@@ -535,7 +543,7 @@ impl JsRealm {
   pub(crate) async fn load_side_es_module_from_code(
     &self,
     isolate: &mut v8::Isolate,
-    specifier: &ModuleSpecifier,
+    specifier: String,
     code: Option<ModuleCodeString>,
   ) -> Result<ModuleId, CoreError> {
     let module_map_rc = self.0.module_map();
@@ -544,14 +552,15 @@ impl JsRealm {
       context_scope!(scope, self, isolate);
       // false for side module (not main module)
       module_map_rc
-        .new_es_module(scope, false, specifier, code, false, None)
+        .new_es_module(scope, false, specifier.into(), code, false, None)
         .map_err(|e| e.into_error(scope, false, false))?;
     }
 
     let mut load = ModuleMap::load_side(
-      module_map_rc.clone(),
-      &specifier,
+      module_map_rc,
+      specifier,
       crate::modules::SideModuleKind::Async,
+      None,
     )
     .await?;
 

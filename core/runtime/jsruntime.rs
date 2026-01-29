@@ -1309,7 +1309,7 @@ impl JsRuntime {
     for module in modules {
       // eprintln!("loading module: {module}");
       realm
-        .load_side_es_module_from_code(self.v8_isolate(), &module, None)
+        .load_side_es_module_from_code(self.v8_isolate(), module.into(), None)
         .await?;
     }
 
@@ -2493,7 +2493,7 @@ impl JsRuntime {
       .main_realm
       .load_side_es_module_from_code(
         isolate,
-        specifier,
+        specifier.to_string(),
         Some(code.into_module_code()),
       )
       .await
@@ -2515,7 +2515,7 @@ impl JsRuntime {
     self
       .inner
       .main_realm
-      .load_side_es_module_from_code(isolate, specifier, None)
+      .load_side_es_module_from_code(isolate, specifier.to_string(), None)
       .await
   }
 
