@@ -57,12 +57,16 @@ jobs:
         run: cargo binstall cargo-nextest --secure
 
       - name: Install Deno
-        uses: denoland/setup-deno@v1
+        # TODO(littledivy): Remove this when Deno has Windows on ARM builds
+        if: ${{ inputs.os != 'windows-11-arm' }}
+        uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
 
       # https://github.com/marketplace/actions/rust-cache
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "v0-rust"
+          prefix-key: "v1-rust"
           shared-key: "${{ inputs.label }}-${{ inputs.job }}"
           save-if: ${{ inputs.is_main }}
 
@@ -132,11 +136,11 @@ jobs:
       CARGO_INCREMENTAL: 0
       GH_ACTIONS: 1
       RUST_BACKTRACE: full
-      # NOTE(bartlomieju): during upgrade to V8 14.0 we had to disable debug info
+        # NOTE(bartlomieju): during upgrade to V8 14.0 we had to disable debug info
       # because we were running into PDB errors.
       RUSTFLAGS: >-
-        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022' &&
-        '-Clink-arg=/DEBUG:NONE' || '' }}
+        -D warnings ${{ (inputs.os == 'windows-2022' || inputs.os == 'windows-11-arm') &&
+        '-Csymbol-mangling-version=v0' || '' }}
       RUSTDOCFLAGS: >-
-        -D warnings -Cdebuginfo=0 ${{ inputs.os == 'windows-2022' &&
-        '-Clink-arg=/DEBUG:NONE' || '' }}
+        -D warnings ${{ (inputs.os == 'windows-2022' || inputs.os == 'windows-11-arm') &&
+        '-Csymbol-mangling-version=v0' || '' }}

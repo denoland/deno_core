@@ -25,9 +25,9 @@ pub fn op_log_debug(#[string] s: &str) {
 }
 
 #[op2(fast)]
-pub fn op_log_info(#[state] output: &mut Output, #[string] s: String) {
+pub fn op_log_info(state: &mut OpState, #[string] s: String) {
   println!("{s}");
-  output.line(s);
+  state.borrow_mut::<Output>().line(s);
 }
 
 #[op2(fast)]
@@ -45,9 +45,10 @@ pub fn op_stats_capture(#[string] name: String, state: Rc<RefCell<OpState>>) {
 #[op2]
 #[serde]
 pub fn op_stats_dump(
+  state: &OpState,
   #[string] name: String,
-  #[state] test_data: &mut TestData,
 ) -> RuntimeActivitySnapshot {
+  let test_data = state.borrow::<TestData>();
   let stats = test_data.get::<RuntimeActivityStats>(name);
   stats.dump()
 }
@@ -55,21 +56,21 @@ pub fn op_stats_dump(
 #[op2]
 #[serde]
 pub fn op_stats_diff(
+  state: &OpState,
   #[string] before: String,
   #[string] after: String,
-  #[state] test_data: &mut TestData,
 ) -> RuntimeActivityDiff {
+  let test_data = state.borrow::<TestData>();
   let before = test_data.get::<RuntimeActivityStats>(before);
   let after = test_data.get::<RuntimeActivityStats>(after);
   RuntimeActivityStats::diff(before, after)
 }
 
 #[op2(fast)]
-pub fn op_stats_delete(
-  #[string] name: String,
-  #[state] test_data: &mut TestData,
-) {
-  test_data.take::<RuntimeActivityStats>(name);
+pub fn op_stats_delete(state: &mut OpState, #[string] name: String) {
+  state
+    .borrow_mut::<TestData>()
+    .take::<RuntimeActivityStats>(name);
 }
 
 pub struct TestObjectWrap {}
@@ -83,7 +84,7 @@ unsafe impl GarbageCollected for TestObjectWrap {
 }
 
 fn int(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   value: v8::Local<v8::Value>,
 ) -> Result<(), JsErrorBox> {
   if value.is_int32() {
@@ -94,7 +95,7 @@ fn int(
 }
 
 fn int_op(
-  _scope: &mut v8::HandleScope,
+  _scope: &mut v8::PinScope,
   args: &v8::FunctionCallbackArguments,
 ) -> Result<(), JsErrorBox> {
   if args.length() != 1 {
@@ -122,7 +123,7 @@ impl TestObjectWrap {
   }
 
   #[fast]
-  fn with_scope_fast(&self, _scope: &mut v8::HandleScope) {}
+  fn with_scope_fast(&self, _scope: &mut v8::PinScope) {}
 
   #[fast]
   #[undefined]
@@ -134,7 +135,6 @@ impl TestObjectWrap {
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
 
-  #[async_method]
   async fn with_async_fn(&self, #[smi] ms: u32) -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(ms as u64)).await;
     Ok(())
@@ -173,11 +173,11 @@ unsafe impl GarbageCollected for DOMPoint {
 
 impl DOMPointReadOnly {
   fn from_point_inner(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     fn get(
-      scope: &mut v8::HandleScope,
+      scope: &mut v8::PinScope,
       other: v8::Local<v8::Object>,
       key: &str,
     ) -> Option<f64> {
@@ -258,7 +258,7 @@ impl DOMPoint {
   #[static_method]
   #[cppgc]
   fn from_point(
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     DOMPointReadOnly::from_point_inner(scope, other)
@@ -268,7 +268,7 @@ impl DOMPoint {
   #[cppgc]
   fn from_point(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
   ) -> Result<DOMPointReadOnly, JsErrorBox> {
     DOMPointReadOnly::from_point_inner(scope, other)

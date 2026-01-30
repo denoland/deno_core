@@ -200,6 +200,12 @@ pub trait Resource: Any + 'static {
   fn size_hint(&self) -> (u64, Option<u64>) {
     (0, None)
   }
+
+  fn transfer(
+    self: Rc<Self>,
+  ) -> Result<Box<dyn TransferredResource>, JsErrorBox> {
+    Err(JsErrorBox::not_supported())
+  }
 }
 
 impl dyn Resource {
@@ -293,3 +299,9 @@ macro_rules! impl_writable {
     $crate::impl_writable!(__write_all);
   };
 }
+
+pub trait TransferredResource: Send {
+  fn receive(self: Box<Self>) -> Rc<dyn Resource>;
+}
+
+impl dyn TransferredResource {}

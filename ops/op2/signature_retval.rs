@@ -1,14 +1,12 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use crate::op2::signature::*;
-use proc_macro_rules::rules;
 
-use quote::ToTokens;
-
+use syn::PathArguments;
 use syn::ReturnType;
-
 use syn::Type;
 use syn::TypeParamBound;
+use syn::spanned::Spanned;
 
 /// One level of type unwrapping for a return value. We cannot rely on `proc-macro-rules` to correctly
 /// unwrap `impl Future<...>`, so we do it by hand.
@@ -36,122 +34,130 @@ fn unwrap_return(ty: &Type) -> Result<UnwrappedReturn, RetError> {
         > 1
       {
         return Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(ty),
+          ty.span(),
           "for impl trait bounds",
         )));
       }
       match imp.bounds.first() {
         Some(TypeParamBound::Trait(t)) => {
-          rules!(t.into_token_stream() => {
-            ($($_package:ident ::)* Future < Output = $ty:ty $(,)? >) => Ok(UnwrappedReturn::Future(ty)),
-            ($ty:ty) => Err(RetError::InvalidType(ArgError::InvalidType(stringify_token(ty), "for impl Future"))),
-          })
+          if let Some(seg) = t.path.segments.last()
+            && seg.ident == "Future"
+            && let PathArguments::AngleBracketed(args) = &seg.arguments
+            && let Some(syn::GenericArgument::AssocType(assoc)) =
+              args.args.first()
+            && assoc.ident == "Output"
+          {
+            Ok(UnwrappedReturn::Future(assoc.ty.clone()))
+          } else {
+            Err(RetError::InvalidType(ArgError::InvalidType(
+              ty.span(),
+              "for impl Future",
+            )))
+          }
         }
         _ => Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(ty),
+          ty.span(),
           "for impl",
         ))),
       }
     }
-    Type::Path(ty) => {
-      rules!(ty.to_token_stream() => {
-        // x::y::Result<Value>, like io::Result and other specialty result types
-        ($($_package:ident ::)* Result < $ty:ty $(,)? >) => {
-          Ok(UnwrappedReturn::Result(ty))
-        }
-        // x::y::Result<Value, Error>
-        ($($_package:ident ::)* Result < $ty:ty, $_error:ty $(,)? >) => {
-          Ok(UnwrappedReturn::Result(ty))
-        }
-        // Everything else
-        ($ty:ty) => {
-          Ok(UnwrappedReturn::Type(ty))
-        }
-      })
+    Type::Path(tp) => {
+      if let Some(seg) = tp.path.segments.last()
+        && seg.ident == "Result"
+        && let PathArguments::AngleBracketed(args) = &seg.arguments
+        && let Some(syn::GenericArgument::Type(ty)) = args.args.first()
+      {
+        Ok(UnwrappedReturn::Result(ty.clone()))
+      } else {
+        Ok(UnwrappedReturn::Type(ty.clone()))
+      }
     }
     Type::Tuple(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     Type::Ptr(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     Type::Reference(_) => Ok(UnwrappedReturn::Type(ty.clone())),
     _ => Err(RetError::InvalidType(ArgError::InvalidType(
-      stringify_token(ty),
+      ty.span(),
       "for return type",
     ))),
   }
 }
 
-pub(crate) fn parse_return(
-  is_async: bool,
-  is_fake_async: bool,
-  attrs: Attributes,
-  rt: &ReturnType,
-) -> Result<RetVal, RetError> {
-  use UnwrappedReturn::*;
+#[derive(Clone, Debug, Eq, PartialEq)]
+#[allow(clippy::large_enum_variant)]
+pub enum RetVal {
+  /// An op that can never fail.
+  Value(Arg),
+  /// An op returning Result<Something, ...>
+  Result(Box<RetVal>),
+  /// An op returning a future, either `async fn() -> Something` or `fn() -> impl Future<Output = Something>`.
+  Future(Box<RetVal>),
+}
 
-  let res = match rt {
-    ReturnType::Default => RetVal::Infallible(Arg::Void, is_fake_async),
-    ReturnType::Type(_, rt) => match unwrap_return(rt)? {
-      Type(ty) => RetVal::Infallible(
-        parse_type(Position::RetVal, attrs, &ty)?,
-        is_fake_async,
-      ),
-      Result(ty) => match unwrap_return(&ty)? {
-        Type(ty) => RetVal::Result(
-          parse_type(Position::RetVal, attrs, &ty)?,
-          is_fake_async,
-        ),
-        Future(ty) => match unwrap_return(&ty)? {
-          Type(ty) => {
-            RetVal::ResultFuture(parse_type(Position::RetVal, attrs, &ty)?)
-          }
-          Result(ty) => RetVal::ResultFutureResult(parse_type(
-            Position::RetVal,
-            attrs,
-            &ty,
-          )?),
-          _ => {
-            return Err(RetError::InvalidType(ArgError::InvalidType(
-              stringify_token(rt),
-              "for result of future",
-            )));
-          }
-        },
-        _ => {
-          return Err(RetError::InvalidType(ArgError::InvalidType(
-            stringify_token(rt),
-            "for result",
-          )));
-        }
-      },
-      Future(ty) => match unwrap_return(&ty)? {
-        Type(ty) => RetVal::Future(parse_type(Position::RetVal, attrs, &ty)?),
-        Result(ty) => {
-          RetVal::FutureResult(parse_type(Position::RetVal, attrs, &ty)?)
-        }
-        _ => {
-          return Err(RetError::InvalidType(ArgError::InvalidType(
-            stringify_token(rt),
-            "for future",
-          )));
-        }
-      },
-    },
-  };
+impl RetVal {
+  pub fn is_async(&self) -> bool {
+    match self {
+      RetVal::Value(_) => false,
+      RetVal::Result(inner) => inner.is_async(),
+      RetVal::Future(_) => true,
+    }
+  }
 
-  // If the signature was async, wrap this return value in one level of future.
-  if is_async {
-    let res = match res {
-      RetVal::Infallible(t, ..) => RetVal::Future(t),
-      RetVal::Result(t, ..) => RetVal::FutureResult(t),
-      _ => {
-        return Err(RetError::InvalidType(ArgError::InvalidType(
-          stringify_token(rt),
-          "for async return",
-        )));
-      }
+  pub fn get_future(&self) -> Option<&RetVal> {
+    match self {
+      RetVal::Value(_) => None,
+      RetVal::Result(inner) => inner.get_future(),
+      RetVal::Future(arg) => Some(&**arg),
+    }
+  }
+
+  /// If this function returns a `Result<T, E>` (including if `T` is a `Future`), return `Some(T)`.
+  pub fn unwrap_result(&self) -> Option<&RetVal> {
+    match self {
+      RetVal::Result(arg) => Some(&**arg),
+      RetVal::Future(_) => None,
+      RetVal::Value(_) => None,
+    }
+  }
+
+  pub fn arg(&self) -> &Arg {
+    match self {
+      RetVal::Value(arg) => arg,
+      RetVal::Result(inner) => inner.arg(),
+      RetVal::Future(inner) => inner.arg(),
+    }
+  }
+}
+
+impl RetVal {
+  pub(crate) fn try_parse(
+    is_async: bool,
+    attrs: Attributes,
+    rt: &ReturnType,
+  ) -> Result<RetVal, RetError> {
+    fn handle_type(ty: &Type, attrs: Attributes) -> Result<RetVal, RetError> {
+      Ok(match unwrap_return(ty)? {
+        UnwrappedReturn::Type(ty) => {
+          RetVal::Value(parse_type(Position::RetVal, attrs, &ty)?)
+        }
+        UnwrappedReturn::Result(ty) => {
+          RetVal::Result(Box::new(handle_type(&ty, attrs)?))
+        }
+        UnwrappedReturn::Future(ty) => {
+          RetVal::Future(Box::new(handle_type(&ty, attrs)?))
+        }
+      })
+    }
+
+    let res = match rt {
+      ReturnType::Default => RetVal::Value(Arg::Void),
+      ReturnType::Type(_, rt) => handle_type(rt, attrs)?,
     };
-    Ok(res)
-  } else {
-    Ok(res)
+
+    if is_async {
+      Ok(RetVal::Future(Box::new(res)))
+    } else {
+      Ok(res)
+    }
   }
 }
 
@@ -166,21 +172,27 @@ mod tests {
     use RetVal::*;
 
     for (expected, input) in [
-      (Infallible(Void, false), "()"),
-      (Result(Void, false), "Result<()>"),
-      (Result(Void, false), "Result<(), ()>"),
-      (Result(Void, false), "Result<(), (),>"),
-      (Future(Void), "impl Future<Output = ()>"),
-      (FutureResult(Void), "impl Future<Output = Result<()>>"),
-      (ResultFuture(Void), "Result<impl Future<Output = ()>>"),
+      (Value(Void), "()"),
+      (Result(Box::new(Value(Void))), "Result<()>"),
+      (Result(Box::new(Value(Void))), "Result<(), ()>"),
+      (Result(Box::new(Value(Void))), "Result<(), (),>"),
+      (Future(Box::new(Value(Void))), "impl Future<Output = ()>"),
       (
-        ResultFutureResult(Void),
+        Future(Box::new(Result(Box::new(Value(Void))))),
+        "impl Future<Output = Result<()>>",
+      ),
+      (
+        Result(Box::new(Future(Box::new(Value(Void))))),
+        "Result<impl Future<Output = ()>>",
+      ),
+      (
+        Result(Box::new(Future(Box::new(Result(Box::new(Value(Void))))))),
         "Result<impl Future<Output = Result<()>>>",
       ),
     ] {
       let rt = parse_str::<ReturnType>(&format!("-> {input}"))
         .expect("Failed to parse");
-      let actual = parse_return(false, false, Attributes::default(), &rt)
+      let actual = RetVal::try_parse(false, Attributes::default(), &rt)
         .expect("Failed to parse return");
       assert_eq!(expected, actual);
     }

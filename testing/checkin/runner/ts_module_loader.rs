@@ -13,6 +13,8 @@ use deno_ast::ParseParams;
 use deno_ast::SourceMapOption;
 use deno_core::ModuleCodeBytes;
 use deno_core::ModuleCodeString;
+use deno_core::ModuleLoadOptions;
+use deno_core::ModuleLoadReferrer;
 use deno_core::ModuleLoadResponse;
 use deno_core::ModuleLoader;
 use deno_core::ModuleName;
@@ -62,9 +64,8 @@ impl ModuleLoader for TypescriptModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let source_maps = self.source_maps.clone();
     fn load(
@@ -151,7 +152,7 @@ impl ModuleLoader for TypescriptModuleLoader {
             &deno_ast::TranspileOptions {
               imports_not_used_as_values:
                 deno_ast::ImportsNotUsedAsValues::Remove,
-              use_decorators_proposal: true,
+              decorators: deno_ast::DecoratorsTranspileOption::Ecma,
               ..Default::default()
             },
             &deno_ast::TranspileModuleOptions { module_kind: None },
@@ -184,7 +185,7 @@ impl ModuleLoader for TypescriptModuleLoader {
     ModuleLoadResponse::Sync(load(
       source_maps,
       module_specifier,
-      requested_module_type,
+      options.requested_module_type,
     ))
   }
 
@@ -231,7 +232,9 @@ pub fn maybe_transpile_source(
     .transpile(
       &deno_ast::TranspileOptions {
         imports_not_used_as_values: deno_ast::ImportsNotUsedAsValues::Remove,
-        use_decorators_proposal: true,
+        decorators: deno_ast::DecoratorsTranspileOption::LegacyTypeScript {
+          emit_metadata: true,
+        },
         ..Default::default()
       },
       &deno_ast::TranspileModuleOptions { module_kind: None },

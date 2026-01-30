@@ -100,17 +100,17 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
-            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
+            let mut scope = unsafe { fast_api_callback_options.isolate_unchecked_mut() };
             let result = {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
@@ -130,7 +130,10 @@ const fn op_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -293,7 +296,7 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
-            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
+            let mut scope = unsafe { fast_api_callback_options.isolate_unchecked_mut() };
             let result = {
                 let arg0 = if arg0.is_null_or_undefined() {
                     None
@@ -303,11 +306,11 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
                     Some(arg0)
                 } else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected Wrap",
@@ -327,7 +330,10 @@ const fn op_option_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -428,7 +434,10 @@ const fn op_make_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let result = { Self::call() };
             rv.set(
@@ -588,17 +597,17 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
-            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
+            let mut scope = unsafe { fast_api_callback_options.isolate_unchecked_mut() };
             let result = {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
@@ -618,7 +627,10 @@ const fn op_use_cppgc_object() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -715,7 +727,10 @@ const fn op_make_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let result = { Self::call() };
             rv.set(
@@ -878,17 +893,17 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             let fast_api_callback_options: &'s mut _ = unsafe {
                 &mut *fast_api_callback_options
             };
-            let mut scope = unsafe { &mut *fast_api_callback_options.isolate };
+            let mut scope = unsafe { fast_api_callback_options.isolate_unchecked_mut() };
             let result = {
                 let Some(arg0) = deno_core::_ops::try_unwrap_cppgc_object::<
                     Wrap,
                 >(&mut scope, arg0) else {
                     {
-                        let mut scope = unsafe {
-                            deno_core::v8::CallbackScope::new(
-                                &*fast_api_callback_options,
-                            )
-                        };
+                        let scope = ::std::pin::pin!(
+                            unsafe { deno_core::v8::CallbackScope::new(& *
+                            fast_api_callback_options) }
+                        );
+                        let mut scope = scope.init();
                         deno_core::_ops::throw_error_one_byte(
                             &mut scope,
                             "expected Path { leading_colon: None, segments: [PathSegment { ident: Ident(Wrap), arguments: PathArguments::None }] }",
@@ -908,7 +923,10 @@ const fn op_use_cppgc_object_option() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,

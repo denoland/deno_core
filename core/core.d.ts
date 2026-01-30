@@ -162,12 +162,9 @@ export namespace core {
   /** Enqueue an immediate callback. Immediate callbacks always execute in
    * the next timer phase.
    */
-  function queueImmediate(
-    depth: number,
-    repeat: boolean,
-    delay: number,
-    callback: () => void,
-  ): number;
+  function setImmediateCallback(
+    cb: () => void,
+  ): void;
 
   /** Enqueue a user timer at the given depth, optionally repeating. User
    * timers may generate call traces for sanitization, and may be clamped
@@ -1227,7 +1224,9 @@ export namespace primordials {
   export const SymbolPrototypeGetDescription: (symbol: symbol) => string;
   export const SymbolFor: typeof Symbol.for;
   export const SymbolKeyFor: typeof Symbol.keyFor;
+  export const SymbolAsyncDispose: typeof Symbol.asyncDispose;
   export const SymbolAsyncIterator: typeof Symbol.asyncIterator;
+  export const SymbolDispose: typeof Symbol.dispose;
   export const SymbolHasInstance: typeof Symbol.hasInstance;
   export const SymbolIsConcatSpreadable: typeof Symbol.isConcatSpreadable;
   export const SymbolIterator: typeof Symbol.iterator;

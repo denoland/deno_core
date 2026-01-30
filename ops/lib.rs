@@ -4,8 +4,8 @@
 #![deny(clippy::unnecessary_wraps)]
 
 use proc_macro::TokenStream;
-use std::error::Error;
 
+mod conversion;
 mod op2;
 mod webidl;
 
@@ -17,21 +17,9 @@ pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
 }
 
 fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
-  match crate::op2::op2(attr.into(), item.into()) {
+  match op2::op2(attr.into(), item.into()) {
     Ok(output) => output.into(),
-    Err(err) => {
-      let mut err: &dyn Error = &err;
-      let mut output = "Failed to parse #[op2]:\n".to_owned();
-      loop {
-        output += &format!(" - {err}\n");
-        if let Some(source) = err.source() {
-          err = source;
-        } else {
-          break;
-        }
-      }
-      panic!("{output}");
-    }
+    Err(err) => syn::Error::from(err).into_compile_error().into(),
   }
 }
 
@@ -41,6 +29,45 @@ pub fn webidl(item: TokenStream) -> TokenStream {
     Ok(output) => output.into(),
     Err(err) => err.into_compile_error().into(),
   }
+}
+
+#[proc_macro_derive(FromV8, attributes(from_v8, v8))]
+pub fn from_v8(item: TokenStream) -> TokenStream {
+  match conversion::from_v8::from_v8(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+#[proc_macro_derive(ToV8, attributes(to_v8, v8))]
+pub fn to_v8(item: TokenStream) -> TokenStream {
+  match conversion::to_v8::to_v8(item.into()) {
+    Ok(output) => output.into(),
+    Err(err) => err.into_compile_error().into(),
+  }
+}
+
+fn get_internalized_string(
+  name: syn::Ident,
+) -> Result<proc_macro2::TokenStream, syn::Error> {
+  let name_str = name.to_string();
+
+  if !name_str.is_ascii() {
+    return Err(syn::Error::new(
+      name.span(),
+      "Only ASCII keys are supported",
+    ));
+  }
+
+  Ok(quote::quote! {
+    ::deno_core::v8::String::new_from_one_byte(
+      __scope,
+      #name_str.as_bytes(),
+      ::deno_core::v8::NewStringType::Internalized,
+    )
+    .unwrap()
+    .into()
+  })
 }
 
 #[cfg(test)]

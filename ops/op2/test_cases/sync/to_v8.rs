@@ -11,14 +11,13 @@ impl<'a> ToV8<'a> for Foo {
   type Error = std::convert::Infallible;
   fn to_v8(
     self,
-    scope: &mut v8::HandleScope<'a>,
+    scope: &mut v8::PinScope<'a, '_>,
   ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
     Ok(v8::null(scope).into())
   }
 }
 
 #[op2]
-#[to_v8]
 pub fn op_to_v8_return() -> Foo {
   Foo
 }

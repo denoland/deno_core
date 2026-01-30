@@ -106,8 +106,8 @@ fn create_impl(ident: impl ToTokens, body: TokenStream) -> TokenStream {
     impl<'a> ::deno_core::webidl::WebIdlConverter<'a> for #ident {
       type Options = ();
 
-      fn convert<'b>(
-        __scope: &mut ::deno_core::v8::HandleScope<'a>,
+      fn convert<'b, 'i>(
+        __scope: &mut ::deno_core::v8::PinScope<'a, 'i>,
         __value: ::deno_core::v8::Local<'a, ::deno_core::v8::Value>,
         __prefix: std::borrow::Cow<'static, str>,
         __context: ::deno_core::webidl::ContextFn<'b>,

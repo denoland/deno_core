@@ -1,5 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use std::marker::PhantomData;
+
 use super::erased_future::TypeErased;
 use super::future_arena::FutureContextMapper;
 use crate::OpId;
@@ -9,19 +11,21 @@ use deno_error::JsErrorClass;
 
 const MAX_RESULT_SIZE: usize = 32;
 
-pub type MappedResult<'s, C> = Result<
-  <C as OpMappingContextLifetime<'s>>::Result,
-  <C as OpMappingContextLifetime<'s>>::Result,
+pub type MappedResult<'s, 'i, C> = Result<
+  <C as OpMappingContextLifetime<'s, 'i>>::Result,
+  <C as OpMappingContextLifetime<'s, 'i>>::Result,
 >;
-pub type UnmappedResult<'s, C> = Result<
-  <C as OpMappingContextLifetime<'s>>::Result,
-  <C as OpMappingContextLifetime<'s>>::MappingError,
+pub type UnmappedResult<'s, 'i, C> = Result<
+  <C as OpMappingContextLifetime<'s, 'i>>::Result,
+  <C as OpMappingContextLifetime<'s, 'i>>::MappingError,
 >;
 
-pub trait OpMappingContextLifetime<'s> {
-  type Context: 's;
-  type Result: 's;
-  type MappingError: 's;
+pub trait OpMappingContextLifetime<'s, 'i> {
+  type Context
+  where
+    'i: 's;
+  type Result;
+  type MappingError;
 
   fn map_error(context: &mut Self::Context, err: JsErrorBox) -> Self::Result;
   fn map_mapping_error(
@@ -34,42 +38,45 @@ pub trait OpMappingContextLifetime<'s> {
 /// control. We add this extra layer of generics because we want to test our drivers
 /// without requiring V8.
 pub trait OpMappingContext:
-  for<'s> OpMappingContextLifetime<'s> + 'static
+  for<'s, 'i> OpMappingContextLifetime<'s, 'i> + 'static
 {
   type MappingFn<R: 'static>: Copy;
 
   fn erase_mapping_fn<R: 'static>(f: Self::MappingFn<R>) -> *const fn();
-  fn unerase_mapping_fn<'s, R: 'static>(
+  fn unerase_mapping_fn<'s, 'i, R: 'static>(
     f: *const fn(),
-    scope: &mut <Self as OpMappingContextLifetime<'s>>::Context,
+    scope: &mut <Self as OpMappingContextLifetime<'s, 'i>>::Context,
     r: R,
-  ) -> UnmappedResult<'s, Self>;
+  ) -> UnmappedResult<'s, 'i, Self>;
 }
 
 #[derive(Default)]
 pub struct V8OpMappingContext {}
 
 pub type V8RetValMapper<R> =
-  for<'r> fn(
-    &mut v8::HandleScope<'r>,
+  for<'r, 'i> fn(
+    &mut v8::PinScope<'r, 'i>,
     R,
   ) -> Result<v8::Local<'r, v8::Value>, serde_v8::Error>;
 
-impl<'s> OpMappingContextLifetime<'s> for V8OpMappingContext {
-  type Context = v8::HandleScope<'s>;
+impl<'s, 'i> OpMappingContextLifetime<'s, 'i> for V8OpMappingContext {
+  type Context
+    = v8::PinScope<'s, 'i>
+  where
+    'i: 's;
   type Result = v8::Local<'s, v8::Value>;
   type MappingError = serde_v8::Error;
 
   #[inline(always)]
   fn map_error(
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     err: JsErrorBox,
   ) -> Self::Result {
     crate::error::to_v8_error(scope, &err)
   }
 
   fn map_mapping_error(
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
     err: Self::MappingError,
   ) -> v8::Local<'s, v8::Value> {
     crate::error::to_v8_error(scope, &err)
@@ -85,9 +92,9 @@ impl OpMappingContext for V8OpMappingContext {
   }
 
   #[inline(always)]
-  fn unerase_mapping_fn<'s, R: 'static>(
+  fn unerase_mapping_fn<'s, 'i: 's, R: 'static>(
     f: *const fn(),
-    scope: &mut <Self as OpMappingContextLifetime<'s>>::Context,
+    scope: &mut <Self as OpMappingContextLifetime<'s, 'i>>::Context,
     r: R,
   ) -> Result<v8::Local<'s, v8::Value>, serde_v8::Error> {
     let f: Self::MappingFn<R> = unsafe { std::mem::transmute(f) };
@@ -170,12 +177,12 @@ impl<C: OpMappingContext, R: 'static>
   }
 }
 
-type MapRawFn<C> = for<'a> fn(
-  _lifetime: &'a (),
-  scope: &mut <C as OpMappingContextLifetime<'a>>::Context,
+type MapRawFn<C> = for<'a, 'i> fn(
+  _lifetime: PhantomData<(&'a (), &'i ())>,
+  scope: &mut <C as OpMappingContextLifetime<'a, 'i>>::Context,
   rv_map: *const fn(),
   value: TypeErased<MAX_RESULT_SIZE>,
-) -> UnmappedResult<'a, C>;
+) -> UnmappedResult<'a, 'i, C>;
 
 #[allow(clippy::type_complexity)]
 pub struct OpValue<C: OpMappingContext> {
@@ -198,10 +205,10 @@ impl<C: OpMappingContext> OpValue<C> {
 }
 
 pub trait ValueLargeFn<C: OpMappingContext> {
-  fn unwrap<'a>(
+  fn unwrap<'a, 'i>(
     self: Box<Self>,
-    ctx: &mut <C as OpMappingContextLifetime<'a>>::Context,
-  ) -> UnmappedResult<'a, C>;
+    ctx: &mut <C as OpMappingContextLifetime<'a, 'i>>::Context,
+  ) -> UnmappedResult<'a, 'i, C>;
 }
 
 struct ValueLarge<C: OpMappingContext, R: 'static> {
@@ -210,10 +217,10 @@ struct ValueLarge<C: OpMappingContext, R: 'static> {
 }
 
 impl<C: OpMappingContext, R> ValueLargeFn<C> for ValueLarge<C, R> {
-  fn unwrap<'a>(
+  fn unwrap<'a, 'i>(
     self: Box<Self>,
-    ctx: &mut <C as OpMappingContextLifetime<'a>>::Context,
-  ) -> UnmappedResult<'a, C> {
+    ctx: &mut <C as OpMappingContextLifetime<'a, 'i>>::Context,
+  ) -> UnmappedResult<'a, 'i, C> {
     C::unerase_mapping_fn(C::erase_mapping_fn(self.rv_map), ctx, self.v)
   }
 }
@@ -237,21 +244,25 @@ impl<C: OpMappingContext> OpResult<C> {
     }
   }
 
-  pub fn unwrap<'a>(
+  pub fn unwrap<'a, 'i>(
     self,
-    context: &mut <C as OpMappingContextLifetime<'a>>::Context,
-  ) -> MappedResult<'a, C> {
+    context: &mut <C as OpMappingContextLifetime<'a, 'i>>::Context,
+  ) -> MappedResult<'a, 'i, C> {
     let (success, res) = match self {
       Self::Err(err) => (false, Ok(C::map_error(context, err))),
-      Self::Value(f) => (true, (f.map_fn)(&(), context, f.rv_map, f.value)),
+      Self::Value(f) => {
+        (true, (f.map_fn)(PhantomData, context, f.rv_map, f.value))
+      }
       Self::ValueLarge(f) => (true, f.unwrap(context)),
     };
     match (success, res) {
       (true, Ok(x)) => Ok(x),
       (false, Ok(x)) => Err(x),
-      (_, Err(err)) => Err(
-        <C as OpMappingContextLifetime<'a>>::map_mapping_error(context, err),
-      ),
+      (_, Err(err)) => {
+        Err(<C as OpMappingContextLifetime<'a, 'i>>::map_mapping_error(
+          context, err,
+        ))
+      }
     }
   }
 }

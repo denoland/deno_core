@@ -6,7 +6,6 @@ use self::ops_worker::worker_create;
 use self::ts_module_loader::maybe_transpile_source;
 use deno_core::CrossIsolateStore;
 use deno_core::Extension;
-use deno_core::ImportAssertionsSupport;
 use deno_core::JsRuntime;
 use deno_core::RuntimeOptions;
 use std::any::Any;
@@ -125,7 +124,6 @@ pub fn create_runtime_from_snapshot_with_options(
     })),
     shared_array_buffer_store: Some(CrossIsolateStore::default()),
     inspector,
-    import_assertions_support: ImportAssertionsSupport::Warning,
     ..options
   });
 

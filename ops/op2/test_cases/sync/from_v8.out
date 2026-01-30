@@ -34,21 +34,28 @@ pub const fn op_from_v8_arg() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
             );
             let result = {
                 let arg0 = args.get(0usize as i32);
-                let arg0 = match <Foo as deno_core::FromV8>::from_v8(&mut scope, arg0) {
-                    Ok(t) => t,
-                    Err(arg0_err) => {
-                        deno_core::_ops::throw_error_js_error_class(
-                            &mut scope,
-                            &arg0_err,
-                        );
-                        return 1;
+                let arg0 = {
+                    use deno_core::FromV8;
+                    use deno_core::FromV8Scopeless;
+                    match <Foo>::from_v8(&mut scope, arg0) {
+                        Ok(t) => t,
+                        Err(arg0_err) => {
+                            deno_core::_ops::throw_error_js_error_class(
+                                &mut scope,
+                                &arg0_err,
+                            );
+                            return 1;
+                        }
                     }
                 };
                 Self::call(arg0)

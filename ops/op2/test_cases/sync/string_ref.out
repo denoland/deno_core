@@ -125,15 +125,22 @@ const fn op_string_owned() -> ::deno_core::_ops::OpDecl {
                 >::cast_unchecked(args.data())
                     .value() as *const deno_core::_ops::OpCtx)
             };
-            let mut scope = unsafe { &mut *opctx.isolate };
+            let mut scope = unsafe {
+                deno_core::v8::Isolate::from_raw_isolate_ptr(opctx.isolate)
+            };
+            let mut scope = &mut scope;
             let result = {
                 let arg0 = args.get(0usize as i32);
                 let mut arg0_temp: [::std::mem::MaybeUninit<
                     u8,
                 >; deno_core::_ops::STRING_STACK_BUFFER_SIZE] = [::std::mem::MaybeUninit::uninit(); deno_core::_ops::STRING_STACK_BUFFER_SIZE];
                 let arg0 = if !arg0.is_string() {
-                    let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
-                    let mut tc = deno_core::v8::TryCatch::new(&mut scope);
+                    let scope = ::std::pin::pin!(
+                        unsafe { deno_core::v8::CallbackScope::new(info) }
+                    );
+                    let mut scope = scope.init();
+                    let tc = ::std::pin::pin!(deno_core::v8::TryCatch::new(& mut scope));
+                    let mut tc = tc.init();
                     match arg0.to_string(&mut tc) {
                         Some(v) => v.into(),
                         None => {

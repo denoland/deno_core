@@ -34,7 +34,10 @@ const fn op_handlescope() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
-            let mut scope = unsafe { deno_core::v8::CallbackScope::new(info) };
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
@@ -92,7 +95,7 @@ const fn op_handlescope() -> ::deno_core::_ops::OpDecl {
     impl op_handlescope {
         #[allow(clippy::too_many_arguments)]
         fn call<'a>(
-            _scope: &v8::HandleScope<'a>,
+            _scope: &v8::PinScope<'a, '_>,
             _str2: v8::Local<v8::String>,
         ) -> v8::Local<'a, v8::String> {
             unimplemented!()

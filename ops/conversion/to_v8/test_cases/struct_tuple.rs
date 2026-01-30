@@ -3,7 +3,5 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-use deno_core::v8;
-
-#[op2(async)]
-pub async fn op_async_v8_global(#[global] _s: v8::Global<v8::String>) {}
+#[derive(ToV8)]
+pub struct Tuple(#[to_v8(serde)] u8, u8);

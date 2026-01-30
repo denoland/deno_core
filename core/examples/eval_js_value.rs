@@ -31,7 +31,7 @@ fn eval(
   let res = context.execute_script("<anon>", code);
   match res {
     Ok(global) => {
-      let scope = &mut context.handle_scope();
+      deno_core::scope!(scope, context);
       let local = v8::Local::new(scope, global);
       // Deserialize a `v8` object into a Rust type using `serde_v8`,
       // in this case deserialize to a JSON `Value`.

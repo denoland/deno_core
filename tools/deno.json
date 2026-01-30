@@ -1,0 +1,5 @@
+{
+  "imports": {
+    "@deno/rust-automation": "jsr:@deno/rust-automation@^0.22.3"
+  }
+}

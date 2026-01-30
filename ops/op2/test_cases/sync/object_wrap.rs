@@ -20,7 +20,7 @@ unsafe impl GarbageCollected for Foo {
 }
 
 fn f(
-  _: &mut v8::HandleScope,
+  _: &mut v8::PinScope,
   _: &v8::FunctionCallbackArguments,
 ) -> Result<(), JsErrorBox> {
   Ok(())

@@ -105,14 +105,6 @@ macro_rules! try_bignum {
   };
 }
 
-pub fn opstate_borrow<T: 'static>(state: &OpState) -> &T {
-  state.borrow()
-}
-
-pub fn opstate_borrow_mut<T: 'static>(state: &mut OpState) -> &mut T {
-  state.borrow_mut()
-}
-
 pub fn to_u32_option(number: &v8::Value) -> Option<u32> {
   try_integer_some!(number Integer is_uint32);
   try_integer_some!(number Int32 is_int32);
@@ -357,9 +349,9 @@ where
   }
 }
 
-pub fn serde_v8_to_rust<'a, T: Deserialize<'a>>(
-  scope: &mut v8::HandleScope,
-  input: v8::Local<v8::Value>,
+pub fn serde_v8_to_rust<'a, 's, 'i, T: Deserialize<'a>>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
 ) -> serde_v8::Result<T> {
   from_v8(scope, input)
 }
@@ -391,14 +383,14 @@ where
 }
 
 /// Retrieve a [`serde_v8::V8Slice`] from a typed array in an [`v8::ArrayBufferView`].
-pub fn to_v8_slice_detachable<'a, T>(
-  scope: &mut v8::HandleScope,
-  input: v8::Local<'a, v8::Value>,
+pub fn to_v8_slice_detachable<'s, 'i, T>(
+  scope: &mut v8::PinScope<'s, 'i>,
+  input: v8::Local<'s, v8::Value>,
 ) -> Result<serde_v8::V8Slice<T>, &'static str>
 where
   T: V8Sliceable,
-  v8::Local<'a, T::V8>: TryFrom<v8::Local<'a, v8::Value>>,
-  v8::Local<'a, v8::ArrayBufferView>: From<v8::Local<'a, T::V8>>,
+  v8::Local<'s, T::V8>: TryFrom<v8::Local<'s, v8::Value>>,
+  v8::Local<'s, v8::ArrayBufferView>: From<v8::Local<'s, T::V8>>,
 {
   let (store, offset, length) = match v8::Local::<T::V8>::try_from(input) {
     Ok(buf) => {
@@ -548,6 +540,7 @@ mod tests {
   use crate::ToV8;
   use crate::convert::Number;
   use crate::convert::Smi;
+  use crate::convert::Uint8Array;
   use crate::error::CoreError;
   use crate::error::CoreErrorKind;
   use crate::external;
@@ -609,19 +602,18 @@ mod tests {
       op_test_v8_type_handle_scope,
       op_test_v8_type_handle_scope_obj,
       op_test_v8_type_handle_scope_result,
-      op_test_v8_global,
       op_test_serde_v8,
       op_jsruntimestate,
       op_state_rc,
       op_state_ref,
       op_state_mut,
-      op_state_mut_attr,
-      op_state_multi_attr,
       op_buffer_slice,
       op_buffer_jsbuffer,
       op_buffer_ptr,
       op_buffer_slice_32,
       op_buffer_ptr_32,
+      op_buffer_slice_f32,
+      op_buffer_ptr_f32,
       op_buffer_slice_f64,
       op_buffer_ptr_f64,
       op_buffer_slice_unsafe_callback,
@@ -675,6 +667,8 @@ mod tests {
       op_create_buf_i16,
       op_create_buf_i32,
       op_create_buf_i64,
+      op_create_buf_f32,
+      op_create_buf_f64,
     ],
     state = |state| {
       state.put(1234u32);
@@ -1269,7 +1263,7 @@ mod tests {
   #[op2(fast)]
   pub fn op_test_v8_types<'s>(
     s: &v8::String,
-    s2: v8::Local<v8::String>,
+    s2: v8::Local<'s, v8::String>,
     s3: v8::Local<'s, v8::String>,
   ) -> u32 {
     if s.same_value(s2.into()) {
@@ -1309,8 +1303,8 @@ mod tests {
   }
 
   #[op2]
-  pub fn op_test_v8_type_handle_scope<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     s: &v8::String,
   ) -> v8::Local<'s, v8::String> {
     let s = s.to_rust_string_lossy(scope);
@@ -1319,8 +1313,8 @@ mod tests {
 
   /// Extract whatever lives in "key" from the object.
   #[op2]
-  pub fn op_test_v8_type_handle_scope_obj<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope_obj<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     o: &v8::Object,
   ) -> Option<v8::Local<'s, v8::Value>> {
     let key = v8::String::new(scope, "key").unwrap().into();
@@ -1329,8 +1323,8 @@ mod tests {
 
   /// Extract whatever lives in "key" from the object.
   #[op2]
-  pub fn op_test_v8_type_handle_scope_result<'s>(
-    scope: &mut v8::HandleScope<'s>,
+  pub fn op_test_v8_type_handle_scope_result<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
     o: &v8::Object,
   ) -> Result<v8::Local<'s, v8::Value>, JsErrorBox> {
     let key = v8::String::new(scope, "key").unwrap().into();
@@ -1390,25 +1384,6 @@ mod tests {
     Ok(())
   }
 
-  #[op2]
-  pub fn op_test_v8_global(
-    scope: &mut v8::HandleScope,
-    #[global] s: v8::Global<v8::String>,
-  ) -> u32 {
-    let s = s.open(scope);
-    s.length() as _
-  }
-
-  #[tokio::test]
-  pub async fn test_op_v8_global() -> Result<(), Box<dyn std::error::Error>> {
-    run_test2(
-      1,
-      "op_test_v8_global",
-      "assert(op_test_v8_global('hello world') == 11)",
-    )?;
-    Ok(())
-  }
-
   #[derive(Serialize, Deserialize)]
   pub struct Serde {
     pub s: String,
@@ -1463,23 +1438,6 @@ mod tests {
     *state.borrow_mut() = value;
   }
 
-  #[op2(fast)]
-  pub fn op_state_mut_attr(#[state] value: &mut u32, new_value: u32) -> u32 {
-    let old_value = *value;
-    *value = new_value;
-    old_value
-  }
-
-  #[op2(fast)]
-  pub fn op_state_multi_attr(
-    #[state] value32: &u32,
-    #[state] value16: &u16,
-    #[state] value8: Option<&u8>,
-  ) -> u32 {
-    assert_eq!(value8, None);
-    *value32 + *value16 as u32
-  }
-
   #[tokio::test]
   pub async fn test_op_state() -> Result<(), Box<dyn std::error::Error>> {
     run_test2(
@@ -1487,21 +1445,11 @@ mod tests {
       "op_state_rc",
       "if (__index__ == 0) { op_state_rc(__index__) } else { assert(op_state_rc(__index__) == __index__ - 1) }",
     )?;
-    run_test2(
-      JIT_ITERATIONS,
-      "op_state_mut_attr",
-      "if (__index__ == 0) { op_state_mut_attr(__index__) } else { assert(op_state_mut_attr(__index__) == __index__ - 1) }",
-    )?;
     run_test2(JIT_ITERATIONS, "op_state_mut", "op_state_mut(__index__)")?;
     run_test2(
       JIT_ITERATIONS,
       "op_state_ref",
       "assert(op_state_ref() == 1234)",
-    )?;
-    run_test2(
-      JIT_ITERATIONS,
-      "op_state_multi_attr",
-      "assert(op_state_multi_attr() == 11234)",
     )?;
     Ok(())
   }
@@ -1587,12 +1535,45 @@ mod tests {
     }
   }
 
+  #[op2(fast)]
+  pub fn op_buffer_slice_f32(
+    #[buffer] input: &[f32],
+    #[number] inlen: usize,
+    #[buffer] output: &mut [f32],
+    #[number] outlen: usize,
+  ) {
+    assert_eq!(inlen, input.len());
+    assert_eq!(outlen, output.len());
+    if inlen > 0 && outlen > 0 {
+      output[0] = input[0];
+    }
+  }
+
+  #[op2(fast)]
+  pub fn op_buffer_ptr_f32(
+    #[buffer] input: *const f32,
+    #[number] inlen: usize,
+    #[buffer] output: *mut f32,
+    #[number] outlen: usize,
+  ) {
+    if inlen > 0 && outlen > 0 {
+      // SAFETY: for test
+      unsafe { std::ptr::write(output, std::ptr::read(input)) }
+    }
+  }
+
   #[tokio::test]
   pub async fn test_op_buffer_slice() -> Result<(), Box<dyn std::error::Error>>
   {
     for (op, op_ptr, arr, size) in [
       ("op_buffer_slice", "op_buffer_ptr", "Uint8Array", 1),
       ("op_buffer_slice_32", "op_buffer_ptr_32", "Uint32Array", 4),
+      (
+        "op_buffer_slice_f32",
+        "op_buffer_ptr_f32",
+        "Float32Array",
+        4,
+      ),
       (
         "op_buffer_slice_f64",
         "op_buffer_ptr_f64",
@@ -1853,10 +1834,10 @@ mod tests {
 
   // TODO(mmastrac): This is a dangerous op that we'll use to test resizable buffers in a later pass.
   #[op2(fast)]
-  pub fn op_buffer_slice_unsafe_callback(
-    scope: &mut v8::HandleScope,
-    buffer: v8::Local<v8::ArrayBuffer>,
-    callback: v8::Local<v8::Function>,
+  pub fn op_buffer_slice_unsafe_callback<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    buffer: v8::Local<'s, v8::ArrayBuffer>,
+    callback: v8::Local<'s, v8::Function>,
   ) {
     println!("{:?}", buffer.data());
     let recv = callback.into();
@@ -1964,7 +1945,7 @@ mod tests {
     }
   }
 
-  #[op2(async)]
+  #[op2]
   #[smi]
   pub async fn op_test_get_cppgc_resource(
     #[cppgc] resource: &TestResource,
@@ -2091,18 +2072,16 @@ mod tests {
   }
 
   #[op2(nofast)]
-  fn op_isolate_run_microtasks(isolate: *mut v8::Isolate) {
-    // SAFETY: testing
-    unsafe { isolate.as_mut().unwrap().perform_microtask_checkpoint() };
+  fn op_isolate_run_microtasks(isolate: &mut v8::Isolate) {
+    isolate.perform_microtask_checkpoint();
   }
 
   #[op2(nofast)]
   fn op_isolate_queue_microtask(
-    isolate: *mut v8::Isolate,
-    cb: v8::Local<v8::Function>,
+    isolate: &mut v8::Isolate,
+    cb: v8::Local<'_, v8::Function>,
   ) {
-    // SAFETY: testing
-    unsafe { isolate.as_mut().unwrap().enqueue_microtask(cb) };
+    isolate.enqueue_microtask(cb);
   }
 
   #[tokio::test]
@@ -2115,7 +2094,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_void() {}
 
   #[tokio::test]
@@ -2125,19 +2104,19 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_number(x: u32) -> u32 {
     x
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_add(x: u32, y: u32) -> u32 {
     x.wrapping_add(y)
   }
 
   // Note: #[smi] parameters are signed in JS regardless of the sign in Rust. Overflow and underflow
   // of valid ranges result in automatic wrapping.
-  #[op2(async)]
+  #[op2]
   #[smi]
   async fn op_async_add_smi(#[smi] x: u32, #[smi] y: u32) -> u32 {
     tokio::time::sleep(Duration::from_millis(10)).await;
@@ -2174,12 +2153,12 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() {
     tokio::time::sleep(Duration::from_millis(500)).await
   }
 
-  #[op2(async)]
+  #[op2]
   fn op_async_sleep_impl() -> impl Future<Output = ()> {
     tokio::time::sleep(Duration::from_millis(500))
   }
@@ -2192,7 +2171,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   pub async fn op_async_sleep_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(Duration::from_millis(500)).await;
     Err(JsErrorBox::generic("whoops"))
@@ -2267,7 +2246,7 @@ mod tests {
 
   /// Test exits from the three possible routes -- before future, future immediate,
   /// future polled failed, future polled success.
-  #[op2(async)]
+  #[op2]
   pub fn op_async_result_impl(
     mode: u8,
   ) -> Result<impl Future<Output = Result<(), JsErrorBox>>, JsErrorBox> {
@@ -2306,7 +2285,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   pub async fn op_async_state_rc(
     state: Rc<RefCell<OpState>>,
     value: u32,
@@ -2326,21 +2305,20 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   #[buffer]
   async fn op_async_buffer(#[buffer] input: JsBuffer) -> JsBuffer {
     input
   }
 
-  #[op2(async)]
-  #[buffer]
-  async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Vec<u8> {
+  #[op2]
+  async fn op_async_buffer_vec(#[buffer] input: JsBuffer) -> Uint8Array {
     let mut output = input.to_vec();
     output.reverse();
-    output
+    output.into()
   }
 
-  #[op2(async)]
+  #[op2]
   fn op_async_buffer_impl(
     #[buffer] input: &[u8],
   ) -> impl Future<Output = u32> + use<> {
@@ -2372,7 +2350,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_external(
     input: *const std::ffi::c_void,
   ) -> *const std::ffi::c_void {
@@ -2392,7 +2370,7 @@ mod tests {
     Ok(())
   }
 
-  #[op2(async)]
+  #[op2]
   #[serde]
   pub async fn op_async_serde_option_v8(
     #[serde] mut serde: Serde,
@@ -2414,8 +2392,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  pub fn op_smi_to_from_v8(#[from_v8] value: Smi<i32>) -> Smi<i32> {
+  pub fn op_smi_to_from_v8(value: Smi<i32>) -> Smi<i32> {
     value
   }
 
@@ -2434,8 +2411,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  pub fn op_number_to_from_v8(#[from_v8] value: Number<f64>) -> Number<f64> {
+  pub fn op_number_to_from_v8(value: Number<f64>) -> Number<f64> {
     value
   }
 
@@ -2473,19 +2449,19 @@ mod tests {
   impl<'a> ToV8<'a> for Bool {
     type Error = std::convert::Infallible;
 
-    fn to_v8(
+    fn to_v8<'i>(
       self,
-      scope: &mut v8::HandleScope<'a>,
+      scope: &mut v8::PinScope<'a, 'i>,
     ) -> Result<v8::Local<'a, v8::Value>, Self::Error> {
       self.0.to_v8(scope)
     }
   }
 
   impl<'a> FromV8<'a> for Bool {
-    type Error = JsErrorBox;
+    type Error = crate::error::DataError;
 
-    fn from_v8(
-      scope: &mut v8::HandleScope<'a>,
+    fn from_v8<'i>(
+      scope: &mut v8::PinScope<'a, 'i>,
       value: v8::Local<'a, v8::Value>,
     ) -> Result<Self, Self::Error> {
       bool::from_v8(scope, value).map(Bool)
@@ -2493,8 +2469,7 @@ mod tests {
   }
 
   #[op2]
-  #[to_v8]
-  fn op_bool_to_from_v8(#[from_v8] value: Bool) -> Bool {
+  fn op_bool_to_from_v8(#[scoped] value: Bool) -> Bool {
     value
   }
 
@@ -2525,7 +2500,7 @@ mod tests {
     .unwrap_err();
     assert_eq!(
       err.to_string(),
-      "TypeError: Expected boolean\n    at <anonymous>:4:7"
+      "TypeError: expected type `v8::data::Boolean`, got `v8::data::Value`\n    at <anonymous>:4:7"
     );
     Ok(())
   }
@@ -2536,7 +2511,7 @@ mod tests {
         #[op2]
         #[buffer]
         fn [< op_create_buf_ $size >] () -> Vec<$size> {
-          vec![1, 2, 3, 4]
+          vec![1 as _, 2 as _, 3 as _, 4 as _]
         }
       }
     };
@@ -2549,6 +2524,8 @@ mod tests {
   op_create_buf!(i16);
   op_create_buf!(i32);
   op_create_buf!(i64);
+  op_create_buf!(f32);
+  op_create_buf!(f64);
 
   #[test]
   fn return_buffers() -> Result<(), Box<dyn std::error::Error>> {
@@ -2576,6 +2553,8 @@ mod tests {
     test("i16")?;
     test("i32")?;
     test("i64")?;
+    test("f32")?;
+    test("f64")?;
     Ok(())
   }
 }

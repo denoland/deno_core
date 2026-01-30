@@ -1,4 +1,2 @@
 1
 2
-[ERR] TypeError: object.constructor[Symbol.species] is not a constructor
-[ERR]     at Promise.then (<anonymous>)

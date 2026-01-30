@@ -17,10 +17,10 @@ unsafe impl Sync for ExternalPointer {}
 impl_magic!(ExternalPointer);
 
 impl ToV8 for ExternalPointer {
-  fn to_v8<'a>(
+  fn to_v8<'scope, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'a>,
-  ) -> Result<v8::Local<'a, v8::Value>, crate::Error> {
+    scope: &mut v8::PinScope<'scope, 'i>,
+  ) -> Result<v8::Local<'scope, v8::Value>, crate::Error> {
     if self.0.is_null() {
       Ok(v8::null(scope).into())
     } else {
@@ -30,9 +30,9 @@ impl ToV8 for ExternalPointer {
 }
 
 impl FromV8 for ExternalPointer {
-  fn from_v8(
-    _scope: &mut v8::HandleScope,
-    value: v8::Local<v8::Value>,
+  fn from_v8<'scope, 'i>(
+    _scope: &mut v8::PinScope,
+    value: v8::Local<'scope, v8::Value>,
   ) -> Result<Self, crate::Error> {
     if value.is_null() {
       Ok(ExternalPointer(std::ptr::null_mut()))

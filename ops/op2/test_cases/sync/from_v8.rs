@@ -2,15 +2,15 @@
 
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
-use deno_core::FromV8;
+use deno_core::FromV8 as FromV8Trait;
 use deno_core::v8;
 
 struct Foo;
 
-impl<'a> FromV8<'a> for Foo {
+impl<'a> FromV8Trait<'a> for Foo {
   type Error = std::convert::Infallible;
   fn from_v8(
-    _scope: &mut v8::HandleScope<'a>,
+    _scope: &mut v8::PinScope<'a, '_>,
     _value: v8::Local<'a, v8::Value>,
   ) -> Result<Self, Self::Error> {
     Ok(Foo)
@@ -18,7 +18,6 @@ impl<'a> FromV8<'a> for Foo {
 }
 
 #[op2]
-#[from_v8]
-pub fn op_from_v8_arg(#[from_v8] foo: Foo) {
+pub fn op_from_v8_arg(#[scoped] foo: Foo) {
   let _ = foo;
 }

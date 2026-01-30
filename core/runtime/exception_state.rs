@@ -68,7 +68,7 @@ impl ExceptionState {
   /// the runtime is shut down), returns it from here. If not, returns `Ok`.
   pub(crate) fn check_exception_condition(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope,
   ) -> Result<(), Box<JsError>> {
     if self.has_dispatched_exception() {
       let undefined = v8::undefined(scope);
@@ -87,9 +87,9 @@ impl ExceptionState {
     self.dispatched_exception_is_promise.get()
   }
 
-  pub(crate) fn get_dispatched_exception_as_local<'s>(
+  pub(crate) fn get_dispatched_exception_as_local<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope<'s>,
+    scope: &mut v8::PinScope<'s, 'i>,
   ) -> Option<v8::Local<'s, v8::Value>> {
     // SAFETY: we limit access to this cell to this method only
     unsafe {
@@ -116,9 +116,9 @@ impl ExceptionState {
   ///   interfere with garbage collection.
   /// - An implementation may hold a reference to promise if operation is "reject", since it is expected that rejections
   ///   will be rare and not on hot code paths.
-  pub fn track_promise_rejection(
+  pub fn track_promise_rejection<'s, 'i>(
     &self,
-    scope: &mut v8::HandleScope,
+    scope: &mut v8::PinScope<'s, 'i>,
     promise: v8::Local<v8::Promise>,
     event: v8::PromiseRejectEvent,
     rejection_value: Option<v8::Local<v8::Value>>,

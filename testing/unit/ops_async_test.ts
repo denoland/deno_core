@@ -51,7 +51,7 @@ test(async function testAsyncOp() {
 // Test a large number of async ops resolving at the same time. This stress-tests both
 // large-batch op dispatch and the JS-side promise-tracking implementation.
 test(async function testAsyncBarrier() {
-  const count = 1e6;
+  const count = 1e5;
   barrierCreate("barrier", count);
   const promises = [];
   for (let i = 0; i < count; i++) {

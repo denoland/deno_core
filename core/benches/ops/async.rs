@@ -28,14 +28,14 @@ deno_core::extension!(
 );
 
 #[op2(fast)]
-pub fn op_call_promise_resolver(scope: &mut v8::HandleScope, f: &v8::Function) {
+pub fn op_call_promise_resolver(scope: &mut v8::PinScope, f: &v8::Function) {
   let recv = v8::undefined(scope).into();
   f.call(scope, recv, &[]);
 }
 
 #[op2]
 pub fn op_resolve_promise<'s>(
-  scope: &'s mut v8::HandleScope,
+  scope: &'s mut v8::PinScope,
 ) -> v8::Local<'s, v8::Promise> {
   let resolver = v8::PromiseResolver::new(scope).unwrap();
   let value = v8::undefined(scope).into();
@@ -51,10 +51,10 @@ pub fn op_make_external() -> *const c_void {
   std::ptr::null()
 }
 
-#[op2(async)]
+#[op2]
 pub async fn op_async_void() {}
 
-#[op2(async)]
+#[op2]
 pub async fn op_async_yield() {
   tokio::task::yield_now().await
 }
@@ -146,11 +146,13 @@ fn bench_op(
   let run = runtime.execute_script("", ascii_str!("run()")).unwrap();
   #[allow(deprecated)]
   let bench = tokio.block_on(runtime.resolve_value(run)).unwrap();
-  let mut scope = runtime.handle_scope();
-  let bench: v8::Local<v8::Function> =
-    v8::Local::new(&mut scope, bench).try_into().unwrap();
-  let bench = v8::Global::new(&mut scope, bench);
-  drop(scope);
+  let bench = {
+    deno_core::scope!(scope, &mut runtime);
+    let bench: v8::Local<v8::Function> =
+      v8::Local::new(scope, bench).try_into().unwrap();
+
+    v8::Global::new(scope, bench)
+  };
   drop(guard);
   b.iter(move || do_benchmark(&bench, &tokio, &mut runtime));
 }

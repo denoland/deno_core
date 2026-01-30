@@ -39,6 +39,22 @@ pub enum ModuleLoadResponse {
   Async(Pin<Box<ModuleSourceFuture>>),
 }
 
+pub struct ModuleLoadOptions {
+  pub is_dynamic_import: bool,
+  /// If this is a synchronous ES module load.
+  pub is_synchronous: bool,
+  pub requested_module_type: RequestedModuleType,
+}
+
+#[derive(Debug, Clone)]
+pub struct ModuleLoadReferrer {
+  pub specifier: ModuleSpecifier,
+  /// 1-based.
+  pub line_number: i64,
+  /// 1-based.
+  pub column_number: i64,
+}
+
 pub trait ModuleLoader {
   /// Returns an absolute URL.
   /// When implementing an spec-complaint VM, this should be exactly the
@@ -73,9 +89,8 @@ pub trait ModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
-    is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse;
 
   /// This hook can be used by implementors to do some preparation
@@ -90,8 +105,7 @@ pub trait ModuleLoader {
     &self,
     _module_specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -134,6 +148,24 @@ pub trait ModuleLoader {
     None
   }
 
+  /// Loads an external source map file referenced by a module.
+  fn load_external_source_map(
+    &self,
+    _source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    None
+  }
+
+  /// Checks if a source file referenced in a source map exists. Used by the
+  /// source map logic to verify that source files actually exist before
+  /// rewriting stack trace file names.
+  ///
+  /// Returns `Some(true)` if the file exists, `Some(false)` if it doesn't,
+  /// or `None` if existence cannot be determined.
+  fn source_map_source_exists(&self, _source_url: &str) -> Option<bool> {
+    None
+  }
+
   fn get_source_mapped_source_line(
     &self,
     _file_name: &str,
@@ -145,9 +177,9 @@ pub trait ModuleLoader {
   /// Implementors can attach arbitrary data to scripts and modules
   /// by implementing this method. V8 currently requires that the
   /// returned data be a `v8::PrimitiveArray`.
-  fn get_host_defined_options<'s>(
+  fn get_host_defined_options<'s, 'i>(
     &self,
-    _scope: &mut v8::HandleScope<'s>,
+    _scope: &mut v8::PinScope<'s, 'i>,
     _name: &str,
   ) -> Option<v8::Local<'s, v8::Data>> {
     None
@@ -171,9 +203,8 @@ impl ModuleLoader for NoopModuleLoader {
   fn load(
     &self,
     _module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     ModuleLoadResponse::Sync(Err(JsErrorBox::generic(
       "Module loading is not supported.",
@@ -270,9 +301,8 @@ impl ModuleLoader for ExtModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut sources = self.sources.borrow_mut();
     let source = match sources.remove(specifier.as_str()) {
@@ -301,8 +331,7 @@ impl ModuleLoader for ExtModuleLoader {
     &self,
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -348,9 +377,8 @@ impl ModuleLoader for LazyEsmModuleLoader {
   fn load(
     &self,
     specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let mut sources = self.sources.borrow_mut();
     let source = match sources.remove(specifier.as_str()) {
@@ -374,8 +402,7 @@ impl ModuleLoader for LazyEsmModuleLoader {
     &self,
     _specifier: &ModuleSpecifier,
     _maybe_referrer: Option<String>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     async { Ok(()) }.boxed_local()
   }
@@ -411,9 +438,8 @@ impl ModuleLoader for FsModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dynamic: bool,
-    requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let module_specifier = module_specifier.clone();
     let fut = async move {
@@ -432,7 +458,7 @@ impl ModuleLoader for FsModuleLoader {
         } else if ext == "wasm" {
           ModuleType::Wasm
         } else {
-          match &requested_module_type {
+          match &options.requested_module_type {
             RequestedModuleType::Other(ty) => ModuleType::Other(ty.clone()),
             RequestedModuleType::Text => ModuleType::Text,
             RequestedModuleType::Bytes => ModuleType::Bytes,
@@ -446,7 +472,7 @@ impl ModuleLoader for FsModuleLoader {
       // If we loaded a JSON file, but the "requested_module_type" (that is computed from
       // import attributes) is not JSON we need to fail.
       if module_type == ModuleType::Json
-        && requested_module_type != RequestedModuleType::Json
+        && options.requested_module_type != RequestedModuleType::Json
       {
         return Err(JsErrorBox::generic("Attempted to load JSON module without specifying \"type\": \"json\" attribute in the import statement."));
       }
@@ -514,9 +540,8 @@ impl ModuleLoader for StaticModuleLoader {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    _maybe_referrer: Option<&ModuleSpecifier>,
-    _is_dyn_import: bool,
-    _requested_module_type: RequestedModuleType,
+    _maybe_referrer: Option<&ModuleLoadReferrer>,
+    _options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     let res = if let Some(code) = self.map.get(module_specifier) {
       Ok(ModuleSource::new(
@@ -584,16 +609,12 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
     &self,
     module_specifier: &ModuleSpecifier,
     maybe_referrer: Option<String>,
-    is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    options: ModuleLoadOptions,
   ) -> Pin<Box<dyn Future<Output = Result<(), ModuleLoaderError>>>> {
     self.prepare_count.set(self.prepare_count.get() + 1);
-    self.loader.prepare_load(
-      module_specifier,
-      maybe_referrer,
-      is_dyn_import,
-      requested_module_type,
-    )
+    self
+      .loader
+      .prepare_load(module_specifier, maybe_referrer, options)
   }
 
   fn finish_load(&self) {
@@ -604,18 +625,19 @@ impl<L: ModuleLoader> ModuleLoader for TestingModuleLoader<L> {
   fn load(
     &self,
     module_specifier: &ModuleSpecifier,
-    maybe_referrer: Option<&ModuleSpecifier>,
-    is_dyn_import: bool,
-    requested_module_type: RequestedModuleType,
+    maybe_referrer: Option<&ModuleLoadReferrer>,
+    options: ModuleLoadOptions,
   ) -> ModuleLoadResponse {
     self.load_count.set(self.load_count.get() + 1);
     self.log.borrow_mut().push(module_specifier.clone());
-    self.loader.load(
-      module_specifier,
-      maybe_referrer,
-      is_dyn_import,
-      requested_module_type,
-    )
+    self.loader.load(module_specifier, maybe_referrer, options)
+  }
+
+  fn load_external_source_map(
+    &self,
+    source_map_url: &str,
+  ) -> Option<Cow<'_, [u8]>> {
+    self.loader.load_external_source_map(source_map_url)
   }
 }
 

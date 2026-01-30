@@ -2,6 +2,7 @@
 
 use anyhow::bail;
 use deno_core::JsRuntime;
+use deno_core::OpState;
 use deno_core::PollEventLoopOptions;
 use deno_core::op2;
 use deno_core::url::Url;
@@ -9,6 +10,7 @@ use deno_core::v8;
 use pretty_assertions::assert_eq;
 use std::path::Path;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::sync::OnceLock;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -41,11 +43,14 @@ pub struct TestFunctions {
 
 #[op2]
 pub fn op_test_register(
-  #[state] tests: &mut TestFunctions,
+  op_state: &mut OpState,
   #[string] name: String,
-  #[global] f: v8::Global<v8::Function>,
+  #[scoped] f: v8::Global<v8::Function>,
 ) {
-  tests.functions.push((name, f));
+  op_state
+    .borrow_mut::<TestFunctions>()
+    .functions
+    .push((name, f));
 }
 
 fn create_runtime() -> JsRuntime {
@@ -75,31 +80,31 @@ async fn run_integration_test_task(
 ) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["integration", &test]);
   let url = get_test_url(&test_dir, &test)?;
-  let module = runtime.load_main_es_module(&url).await?;
-  let f = runtime.mod_evaluate(module);
-  let mut actual_output = String::new();
-  match runtime
-    .run_event_loop(PollEventLoopOptions::default())
-    .await
-  {
-    Err(e) => {
-      let state = runtime.op_state().clone();
-      let state = state.borrow();
-      let output: &Output = state.borrow();
-      for line in e.to_string().split('\n') {
-        output.line(format!("[ERR] {line}"));
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put(deno_core::error::InitialCwd(Arc::new(Url::parse(
+      "test:///",
+    )?)));
+  let maybe_error = match runtime.load_main_es_module(&url).await {
+    Err(err) => Some(err),
+    Ok(module) => {
+      let f = runtime.mod_evaluate(module);
+      match runtime
+        .run_event_loop(PollEventLoopOptions::default())
+        .await
+      {
+        Err(err) => Some(err),
+        _ => f.await.err(),
       }
     }
-    _ => {
-      // Only await the module if we didn't fail
-      if let Err(e) = f.await {
-        let state = runtime.op_state().clone();
-        let state = state.borrow();
-        let output: &Output = state.borrow();
-        for line in e.to_string().split('\n') {
-          output.line(format!("[ERR] {line}"));
-        }
-      }
+  };
+  if let Some(err) = maybe_error {
+    let state = runtime.op_state().clone();
+    let state = state.borrow();
+    let output: &Output = state.borrow();
+    for line in err.to_string().split('\n') {
+      output.line(format!("[ERR] {line}"));
     }
   }
   let mut lines = runtime.op_state().borrow_mut().take::<Output>().take();
@@ -109,7 +114,7 @@ async fn run_integration_test_task(
     .await?
     .read_to_string(&mut expected_output)
     .await?;
-  actual_output += &lines.join("\n");
+  let actual_output = lines.join("\n");
   assert_eq!(actual_output, expected_output);
   Ok(())
 }
@@ -127,6 +132,12 @@ async fn run_unit_test_task(
 ) -> Result<(), anyhow::Error> {
   let test_dir = get_test_dir(&["unit"]);
   let url = get_test_url(&test_dir, &test)?;
+  runtime
+    .op_state()
+    .borrow_mut()
+    .put(deno_core::error::InitialCwd(Arc::new(Url::parse(
+      "test:///",
+    )?)));
   let module = runtime.load_main_es_module(&url).await?;
   let f = runtime.mod_evaluate(module);
   runtime
