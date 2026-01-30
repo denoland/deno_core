@@ -644,18 +644,23 @@ fn op_import_sync<'s, 'i>(
 
   // no js execution within block_on
   let module_id = {
-    let scope = &mut v8::TryCatch::new(scope);
-    let module_id = futures::executor::block_on(do_load_job(
-      &mut DisallowJavascriptExecutionScope::new(
-        scope,
+    let tc = std::pin::pin!(v8::TryCatch::new(scope));
+    let mut tc = tc.init();
+    let module_id = {
+      let disallow = std::pin::pin!(DisallowJavascriptExecutionScope::new(
+        &mut tc,
         v8::OnFailure::ThrowOnFailure,
-      ),
-      module_map_rc.clone(),
-      specifier,
-      code,
-    ))?;
-    if let Some(exception) = scope.exception() {
-      return exception_to_err_result(scope, exception, false, false)
+      ));
+      let mut disallow = disallow.init();
+      futures::executor::block_on(do_load_job(
+        &mut disallow,
+        module_map_rc.clone(),
+        specifier,
+        code,
+      ))?
+    };
+    if let Some(exception) = tc.exception() {
+      return exception_to_err_result(&mut tc, exception, false, false)
         .map_err(|e| CoreErrorKind::Js(e).into_box());
     }
     module_id
