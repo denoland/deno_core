@@ -670,6 +670,9 @@ where
 unsafe fn abview_to_box<T>(
   ab_view: v8::Local<v8::ArrayBufferView>,
 ) -> Box<[T]> {
+  if ab_view.byte_length() == 0 {
+    return Box::new([]);
+  }
   let data = ab_view.data();
   let len = ab_view.byte_length() / std::mem::size_of::<T>();
   let mut out = Box::<[T]>::new_uninit_slice(len);
