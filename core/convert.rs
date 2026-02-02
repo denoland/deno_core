@@ -670,8 +670,10 @@ where
 unsafe fn abview_to_box<T>(
   ab_view: v8::Local<v8::ArrayBufferView>,
 ) -> Box<[T]> {
+  if ab_view.byte_length() == 0 {
+    return Box::new([]);
+  }
   let data = ab_view.data();
-  let data = unsafe { data.add(ab_view.byte_offset()) };
   let len = ab_view.byte_length() / std::mem::size_of::<T>();
   let mut out = Box::<[T]>::new_uninit_slice(len);
   unsafe {
@@ -1471,6 +1473,39 @@ function equal(a, b) {
         Vec::<u8>::new()
       )
     });
+
+    from_v8_test!(
+      runtime,
+      "new Uint8Array([1, 2, 3, 4, 5]).subarray(2)",
+      |scope, result| {
+        assert_eq!(
+          *<Uint8Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![3u8, 4, 5]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new Uint8Array([1, 2, 3, 4, 5]).subarray(1, 4)",
+      |scope, result| {
+        assert_eq!(
+          *<Uint8Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![2u8, 3, 4]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new Uint8Array([1, 2, 3]).subarray(2, 2)",
+      |scope, result| {
+        assert_eq!(
+          *<Uint8Array as FromV8>::from_v8(scope, result).unwrap(),
+          Vec::<u8>::new()
+        )
+      }
+    );
   }
 
   #[test]
@@ -1496,6 +1531,28 @@ function equal(a, b) {
         Vec::<u16>::new()
       )
     });
+
+    from_v8_test!(
+      runtime,
+      "new Uint16Array([1, 2, 3, 4, 5]).subarray(2)",
+      |scope, result| {
+        assert_eq!(
+          *<Uint16Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![3u16, 4, 5]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new Uint16Array([1, 2, 3, 4, 5]).subarray(1, 4)",
+      |scope, result| {
+        assert_eq!(
+          *<Uint16Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![2u16, 3, 4]
+        )
+      }
+    );
   }
 
   #[test]
@@ -1521,6 +1578,28 @@ function equal(a, b) {
         Vec::<u32>::new()
       )
     });
+
+    from_v8_test!(
+      runtime,
+      "new Uint32Array([1, 2, 3, 4, 5]).subarray(2)",
+      |scope, result| {
+        assert_eq!(
+          *<Uint32Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![3u32, 4, 5]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new Uint32Array([1, 2, 3, 4, 5]).subarray(1, 4)",
+      |scope, result| {
+        assert_eq!(
+          *<Uint32Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![2u32, 3, 4]
+        )
+      }
+    );
   }
 
   #[test]
@@ -1546,6 +1625,28 @@ function equal(a, b) {
         Vec::<i32>::new()
       )
     });
+
+    from_v8_test!(
+      runtime,
+      "new Int32Array([1, 2, 3, 4, 5]).subarray(2)",
+      |scope, result| {
+        assert_eq!(
+          *<Int32Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![3i32, 4, 5]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new Int32Array([-1, -2, -3, -4, -5]).subarray(1, 4)",
+      |scope, result| {
+        assert_eq!(
+          *<Int32Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![-2i32, -3, -4]
+        )
+      }
+    );
   }
 
   #[test]
@@ -1565,6 +1666,28 @@ function equal(a, b) {
         assert_eq!(
           *<BigUint64Array as FromV8>::from_v8(scope, result).unwrap(),
           vec![1u64, 2, 3]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new BigUint64Array([1n, 2n, 3n, 4n, 5n]).subarray(2)",
+      |scope, result| {
+        assert_eq!(
+          *<BigUint64Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![3u64, 4, 5]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new BigUint64Array([1n, 2n, 3n, 4n, 5n]).subarray(1, 4)",
+      |scope, result| {
+        assert_eq!(
+          *<BigUint64Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![2u64, 3, 4]
         )
       }
     );
@@ -1597,6 +1720,28 @@ function equal(a, b) {
         Vec::<i64>::new()
       )
     });
+
+    from_v8_test!(
+      runtime,
+      "new BigInt64Array([1n, 2n, 3n, 4n, 5n]).subarray(2)",
+      |scope, result| {
+        assert_eq!(
+          *<BigInt64Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![3i64, 4, 5]
+        )
+      }
+    );
+
+    from_v8_test!(
+      runtime,
+      "new BigInt64Array([-1n, -2n, -3n, -4n, -5n]).subarray(1, 4)",
+      |scope, result| {
+        assert_eq!(
+          *<BigInt64Array as FromV8>::from_v8(scope, result).unwrap(),
+          vec![-2i64, -3, -4]
+        )
+      }
+    );
   }
 
   #[test]
