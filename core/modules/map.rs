@@ -574,18 +574,17 @@ impl ModuleMap {
     &self,
     scope: &mut v8::PinScope,
     main: bool,
-    name: impl IntoModuleName,
-    source: impl IntoModuleCodeString,
+    name: ModuleName,
+    source: ModuleCodeString,
     is_dynamic_import: bool,
     code_cache_info: Option<CodeCacheInfo>,
   ) -> Result<ModuleId, ModuleError> {
-    let name = name.into_module_name();
     self.new_module_from_js_source(
       scope,
       main,
       ModuleType::JavaScript,
-      name.into_module_name(),
-      source.into_module_code(),
+      name,
+      source,
       is_dynamic_import,
       code_cache_info,
     )
@@ -1199,24 +1198,20 @@ impl ModuleMap {
 
   pub(crate) async fn load_main(
     module_map_rc: Rc<ModuleMap>,
-    specifier: impl AsRef<str>,
+    specifier: String,
   ) -> Result<RecursiveModuleLoad, CoreError> {
-    let load =
-      RecursiveModuleLoad::main(specifier.as_ref(), module_map_rc.clone());
+    let load = RecursiveModuleLoad::main(specifier, module_map_rc);
     load.prepare().await?;
     Ok(load)
   }
 
   pub(crate) async fn load_side(
     module_map_rc: Rc<ModuleMap>,
-    specifier: impl AsRef<str>,
+    specifier: String,
     kind: SideModuleKind,
+    code: Option<String>,
   ) -> Result<RecursiveModuleLoad, CoreError> {
-    let load = RecursiveModuleLoad::side(
-      specifier.as_ref(),
-      module_map_rc.clone(),
-      kind,
-    );
+    let load = RecursiveModuleLoad::side(specifier, module_map_rc, kind, code);
     load.prepare().await?;
     Ok(load)
   }
@@ -1226,15 +1221,15 @@ impl ModuleMap {
   pub(crate) fn load_dynamic_import(
     self: Rc<Self>,
     scope: &mut v8::PinScope,
-    specifier: &str,
-    referrer: &str,
+    specifier: String,
+    referrer: String,
     requested_module_type: RequestedModuleType,
     phase: ModuleImportPhase,
     resolver_handle: v8::Global<v8::PromiseResolver>,
     cped_handle: v8::Global<v8::Value>,
   ) -> bool {
     let resolve_result =
-      self.resolve(specifier, referrer, ResolutionKind::DynamicImport);
+      self.resolve(&specifier, &referrer, ResolutionKind::DynamicImport);
 
     if phase == ModuleImportPhase::Evaluation
       && let Ok(module_specifier) = &resolve_result
@@ -2155,7 +2150,7 @@ impl ModuleMap {
       .new_es_module(
         scope,
         false,
-        specifier.clone(),
+        specifier.into(),
         source_code,
         false,
         code_cache_info,
