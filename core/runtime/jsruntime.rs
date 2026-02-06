@@ -88,6 +88,40 @@ use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
 
+/// Manages cooperative waiting for libuv timers within a synchronous poll
+/// context, avoiding busy-looping.
+struct UvBackendWaiter {
+  sleep: Option<Pin<Box<tokio::time::Sleep>>>,
+}
+
+impl UvBackendWaiter {
+  fn new() -> Self {
+    Self { sleep: None }
+  }
+
+  /// Poll for the next libuv timer deadline.
+  /// Used when other tokio work is also pending and we can't block.
+  fn poll_timer(
+    &mut self,
+    cx: &mut Context,
+    timeout: i32,
+  ) -> Poll<()> {
+    if timeout <= 0 {
+      // timeout == 0: immediate work; timeout < 0: no timers.
+      // Caller handles these cases.
+      return Poll::Ready(());
+    }
+
+    let deadline = tokio::time::Instant::now()
+      + std::time::Duration::from_millis(timeout as u64);
+    let sleep = self
+      .sleep
+      .get_or_insert_with(|| Box::pin(tokio::time::sleep_until(deadline)));
+    sleep.as_mut().reset(deadline);
+    sleep.as_mut().poll(cx)
+  }
+}
+
 pub type WaitForInspectorDisconnectCallback = Box<dyn Fn()>;
 const STATE_DATA_OFFSET: u32 = 0;
 
@@ -429,6 +463,8 @@ pub struct JsRuntimeState {
   pub(crate) function_templates: Rc<RefCell<FunctionTemplateData>>,
   pub(crate) callsite_prototype: RefCell<Option<v8::Global<v8::Object>>>,
   waker: Arc<AtomicWaker>,
+  /// Cooperatively waits for libuv timers without busy-looping.
+  uv_backend_waiter: RefCell<Option<UvBackendWaiter>>,
   /// Accessed through [`JsRuntimeState::with_inspector`].
   inspector: RefCell<Option<Rc<JsRuntimeInspector>>>,
   has_inspector: Cell<bool>,
@@ -756,6 +792,7 @@ impl JsRuntime {
         eval_context_set_code_cache_cb,
       ),
       waker,
+      uv_backend_waiter: RefCell::new(None),
       // Some fields are initialized later after isolate is created
       inspector: None.into(),
       has_inspector: false.into(),
@@ -1974,12 +2011,16 @@ impl JsRuntime {
     let pending_state =
       EventLoopPendingState::new(scope, context_state, modules);
 
-    // Check if libuv has pending work
-    let uv_alive = {
+    // Check if libuv has pending work and get the backend timeout
+    let (uv_alive, uv_timeout) = {
       let op_state = self.inner.state.op_state.borrow();
       let uv_loop_ptr = &*op_state.uv_loop as *const libuvrust::uv_loop::UvLoop
         as *mut libuvrust::uv_loop::UvLoop;
-      libuvrust::uv_loop::uv_loop_alive(uv_loop_ptr) != 0
+      let alive = libuvrust::uv_loop::uv_loop_alive(uv_loop_ptr) != 0;
+      let timeout = unsafe {
+        libuvrust::uv_loop::uv_backend_timeout(uv_loop_ptr)
+      };
+      (alive, timeout)
     };
 
     if !pending_state.is_pending() && !uv_alive {
@@ -2030,7 +2071,6 @@ impl JsRuntime {
         || pending_state.has_outstanding_immediates
         || pending_state.has_refed_immediates > 0
         || pending_state.has_pending_promise_events
-        || uv_alive
       {
         self.inner.state.waker.wake();
       } else
@@ -2040,6 +2080,62 @@ impl JsRuntime {
         && dispatched_ops
       {
         self.inner.state.waker.wake();
+      }
+    }
+
+    // For libuv: instead of unconditionally waking, cooperatively wait.
+    if uv_alive {
+      if uv_timeout == 0 {
+        // Immediate libuv work pending — reschedule right away.
+        self.inner.state.waker.wake();
+      } else {
+        let only_uv = !pending_state.has_pending_ops
+          && !pending_state.has_pending_background_tasks
+          && !pending_state.has_tick_scheduled
+          && !pending_state.has_outstanding_immediates
+          && pending_state.has_refed_immediates == 0
+          && !pending_state.has_pending_promise_events
+          && !pending_state.has_pending_module_evaluation
+          && !pending_state.has_pending_dyn_module_evaluation
+          && !pending_state.has_pending_dyn_imports;
+
+        if only_uv {
+          // Only libuv has work — safe to let uv_run block on I/O.
+          // uv_run(Once) calls kevent/epoll_wait with the proper timeout,
+          // handling both I/O readiness and timer deadlines.
+          {
+            let mut op_state = self.inner.state.op_state.borrow_mut();
+            let uv_loop_ptr =
+              &mut *op_state.uv_loop as *mut libuvrust::uv_loop::UvLoop;
+            drop(op_state);
+            unsafe {
+              let context = scope.get_current_context();
+              (*uv_loop_ptr).data = std::mem::transmute(context);
+              libuvrust::uv_loop::uv_run(
+                uv_loop_ptr,
+                libuvrust::uv_loop::UvRunMode::Once,
+              );
+              (*uv_loop_ptr).data = std::ptr::null_mut();
+            }
+          }
+          // After blocking uv_run returns, wake to process results.
+          self.inner.state.waker.wake();
+        } else if uv_timeout > 0 {
+          // Both libuv and tokio have work. Use a tokio timer for
+          // libuv's next deadline, wake when it fires.
+          let mut waiter = self.inner.state.uv_backend_waiter.borrow_mut();
+          if waiter.is_none() {
+            *waiter = Some(UvBackendWaiter::new());
+          }
+          if let Some(ref mut w) = *waiter {
+            let _ = w.poll_timer(cx, uv_timeout);
+          }
+        } else {
+          // timeout < 0, no libuv timers, but other tokio work pending.
+          // We can't block. Wake immediately so we poll libuv again
+          // on the next iteration.
+          self.inner.state.waker.wake();
+        }
       }
     }
 
