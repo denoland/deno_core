@@ -42,6 +42,7 @@ deno_unsync.workspace = true
 futures.workspace = true
 indexmap.workspace = true
 libc.workspace = true
+libuvrust = { path = "../../libuvrust" }
 parking_lot.workspace = true
 percent-encoding.workspace = true
 pin-project.workspace = true

@@ -1940,6 +1940,24 @@ impl JsRuntime {
 
     modules.poll_progress(cx, scope)?;
 
+    // Poll libuv event loop with V8 context available for callbacks
+    {
+      let mut op_state = self.inner.state.op_state.borrow_mut();
+      let uv_loop_ptr =
+        &mut *op_state.uv_loop as *mut libuvrust::uv_loop::UvLoop;
+      drop(op_state);
+      unsafe {
+        // Store context pointer in loop data so libuv callbacks can create V8 scopes
+        let context = scope.get_current_context();
+        (*uv_loop_ptr).data = std::mem::transmute(context);
+        libuvrust::uv_loop::uv_run(
+          uv_loop_ptr,
+          libuvrust::uv_loop::UvRunMode::NoWait,
+        );
+        (*uv_loop_ptr).data = std::ptr::null_mut();
+      }
+    }
+
     // Resolve async ops, run all next tick callbacks and macrotasks callbacks
     // and only then check for any promise exceptions (`unhandledrejection`
     // handlers are run in macrotasks callbacks so we need to let them run
@@ -1956,7 +1974,15 @@ impl JsRuntime {
     let pending_state =
       EventLoopPendingState::new(scope, context_state, modules);
 
-    if !pending_state.is_pending() {
+    // Check if libuv has pending work
+    let uv_alive = {
+      let op_state = self.inner.state.op_state.borrow();
+      let uv_loop_ptr = &*op_state.uv_loop as *const libuvrust::uv_loop::UvLoop
+        as *mut libuvrust::uv_loop::UvLoop;
+      libuvrust::uv_loop::uv_loop_alive(uv_loop_ptr) != 0
+    };
+
+    if !pending_state.is_pending() && !uv_alive {
       if has_inspector {
         let inspector = self.inspector();
         let sessions_state = inspector.sessions_state();
@@ -2004,6 +2030,7 @@ impl JsRuntime {
         || pending_state.has_outstanding_immediates
         || pending_state.has_refed_immediates > 0
         || pending_state.has_pending_promise_events
+        || uv_alive
       {
         self.inner.state.waker.wake();
       } else
