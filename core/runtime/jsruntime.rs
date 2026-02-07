@@ -86,29 +86,69 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::Context;
 use std::task::Poll;
+use std::os::unix::io::AsRawFd;
+use std::os::unix::io::RawFd;
 use std::task::Waker;
+use tokio::io::unix::AsyncFd;
+use tokio::io::Interest;
 
-/// Manages cooperative waiting for libuv timers within a synchronous poll
-/// context, avoiding busy-looping.
+/// Newtype wrapper around a raw fd that does NOT close on drop.
+/// Used to register libuv's backend fd with tokio's reactor.
+struct UvBackendFd(RawFd);
+
+impl AsRawFd for UvBackendFd {
+  fn as_raw_fd(&self) -> RawFd {
+    self.0
+  }
+}
+
+/// Manages cooperative waiting for libuv events within a synchronous poll
+/// context, avoiding busy-looping. Uses tokio's AsyncFd to watch libuv's
+/// backend fd (kqueue/epoll) for I/O readiness, and an optional timer for
+/// libuv timer deadlines.
 struct UvBackendWaiter {
   sleep: Option<Pin<Box<tokio::time::Sleep>>>,
+  async_fd: AsyncFd<UvBackendFd>,
 }
 
 impl UvBackendWaiter {
-  fn new() -> Self {
-    Self { sleep: None }
+  fn new(backend_fd: i32) -> Self {
+    let async_fd = AsyncFd::with_interest(
+      UvBackendFd(backend_fd as RawFd),
+      Interest::READABLE,
+    )
+    .expect("failed to register libuv backend fd with tokio");
+    Self {
+      sleep: None,
+      async_fd,
+    }
+  }
+
+  /// Poll for I/O readiness on libuv's backend fd.
+  /// Clears any stale readiness (from events already processed by
+  /// uv_run(NoWait)) and registers the waker for new events.
+  fn poll_io_ready(&self, cx: &mut Context) {
+    // After uv_run(NoWait) drains the kqueue/epoll, the fd should not
+    // be readable. Clear any stale cached readiness from the reactor,
+    // then re-register the waker so we're notified of new events.
+    for _ in 0..2 {
+      match self.async_fd.poll_read_ready(cx) {
+        Poll::Ready(Ok(mut guard)) => {
+          guard.clear_ready();
+          // guard dropped here, loop re-polls to register waker
+        }
+        _ => break,
+      }
+    }
   }
 
   /// Poll for the next libuv timer deadline.
-  /// Used when other tokio work is also pending and we can't block.
   fn poll_timer(
     &mut self,
     cx: &mut Context,
     timeout: i32,
   ) -> Poll<()> {
     if timeout <= 0 {
-      // timeout == 0: immediate work; timeout < 0: no timers.
-      // Caller handles these cases.
       return Poll::Ready(());
     }
 
@@ -2120,21 +2160,31 @@ impl JsRuntime {
           }
           // After blocking uv_run returns, wake to process results.
           self.inner.state.waker.wake();
-        } else if uv_timeout > 0 {
-          // Both libuv and tokio have work. Use a tokio timer for
-          // libuv's next deadline, wake when it fires.
+        } else {
+          // Both libuv and tokio have work. Watch libuv's backend fd
+          // (kqueue/epoll) via AsyncFd to wake on new I/O without
+          // busy-looping. uv_run(NoWait) already drained the kqueue
+          // earlier in this tick, so poll_io_ready clears stale
+          // readiness and registers the waker for new events.
           let mut waiter = self.inner.state.uv_backend_waiter.borrow_mut();
           if waiter.is_none() {
-            *waiter = Some(UvBackendWaiter::new());
+            let backend_fd = {
+              let op_state = self.inner.state.op_state.borrow();
+              let uv_loop_ptr = &*op_state.uv_loop
+                as *const libuvrust::uv_loop::UvLoop;
+              unsafe { (*uv_loop_ptr).backend_fd }
+            };
+            *waiter = Some(UvBackendWaiter::new(backend_fd));
           }
           if let Some(ref mut w) = *waiter {
-            let _ = w.poll_timer(cx, uv_timeout);
+            // Wait for I/O readiness on libuv's backend fd.
+            w.poll_io_ready(cx);
+            // If libuv has a timer deadline, also register a tokio timer
+            // so we wake when it fires (even if no I/O arrives).
+            if uv_timeout > 0 {
+              let _ = w.poll_timer(cx, uv_timeout);
+            }
           }
-        } else {
-          // timeout < 0, no libuv timers, but other tokio work pending.
-          // We can't block. Wake immediately so we poll libuv again
-          // on the next iteration.
-          self.inner.state.waker.wake();
         }
       }
     }
