@@ -86,16 +86,29 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::task::Context;
 use std::task::Poll;
-use std::os::unix::io::AsRawFd;
-use std::os::unix::io::RawFd;
 use std::task::Waker;
+
+// ── Platform-specific libuv backend waiter ───────────────────────────
+//
+// On Unix, we register libuv's kqueue/epoll fd with tokio's reactor via
+// AsyncFd. On Windows, IOCP handles can't be nested, so we use a
+// lightweight watcher thread (see async_handle.rs).
+
+#[cfg(unix)]
+use std::os::unix::io::AsRawFd;
+#[cfg(unix)]
+use std::os::unix::io::RawFd;
+#[cfg(unix)]
 use tokio::io::unix::AsyncFd;
+#[cfg(unix)]
 use tokio::io::Interest;
 
 /// Newtype wrapper around a raw fd that does NOT close on drop.
 /// Used to register libuv's backend fd with tokio's reactor.
+#[cfg(unix)]
 struct UvBackendFd(RawFd);
 
+#[cfg(unix)]
 impl AsRawFd for UvBackendFd {
   fn as_raw_fd(&self) -> RawFd {
     self.0
@@ -103,42 +116,80 @@ impl AsRawFd for UvBackendFd {
 }
 
 /// Manages cooperative waiting for libuv events within a synchronous poll
-/// context, avoiding busy-looping. Uses tokio's AsyncFd to watch libuv's
-/// backend fd (kqueue/epoll) for I/O readiness, and an optional timer for
-/// libuv timer deadlines.
+/// context, avoiding busy-looping.
+///
+/// On Unix: uses tokio's `AsyncFd` to watch libuv's backend fd
+/// (kqueue/epoll) for I/O readiness.
+/// On Windows: uses `AsyncHandle` (a watcher thread on libuv's IOCP).
 struct UvBackendWaiter {
   sleep: Option<Pin<Box<tokio::time::Sleep>>>,
+  #[cfg(unix)]
   async_fd: AsyncFd<UvBackendFd>,
+  #[cfg(windows)]
+  async_handle: super::async_handle::AsyncHandle,
 }
 
 impl UvBackendWaiter {
   fn new(backend_fd: i32) -> Self {
-    let async_fd = AsyncFd::with_interest(
-      UvBackendFd(backend_fd as RawFd),
-      Interest::READABLE,
-    )
-    .expect("failed to register libuv backend fd with tokio");
-    Self {
-      sleep: None,
-      async_fd,
+    #[cfg(unix)]
+    {
+      let async_fd = AsyncFd::with_interest(
+        UvBackendFd(backend_fd as RawFd),
+        Interest::READABLE,
+      )
+      .expect("failed to register libuv backend fd with tokio");
+      Self {
+        sleep: None,
+        async_fd,
+      }
+    }
+    #[cfg(windows)]
+    {
+      let async_handle =
+        super::async_handle::AsyncHandle::new(backend_fd as isize);
+      Self {
+        sleep: None,
+        async_handle,
+      }
     }
   }
 
-  /// Poll for I/O readiness on libuv's backend fd.
-  /// Clears any stale readiness (from events already processed by
-  /// uv_run(NoWait)) and registers the waker for new events.
+  /// Poll for I/O readiness on libuv's backend.
+  ///
+  /// On Unix: clears stale readiness from the reactor and re-registers
+  /// the waker for new events.
+  /// On Windows: checks if the IOCP watcher thread has signaled
+  /// readiness and registers the waker.
   fn poll_io_ready(&self, cx: &mut Context) {
-    // After uv_run(NoWait) drains the kqueue/epoll, the fd should not
-    // be readable. Clear any stale cached readiness from the reactor,
-    // then re-register the waker so we're notified of new events.
-    for _ in 0..2 {
-      match self.async_fd.poll_read_ready(cx) {
-        Poll::Ready(Ok(mut guard)) => {
-          guard.clear_ready();
-          // guard dropped here, loop re-polls to register waker
+    #[cfg(unix)]
+    {
+      // After uv_run(NoWait) drains the kqueue/epoll, the fd should not
+      // be readable. Clear any stale cached readiness from the reactor,
+      // then re-register the waker so we're notified of new events.
+      for _ in 0..2 {
+        match self.async_fd.poll_read_ready(cx) {
+          Poll::Ready(Ok(mut guard)) => {
+            guard.clear_ready();
+            // guard dropped here, loop re-polls to register waker
+          }
+          _ => break,
         }
-        _ => break,
       }
+    }
+    #[cfg(windows)]
+    {
+      let _ = self.async_handle.poll_ready(cx);
+    }
+  }
+
+  /// Signal that the caller has finished processing libuv events.
+  ///
+  /// On Unix this is a no-op (readiness is cleared in `poll_io_ready`).
+  /// On Windows this resumes the IOCP watcher thread.
+  fn clear_ready(&self) {
+    #[cfg(windows)]
+    {
+      self.async_handle.clear_ready();
     }
   }
 
@@ -2021,17 +2072,32 @@ impl JsRuntime {
     {
       let mut op_state = self.inner.state.op_state.borrow_mut();
       let uv_loop_ptr =
-        &mut *op_state.uv_loop as *mut libuvrust::uv_loop::UvLoop;
+        &mut *op_state.uv_loop as *mut libuvrust::backend::UvLoop;
       drop(op_state);
       unsafe {
         // Store context pointer in loop data so libuv callbacks can create V8 scopes
         let context = scope.get_current_context();
         (*uv_loop_ptr).data = std::mem::transmute(context);
-        libuvrust::uv_loop::uv_run(
-          uv_loop_ptr,
-          libuvrust::uv_loop::UvRunMode::NoWait,
-        );
+        libuvrust::backend::uv_run(uv_loop_ptr, libuvrust::backend::UV_RUN_NOWAIT);
         (*uv_loop_ptr).data = std::ptr::null_mut();
+      }
+      // On Windows, resume the IOCP watcher thread now that uv_run(NoWait)
+      // has drained the re-posted completion packets.
+      if let Some(ref w) = *self.inner.state.uv_backend_waiter.borrow() {
+        w.clear_ready();
+      }
+    }
+
+    // Run setImmediate callbacks BEFORE polling tokio timers.
+    // This matches Node.js phase ordering: from inside an I/O callback
+    // (which fires above in uv_run), setImmediate (check phase) must fire
+    // before setTimeout(fn, 0) (timers phase of the NEXT iteration).
+    // Since our timers are tokio-backed (polled in do_js_event_loop_tick_realm),
+    // we run immediates first so they precede timer delivery.
+    {
+      let has_immediates = context_state.immediate_info.borrow().ref_count > 0;
+      if has_immediates {
+        Self::do_js_run_immediate_callbacks(scope, context_state)?;
       }
     }
 
@@ -2054,11 +2120,12 @@ impl JsRuntime {
     // Check if libuv has pending work and get the backend timeout
     let (uv_alive, uv_timeout) = {
       let op_state = self.inner.state.op_state.borrow();
-      let uv_loop_ptr = &*op_state.uv_loop as *const libuvrust::uv_loop::UvLoop
-        as *mut libuvrust::uv_loop::UvLoop;
-      let alive = libuvrust::uv_loop::uv_loop_alive(uv_loop_ptr) != 0;
+      let uv_loop_ptr = &*op_state.uv_loop
+        as *const libuvrust::backend::UvLoop
+        as *mut libuvrust::backend::UvLoop;
+      let alive = libuvrust::backend::uv_loop_alive(uv_loop_ptr) != 0;
       let timeout = unsafe {
-        libuvrust::uv_loop::uv_backend_timeout(uv_loop_ptr)
+        libuvrust::backend::uv_backend_timeout(uv_loop_ptr)
       };
       (alive, timeout)
     };
@@ -2123,67 +2190,36 @@ impl JsRuntime {
       }
     }
 
-    // For libuv: instead of unconditionally waking, cooperatively wait.
+    // For libuv: cooperatively wait using AsyncFd on libuv's backend fd.
+    // We never use uv_run(Once) to block because libuv callbacks can spawn
+    // tokio work (e.g. Deno.serve() called from a node:net handler), and
+    // blocking in uv_run would starve those tokio futures.
     if uv_alive {
       if uv_timeout == 0 {
         // Immediate libuv work pending — reschedule right away.
         self.inner.state.waker.wake();
       } else {
-        let only_uv = !pending_state.has_pending_ops
-          && !pending_state.has_pending_background_tasks
-          && !pending_state.has_tick_scheduled
-          && !pending_state.has_outstanding_immediates
-          && pending_state.has_refed_immediates == 0
-          && !pending_state.has_pending_promise_events
-          && !pending_state.has_pending_module_evaluation
-          && !pending_state.has_pending_dyn_module_evaluation
-          && !pending_state.has_pending_dyn_imports;
-
-        if only_uv {
-          // Only libuv has work — safe to let uv_run block on I/O.
-          // uv_run(Once) calls kevent/epoll_wait with the proper timeout,
-          // handling both I/O readiness and timer deadlines.
-          {
-            let mut op_state = self.inner.state.op_state.borrow_mut();
-            let uv_loop_ptr =
-              &mut *op_state.uv_loop as *mut libuvrust::uv_loop::UvLoop;
-            drop(op_state);
-            unsafe {
-              let context = scope.get_current_context();
-              (*uv_loop_ptr).data = std::mem::transmute(context);
-              libuvrust::uv_loop::uv_run(
-                uv_loop_ptr,
-                libuvrust::uv_loop::UvRunMode::Once,
-              );
-              (*uv_loop_ptr).data = std::ptr::null_mut();
-            }
-          }
-          // After blocking uv_run returns, wake to process results.
-          self.inner.state.waker.wake();
-        } else {
-          // Both libuv and tokio have work. Watch libuv's backend fd
-          // (kqueue/epoll) via AsyncFd to wake on new I/O without
-          // busy-looping. uv_run(NoWait) already drained the kqueue
-          // earlier in this tick, so poll_io_ready clears stale
-          // readiness and registers the waker for new events.
-          let mut waiter = self.inner.state.uv_backend_waiter.borrow_mut();
-          if waiter.is_none() {
-            let backend_fd = {
-              let op_state = self.inner.state.op_state.borrow();
-              let uv_loop_ptr = &*op_state.uv_loop
-                as *const libuvrust::uv_loop::UvLoop;
-              unsafe { (*uv_loop_ptr).backend_fd }
-            };
-            *waiter = Some(UvBackendWaiter::new(backend_fd));
-          }
-          if let Some(ref mut w) = *waiter {
-            // Wait for I/O readiness on libuv's backend fd.
-            w.poll_io_ready(cx);
-            // If libuv has a timer deadline, also register a tokio timer
-            // so we wake when it fires (even if no I/O arrives).
-            if uv_timeout > 0 {
-              let _ = w.poll_timer(cx, uv_timeout);
-            }
+        // Watch libuv's backend fd (kqueue/epoll) via AsyncFd so we wake
+        // on new I/O without busy-looping. uv_run(NoWait) already drained
+        // the kqueue earlier in this tick, so poll_io_ready clears stale
+        // readiness and registers the waker for new events.
+        let mut waiter = self.inner.state.uv_backend_waiter.borrow_mut();
+        if waiter.is_none() {
+          let backend_fd = {
+            let op_state = self.inner.state.op_state.borrow();
+            let uv_loop_ptr = &*op_state.uv_loop
+              as *const libuvrust::backend::UvLoop;
+            unsafe { libuvrust::backend::loop_backend_fd(uv_loop_ptr) }
+          };
+          *waiter = Some(UvBackendWaiter::new(backend_fd));
+        }
+        if let Some(ref mut w) = *waiter {
+          // Wait for I/O readiness on libuv's backend fd.
+          w.poll_io_ready(cx);
+          // If libuv has a timer deadline, also register a tokio timer
+          // so we wake when it fires (even if no I/O arrives).
+          if uv_timeout > 0 {
+            let _ = w.poll_timer(cx, uv_timeout);
           }
         }
       }

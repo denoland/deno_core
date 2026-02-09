@@ -1,5 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+#[cfg(windows)]
+pub(crate) mod async_handle;
 pub(crate) mod bindings;
 pub(crate) mod exception_state;
 mod jsrealm;

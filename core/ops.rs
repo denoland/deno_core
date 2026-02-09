@@ -247,7 +247,7 @@ pub struct OpState {
   /// Used to implement `uv_ref` and `uv_unref` methods for Node compat.
   pub(crate) unrefed_resources: HashSet<ResourceId>,
   /// The libuv event loop, polled during the deno event loop tick.
-  pub uv_loop: Box<libuvrust::uv_loop::UvLoop>,
+  pub uv_loop: Box<libuvrust::backend::UvLoop>,
 }
 
 impl OpState {
@@ -262,7 +262,7 @@ impl OpState {
       op_stack_trace_callback,
       unrefed_ops: Default::default(),
       unrefed_resources: Default::default(),
-      uv_loop: libuvrust::uv_loop::UvLoop::new(),
+      uv_loop: libuvrust::backend::new_loop(),
     }
   }
 
