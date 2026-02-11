@@ -34,6 +34,46 @@
   const RING_SIZE = 4 * 1024;
   const NO_PROMISE = null; // Alias to null is faster than plain nulls
   const promiseRing = ArrayPrototypeFill(new Array(RING_SIZE), NO_PROMISE);
+
+  // Callback infrastructure for ops that need synchronous (non-microtask)
+  // resolution. Used by Node.js compat layer for write ordering.
+  let nextCallbackId = 1;
+  const callbackMap = new SafeMap();
+  const NO_CALLBACK = null;
+  const callbackRing = ArrayPrototypeFill(new Array(RING_SIZE), NO_CALLBACK);
+
+  function setCallback(id, fn) {
+    const idx = id % RING_SIZE;
+    const old = callbackRing[idx];
+    if (old !== NO_CALLBACK) {
+      const oldId = id - RING_SIZE;
+      MapPrototypeSet(callbackMap, oldId, old);
+    }
+    callbackRing[idx] = fn;
+  }
+
+  function __resolveCallback(id, res, isOk) {
+    const outOfBounds = id < nextCallbackId - RING_SIZE;
+    if (outOfBounds) {
+      const cb = MapPrototypeGet(callbackMap, id);
+      if (!cb) {
+        throw "Missing callback in map @ " + id;
+      }
+      MapPrototypeDelete(callbackMap, id);
+      cb(res, isOk);
+    } else {
+      const idx = id % RING_SIZE;
+      const cb = callbackRing[idx];
+      if (!cb) {
+        throw "Missing callback in ring @ " + id;
+      }
+      callbackRing[idx] = NO_CALLBACK;
+      cb(res, isOk);
+    }
+  }
+
+  // Store raw (unwrapped) async op functions for callback-based invocation
+  const rawAsyncOps = {};
   // TODO(bartlomieju): in the future use `v8::Private` so it's not visible
   // to users. Currently missing bindings.
   const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
@@ -195,6 +235,7 @@
   }
 
   function setUpAsyncStub(opName, originalOp, maybeProto) {
+    rawAsyncOps[opName] = originalOp;
     let fn;
 
     // The body of this switch statement can be generated using the script above.
@@ -438,10 +479,23 @@
     setUpAsyncStub,
     hasPromise,
     promiseIdSymbol,
+    rawAsyncOps,
+    setCallback,
+    __resolveCallback,
+  });
+
+  // Expose nextCallbackId as a getter/setter property so callers
+  // can read and increment the shared counter.
+  ObjectDefineProperty(core, "nextCallbackId", {
+    get() { return nextCallbackId; },
+    set(v) { nextCallbackId = v; },
+    enumerable: true,
+    configurable: true,
   });
 
   const infra = {
     __resolvePromise,
+    __resolveCallback,
     __setLeakTracingEnabled,
     __isLeakTracingEnabled,
     __initializeCoreMethods,

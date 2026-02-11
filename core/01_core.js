@@ -37,6 +37,7 @@
     __isLeakTracingEnabled,
     __initializeCoreMethods,
     __resolvePromise,
+    __resolveCallback,
   } = window.__infra;
   const {
     op_abort_wasm_streaming,
@@ -176,7 +177,13 @@
       const isOk = arguments[i + 1];
       const res = arguments[i + 2];
 
-      __resolvePromise(promiseId, res, isOk);
+      if (promiseId < 0) {
+        // Negative IDs are callback-based ops (not promise-based).
+        // Decode: callbackId = -(promiseId + 1)
+        __resolveCallback(-(promiseId + 1), res, isOk);
+      } else {
+        __resolvePromise(promiseId, res, isOk);
+      }
     }
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
