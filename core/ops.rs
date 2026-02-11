@@ -248,10 +248,37 @@ pub struct OpState {
   pub(crate) unrefed_resources: HashSet<ResourceId>,
   /// The libuv event loop, polled during the deno event loop tick.
   pub uv_loop: Box<libuvrust::backend::UvLoop>,
+  /// libuv check handle — runs setImmediate callbacks in the check phase
+  /// (after I/O poll, before next timers), matching Node.js behavior.
+  pub uv_check_handle: Box<libuvrust::backend::UvCheck>,
 }
 
 impl OpState {
   pub fn new(op_stack_trace_callback: Option<OpStackTraceCallback>) -> OpState {
+    let mut uv_loop = libuvrust::backend::new_loop();
+    let mut uv_check_handle =
+      Box::new(libuvrust::backend::new_check());
+    unsafe {
+      libuvrust::backend::uv_check_init(
+        &mut *uv_loop,
+        &mut *uv_check_handle,
+      );
+      // Start the check handle — it fires in libuv's check phase
+      // (after I/O poll) to run setImmediate callbacks.
+      libuvrust::backend::uv_check_start(
+        &mut *uv_check_handle,
+        Some(check_immediate_cb),
+      );
+      // Unref the check handle so it doesn't keep the loop alive by itself.
+      // Deno's own event loop pending state (has_refed_immediates) handles
+      // liveness, and UV_RUN_NOWAIT never blocks in poll, so no idle handle
+      // is needed (unlike Node.js which uses UV_RUN_DEFAULT).
+      libuvrust::backend::uv_handle_unref(
+        &mut *uv_check_handle
+          as *mut libuvrust::backend::UvCheck
+          as *mut libuvrust::backend::UvHandle,
+      );
+    }
     OpState {
       resource_table: Default::default(),
       gotham_state: Default::default(),
@@ -262,7 +289,8 @@ impl OpState {
       op_stack_trace_callback,
       unrefed_ops: Default::default(),
       unrefed_resources: Default::default(),
-      uv_loop: libuvrust::backend::new_loop(),
+      uv_loop,
+      uv_check_handle,
     }
   }
 
@@ -299,3 +327,52 @@ impl DerefMut for OpState {
     &mut self.gotham_state
   }
 }
+
+/// libuv check callback — runs setImmediate callbacks in the check phase.
+/// This matches Node.js's `CheckImmediate` approach: the check phase fires
+/// after I/O poll and before the next timers phase.
+pub(crate) unsafe extern "C" fn check_immediate_cb(
+  handle: *mut libuvrust::backend::UvCheck,
+) {
+  unsafe {
+    // Get loop from check handle (check handle embeds uv_handle_t as first field)
+    let loop_ptr = (*(handle as *mut libuvrust::backend::UvHandle)).loop_
+      as *mut libuvrust::backend::UvLoop;
+
+    // Get V8 context from loop.data (set before uv_run in jsruntime.rs)
+    let ctx_ptr = (*loop_ptr).data;
+    if ctx_ptr.is_null() {
+      return;
+    }
+    let context: v8::Local<'_, v8::Context> = std::mem::transmute(
+      std::ptr::NonNull::new_unchecked(ctx_ptr as *mut v8::Context),
+    );
+
+    v8::callback_scope!(unsafe let scope, context);
+
+    // Get ContextState from context embedder data
+    let ctx_state_ptr = context.get_aligned_pointer_from_embedder_data(
+      crate::runtime::CONTEXT_STATE_SLOT_INDEX,
+    );
+    if ctx_state_ptr.is_null() {
+      return;
+    }
+    let ctx_state =
+      &*(ctx_state_ptr as *const crate::runtime::ContextState);
+
+    // Only run if there are pending immediates
+    if ctx_state.immediate_info.borrow().ref_count == 0 {
+      return;
+    }
+
+    // Call the JS immediate callback
+    let cb = ctx_state.run_immediate_callbacks_cb.borrow();
+    if let Some(ref cb) = *cb {
+      v8::tc_scope!(let tc_scope, scope);
+      let cb_local = cb.open(tc_scope);
+      let undefined = v8::undefined(tc_scope).into();
+      cb_local.call(tc_scope, undefined, &[]);
+    }
+  }
+}
+

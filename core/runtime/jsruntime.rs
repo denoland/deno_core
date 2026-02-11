@@ -2068,11 +2068,16 @@ impl JsRuntime {
 
     modules.poll_progress(cx, scope)?;
 
-    // Poll libuv event loop with V8 context available for callbacks
+    // Poll libuv event loop with V8 context available for callbacks.
+    // The check handle (started in OpState::new) fires setImmediate callbacks
+    // during uv_run's check phase, matching Node.js's exact ordering.
+    // No idle handle is needed: Deno's pending state (has_refed_immediates)
+    // handles liveness, and UV_RUN_NOWAIT never blocks in poll.
     {
-      let mut op_state = self.inner.state.op_state.borrow_mut();
+      let op_state = self.inner.state.op_state.borrow();
       let uv_loop_ptr =
-        &mut *op_state.uv_loop as *mut libuvrust::backend::UvLoop;
+        &*op_state.uv_loop as *const libuvrust::backend::UvLoop
+          as *mut libuvrust::backend::UvLoop;
       drop(op_state);
       unsafe {
         // Store context pointer in loop data so libuv callbacks can create V8 scopes
@@ -2085,19 +2090,6 @@ impl JsRuntime {
       // has drained the re-posted completion packets.
       if let Some(ref w) = *self.inner.state.uv_backend_waiter.borrow() {
         w.clear_ready();
-      }
-    }
-
-    // Run setImmediate callbacks BEFORE polling tokio timers.
-    // This matches Node.js phase ordering: from inside an I/O callback
-    // (which fires above in uv_run), setImmediate (check phase) must fire
-    // before setTimeout(fn, 0) (timers phase of the NEXT iteration).
-    // Since our timers are tokio-backed (polled in do_js_event_loop_tick_realm),
-    // we run immediates first so they precede timer delivery.
-    {
-      let has_immediates = context_state.immediate_info.borrow().ref_count > 0;
-      if has_immediates {
-        Self::do_js_run_immediate_callbacks(scope, context_state)?;
       }
     }
 
