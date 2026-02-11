@@ -696,7 +696,7 @@ impl std::fmt::Display for RequestedModuleType {
 /// import assertions explicitly constrains an import to JSON, in
 /// which case this will have a `RequestedModuleType::Json`.
 #[derive(Clone, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ModuleReference {
+pub struct ModuleReference {
   pub specifier: ModuleSpecifier,
   pub requested_module_type: RequestedModuleType,
 }
@@ -713,7 +713,7 @@ pub(crate) enum ModuleImportPhase {
 /// import assertions explicitly constrains an import to JSON, in
 /// which case this will have a `RequestedModuleType::Json`.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
-pub(crate) struct ModuleRequest {
+pub struct ModuleRequest {
   pub reference: ModuleReference,
   /// None if this is a root request.
   pub specifier_key: Option<String>,
