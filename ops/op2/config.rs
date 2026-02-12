@@ -15,6 +15,7 @@ use syn::parse::ParseStream;
 use syn::parse2;
 
 use crate::op2::Op2Error;
+use crate::op2::Op2ErrorKind;
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct MacroConfig {
@@ -135,22 +136,24 @@ impl MacroConfig {
 
     // Test for invalid attribute combinations
     if config.fast && config.nofast {
-      return Err(Op2Error::InvalidAttributeCombination(
-        span, "fast", "nofast",
+      return Err(Op2Error::with_span(
+        span,
+        Op2ErrorKind::InvalidAttributeCombination("fast", "nofast"),
       ));
     }
     if config.fast && config.fast_alternative.is_some() {
-      return Err(Op2Error::InvalidAttributeCombination(
+      return Err(Op2Error::with_span(
         span,
-        "fast",
-        "fast(...)",
+        Op2ErrorKind::InvalidAttributeCombination("fast", "fast(...)"),
       ));
     }
     if config.no_side_effects && config.reentrant {
-      return Err(Op2Error::InvalidAttributeCombination(
+      return Err(Op2Error::with_span(
         span,
-        "no_side_effects",
-        "reentrant",
+        Op2ErrorKind::InvalidAttributeCombination(
+          "no_side_effects",
+          "reentrant",
+        ),
       ));
     }
 

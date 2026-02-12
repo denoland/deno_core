@@ -13,6 +13,7 @@ use syn::spanned::Spanned;
 
 use crate::op2::MacroConfig;
 use crate::op2::Op2Error;
+use crate::op2::Op2ErrorKind;
 use crate::op2::generate_op2;
 
 use super::signature::is_attribute_special;
@@ -107,7 +108,8 @@ pub(crate) fn generate_impl_ops(
         block: Box::new(method.block),
       };
 
-      let mut config = MacroConfig::from_attributes(span, attrs)?;
+      let mut config = MacroConfig::from_attributes(span, attrs)
+        .map_err(|e| e.with_default_span(span))?;
 
       if matches!(args.class_ty, Some(ClassTy::Base { .. })) {
         config.use_cppgc_base = true;
@@ -124,7 +126,10 @@ pub(crate) fn generate_impl_ops(
       let ident = func.sig.ident.clone();
       if config.constructor {
         if constructor.is_some() {
-          return Err(Op2Error::MultipleConstructors(span));
+          return Err(Op2Error::with_span(
+            span,
+            Op2ErrorKind::MultipleConstructors,
+          ));
         }
 
         constructor = Some(ident);
@@ -142,7 +147,8 @@ pub(crate) fn generate_impl_ops(
 
       config.self_name = Some(format_ident!("{}", self_ty_ident));
 
-      let op = generate_op2(config, func)?;
+      let op = generate_op2(config, func)
+        .map_err(|e| e.with_default_span(span))?;
       tokens.extend(op);
     }
   }
