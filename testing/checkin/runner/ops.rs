@@ -163,7 +163,7 @@ impl TestObjectWrap {
   }
 }
 
-#[derive(CppgcInherits)]
+#[derive(CppgcInherits, CppgcBase)]
 #[cppgc_inherits_from(DOMPointReadOnly)]
 #[repr(C)]
 pub struct DOMPoint {
@@ -245,7 +245,7 @@ impl DOMPointReadOnly {
   }
 }
 
-#[op2(inherit = DOMPointReadOnly)]
+#[op2(base, inherit = DOMPointReadOnly)]
 impl DOMPoint {
   #[constructor]
   #[cppgc]
@@ -341,6 +341,44 @@ impl DOMPoint {
   #[fast]
   #[rename("impl")]
   fn impl_method(&self) {}
+}
+
+#[derive(CppgcInherits)]
+#[cppgc_inherits_from(DOMPoint)]
+#[repr(C)]
+pub struct DOMPoint3D {
+  base: DOMPoint,
+}
+
+unsafe impl GarbageCollected for DOMPoint3D {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"DOMPoint3D"
+  }
+}
+
+#[op2(inherit = DOMPoint)]
+impl DOMPoint3D {
+  #[constructor]
+  #[cppgc]
+  fn new(x: Option<f64>, y: Option<f64>, z: Option<f64>) -> DOMPoint3D {
+    DOMPoint3D {
+      base: DOMPoint {
+        base: DOMPointReadOnly {
+          x: GcCell::new(x.unwrap_or(0.0)),
+          y: GcCell::new(y.unwrap_or(0.0)),
+          z: GcCell::new(z.unwrap_or(0.0)),
+          w: GcCell::new(1.0),
+        },
+      },
+    }
+  }
+
+  #[fast]
+  fn description(&self) -> u32 {
+    42
+  }
 }
 
 #[repr(u8)]

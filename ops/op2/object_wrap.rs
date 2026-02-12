@@ -111,7 +111,7 @@ pub(crate) fn generate_impl_ops(
       let mut config = MacroConfig::from_attributes(span, attrs)
         .map_err(|e| e.with_default_span(span))?;
 
-      if matches!(args.class_ty, Some(ClassTy::Base { .. })) {
+      if args.is_base {
         config.use_cppgc_base = true;
       }
 
@@ -159,11 +159,11 @@ pub(crate) fn generate_impl_ops(
     quote! { None }
   };
 
-  let inherits_type_name = match &args.class_ty {
-    Some(ClassTy::Inherit { ty, .. }) => quote! {
+  let inherits_type_name = match &args.inherits_from {
+    Some(ty) => quote! {
       inherits_type_name: || Some(std::any::type_name::<#ty>()),
     },
-    _ => quote! {
+    None => quote! {
       inherits_type_name: || None,
     },
   };
@@ -195,48 +195,34 @@ pub(crate) fn generate_impl_ops(
 }
 
 struct Args {
-  class_ty: Option<ClassTy>,
+  is_base: bool,
+  inherits_from: Option<syn::Type>,
 }
 
 impl syn::parse::Parse for Args {
   fn parse(input: ParseStream) -> syn::Result<Self> {
-    if input.is_empty() {
-      Ok(Args { class_ty: None })
-    } else {
-      Ok(Args {
-        class_ty: Some(input.parse()?),
-      })
-    }
-  }
-}
+    let mut is_base = false;
+    let mut inherits_from = None;
 
-#[allow(clippy::large_enum_variant)]
-enum ClassTy {
-  Base {
-    _name_token: super::kw::base,
-  },
-  Inherit {
-    _name_token: super::kw::inherit,
-    _eq_token: Token![=],
-    ty: syn::Type,
-  },
-}
-
-impl syn::parse::Parse for ClassTy {
-  fn parse(input: ParseStream) -> syn::Result<Self> {
-    let lookahead = input.lookahead1();
-    if lookahead.peek(super::kw::base) {
-      Ok(ClassTy::Base {
-        _name_token: input.parse()?,
-      })
-    } else if lookahead.peek(super::kw::inherit) {
-      Ok(ClassTy::Inherit {
-        _name_token: input.parse()?,
-        _eq_token: input.parse()?,
-        ty: input.parse()?,
-      })
-    } else {
-      Err(lookahead.error())
+    while !input.is_empty() {
+      let lookahead = input.lookahead1();
+      if lookahead.peek(super::kw::base) {
+        input.parse::<super::kw::base>()?;
+        is_base = true;
+      } else if lookahead.peek(super::kw::inherit) {
+        input.parse::<super::kw::inherit>()?;
+        input.parse::<Token![=]>()?;
+        inherits_from = Some(input.parse::<syn::Type>()?);
+      } else {
+        return Err(lookahead.error());
+      }
+      // consume optional comma between items
+      let _ = input.parse::<Option<Token![,]>>();
     }
+
+    Ok(Args {
+      is_base,
+      inherits_from,
+    })
   }
 }
