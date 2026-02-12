@@ -74,6 +74,7 @@ use std::future::poll_fn;
 
 use std::cell::Cell;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::ffi::c_void;
@@ -2178,7 +2179,7 @@ impl JsRuntimeForSnapshot {
       .source_mapper
       .borrow_mut()
       .take_ext_source_maps();
-    let mut ext_source_maps = HashMap::with_capacity(source_maps.len());
+    let mut ext_source_maps = BTreeMap::new();
     for (k, v) in &source_maps {
       ext_source_maps.insert(k.as_static_str().unwrap(), v.as_ref());
     }

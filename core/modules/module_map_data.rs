@@ -377,6 +377,8 @@ impl ModuleMapData {
     self.by_name.drain(|_, module_type, name, module| {
       ser.by_name.push((name, module_type.clone(), module));
     });
+    // Sort by module name for deterministic snapshot serialization
+    ser.by_name.sort_by(|a, b| a.0.as_str().cmp(b.0.as_str()));
 
     ser
   }

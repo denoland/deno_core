@@ -3,7 +3,7 @@
 use serde::Deserialize;
 use serde::Serialize;
 use std::borrow::Cow;
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use std::path::Path;
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -308,7 +308,7 @@ pub(crate) struct SnapshottedData<'snapshot> {
   pub source_count: usize,
   pub addl_refs_count: usize,
   #[serde(borrow)]
-  pub ext_source_maps: HashMap<&'snapshot str, &'snapshot [u8]>,
+  pub ext_source_maps: BTreeMap<&'snapshot str, &'snapshot [u8]>,
   #[serde(borrow)]
   pub external_strings: Vec<&'snapshot [u8]>,
 }
