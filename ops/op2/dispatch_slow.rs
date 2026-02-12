@@ -1085,6 +1085,13 @@ pub fn return_value_infallible(
     ArgMarker::Number => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
+    ArgMarker::Cppgc if generator_state.use_this_cppgc => {
+      generator_state.needs_isolate = true;
+      generator_state.needs_args = true;
+      gs_quote!(generator_state(result, scope, fn_args) => (
+        Some(deno_core::cppgc::wrap_object(&mut #scope, #fn_args.this(), #result))
+      ))
+    }
     ArgMarker::Cppgc => {
       let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
       if ret_type.is_option() {
