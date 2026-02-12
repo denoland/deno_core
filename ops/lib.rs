@@ -15,7 +15,7 @@ pub fn cppgc_inherits(item: TokenStream) -> TokenStream {
   cppgc::derives_inherits(item)
 }
 
-#[proc_macro_derive(CppgcBase, attributes(cppgc_inheritors))]
+#[proc_macro_derive(CppgcBase)]
 pub fn cppgc_inherits_from(item: TokenStream) -> TokenStream {
   cppgc::derives_base(item)
 }

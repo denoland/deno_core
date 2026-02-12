@@ -124,9 +124,13 @@ fn base_inner(input: DeriveInput) -> Result<TokenStream2> {
 
   Ok(quote! {
     #size_assert
-    // const _: () = { #( #inherits_checks )* };
     #[automatically_derived]
-    unsafe impl #impl_generics deno_core::cppgc::Base for #ident #ty_generics #where_clause {}
+    unsafe impl #impl_generics deno_core::cppgc::Base for #ident #ty_generics #where_clause {
+      fn __cache() -> &'static std::sync::OnceLock<Vec<std::any::TypeId>> {
+        static CACHE: std::sync::OnceLock<Vec<std::any::TypeId>> = std::sync::OnceLock::new();
+        &CACHE
+      }
+    }
   })
 }
 

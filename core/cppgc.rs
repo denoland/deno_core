@@ -352,11 +352,41 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
   }
 }
 
+/// Indicates that `Self` is a CppGC type that structurally inherits from `T`.
+///
+/// When implemented for a type, it declares that `Self` contains `T` as its
+/// first field (at offset 0) in a `#[repr(C)]` layout. This enables the runtime
+/// to safely reinterpret a pointer to the derived type as a pointer to the base
+/// type, allowing base-class methods to operate on derived instances.
+///
+/// This trait is transitive: if `C: Inherits<B>` and `B: Inherits<A>`, then
+/// `C: Inherits<A>` is also implemented automatically by the derive macro.
+///
+/// # Safety
+///
+/// The implementor must guarantee that:
+///
+/// 1. `Self` is `#[repr(C)]`.
+/// 2. The first field of `Self` is of type `T` and is at offset 0.
+/// 3. `T` is a valid CppGC type (implements [`GarbageCollected`]).
+///
+/// These invariants ensure that a `CppGcObject<Self>` pointer can be safely
+/// cast to `CppGcObject<T>`, because the `tag` field and the base type's
+/// fields are at the same memory offsets in both layouts.
+///
+/// Use `#[derive(CppgcInherits)]` with `#[cppgc_inherits_from(BaseType)]`
+/// instead of implementing this trait manually. The derive macro validates
+/// the layout requirements at compile time.
 pub unsafe trait Inherits<T: GarbageCollected + 'static>:
   GarbageCollected + 'static
 {
 }
 
+// Build up a graph of inheritance relationships and find all the transitive inheritors
+// using the inventory of InheritanceEdge structs.
+// This lets us know which Types are inheritors of a given Type.
+// This may be a bit expensive due to the hashing (though the input sizes are small), but it's only done once per Type. After that
+// it's cached.
 fn find_transitive_inheritors(root: TypeId) -> Vec<TypeId> {
   let mut adjacency_map: HashMap<TypeId, Vec<TypeId>> = HashMap::new();
 
@@ -386,11 +416,37 @@ fn find_transitive_inheritors(root: TypeId) -> Vec<TypeId> {
   descendants
 }
 
+/// Marks a CppGC type as a base class that other types may inherit from.
+///
+/// Types implementing `Base` can be used with [`try_unwrap_cppgc_base_object`],
+/// which accepts both the base type itself and any type that implements
+/// [`Inherits<Self>`](Inherits). This is what powers polymorphic method dispatch
+/// on CppGC objects: methods defined on a base class can be called on instances
+/// of any derived class.
+///
+/// The trait provides [`inheriting_types`](Base::inheriting_types), which returns
+/// the [`TypeId`]s of all types that transitively inherit from `Self`. This list
+/// is computed once (lazily) using the inheritance graph built by the
+/// `CppgcInherits` derive macro and cached for the lifetime of the program.
+///
+/// # Safety
+///
+/// The implementor must guarantee that:
+///
+/// 1. `Self` is `#[repr(C)]` and non-zero-sized.
+/// 2. Any type `D` for which `D: Inherits<Self>` holds has `Self` embedded at
+///    offset 0, so that a `CppGcObject<D>` can be safely reinterpreted as
+///    `CppGcObject<Self>`.
+///
+/// Use `#[derive(CppgcBase)]` instead of implementing this trait manually.
 pub unsafe trait Base: GarbageCollected + 'static {
+  #[doc(hidden)]
   fn __cache() -> &'static std::sync::OnceLock<Vec<TypeId>> {
     static CACHE: std::sync::OnceLock<Vec<TypeId>> = std::sync::OnceLock::new();
     &CACHE
   }
+
+  /// Returns the [`TypeId`]s of all types that transitively inherit from this type.
   fn inheriting_types() -> &'static [TypeId] {
     Self::__cache()
       .get_or_init(|| find_transitive_inheritors(TypeId::of::<Self>()))
@@ -426,7 +482,6 @@ mod tests {
 
   #[repr(C)]
   #[derive(CppgcBase)]
-  #[cppgc_inheritors(Derived, Derived2)]
   struct BaseType {
     _value: u8,
   }
@@ -441,7 +496,6 @@ mod tests {
 
   #[repr(C)]
   #[derive(CppgcInherits, CppgcBase)]
-  #[cppgc_inheritors(Derived2)]
   #[cppgc_inherits_from(BaseType)]
   struct Derived {
     base: BaseType,
