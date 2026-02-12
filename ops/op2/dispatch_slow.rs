@@ -28,6 +28,7 @@ use super::signature::Strings;
 use super::signature::WebIDLPair;
 use super::signature_retval::RetVal;
 use proc_macro2::Ident;
+use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use quote::format_ident;
@@ -45,9 +46,10 @@ pub(crate) fn generate_dispatch_slow_call(
   let mut deferred = TokenStream::new();
 
   for (index, (arg, attrs)) in signature.args.iter().enumerate() {
+    let arg_span = signature.arg_spans.get(index).copied().unwrap_or_else(Span::call_site);
     let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
       .map_err(|s| {
-        V8SignatureMappingError::NoArgMapping(s, Box::new(arg.clone()))
+        V8SignatureMappingError::NoArgMapping(arg_span, s, Box::new(arg.clone()))
       })?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
@@ -79,6 +81,7 @@ pub(crate) fn generate_dispatch_slow(
     output.extend(return_value(generator_state, &signature.ret_val).map_err(
       |s| {
         V8SignatureMappingError::NoRetValMapping(
+          signature.ret_span,
           s,
           Box::new(signature.ret_val.clone()),
         )
@@ -659,7 +662,7 @@ pub fn from_arg(
     Arg::FromV8(ty, true) => {
       *needs_scope = true;
       let ty =
-        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+        syn::parse_str::<syn::Type>(ty).map_err(|_| "failed to reparse type")?;
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
@@ -679,7 +682,7 @@ pub fn from_arg(
     }
     Arg::FromV8(ty, false) => {
       let ty =
-        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+        syn::parse_str::<syn::Type>(ty).map_err(|_| "failed to reparse type")?;
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
       quote! {
@@ -694,7 +697,7 @@ pub fn from_arg(
     Arg::WebIDL(ty, options, default) => {
       *needs_scope = true;
       let ty =
-        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+        syn::parse_str::<syn::Type>(ty).map_err(|_| "failed to reparse type")?;
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
@@ -796,7 +799,7 @@ pub fn from_arg(
       let scope = &generator_state.scope;
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
       let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+        syn::parse_str::<syn::Path>(ty).map_err(|_| "failed to reparse type")?;
       if ret_val.is_async() {
         let tokens = quote! {
           let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
@@ -822,7 +825,7 @@ pub fn from_arg(
       let throw_exception =
         throw_type_error(generator_state, format!("expected {}", &ty));
       let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+        syn::parse_str::<syn::Path>(ty).map_err(|_| "failed to reparse type")?;
       let scope = &generator_state.scope;
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
       if ret_val.is_async() {

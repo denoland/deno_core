@@ -68,6 +68,16 @@ impl MacroConfig {
   ) -> Result<Self, Op2Error> {
     let flags = attributes
       .into_iter()
+      .filter(|attribute| {
+        // Skip standard Rust attributes that aren't op2 config flags.
+        // These end up here because object_wrap partitions attrs into
+        // "op2 signature attrs" vs "everything else", and the latter
+        // includes doc comments, #[allow], #[cfg], etc.
+        !matches!(
+          attribute.path().get_ident().map(|i| i.to_string()).as_deref(),
+          Some("doc" | "allow" | "cfg")
+        )
+      })
       .map(|attribute| {
         let meta = attribute.meta;
 

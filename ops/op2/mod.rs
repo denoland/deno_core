@@ -94,11 +94,7 @@ impl From<SignatureError> for Op2Error {
 #[derive(Debug, Error)]
 pub enum Op2ErrorKind {
   #[error("Failed to parse syntax tree")]
-  ParseError(
-    #[from]
-    #[source]
-    syn::Error,
-  ),
+  ParseError(#[source] syn::Error),
   #[error("Failed to map signature to V8")]
   V8SignatureMappingError(#[from] V8SignatureMappingError),
   #[error("Failed to parse signature")]
@@ -115,30 +111,50 @@ pub enum Op2ErrorKind {
   NonIdentifierImplBlock,
 }
 
+impl From<syn::Error> for Op2ErrorKind {
+  fn from(err: syn::Error) -> Self {
+    Op2ErrorKind::ParseError(err)
+  }
+}
+
 impl From<Op2Error> for syn::Error {
   fn from(value: Op2Error) -> Self {
-    syn::Error::new(
-      value.span.unwrap_or(Span::call_site()),
-      value.kind.to_string(),
-    )
+    match value.kind {
+      Op2ErrorKind::ParseError(syn_err) => {
+        // Pass through the original syn::Error with its span chain intact
+        syn_err
+      }
+      Op2ErrorKind::SignatureError(sig_err) => {
+        // Use SignatureError's own From<SignatureError> for syn::Error which preserves spans
+        sig_err.into()
+      }
+      Op2ErrorKind::V8SignatureMappingError(v8_err) => {
+        // Use V8SignatureMappingError's own From impl which preserves spans
+        v8_err.into()
+      }
+      kind => {
+        let span = value.span.unwrap_or(Span::call_site());
+        syn::Error::new(span, kind.to_string())
+      }
+    }
   }
 }
 
 #[derive(Debug, Error)]
 #[allow(clippy::enum_variant_names)]
 pub enum V8SignatureMappingError {
-  #[error("Unable to map return value {1:?} to {0}")]
-  NoRetValMapping(V8MappingError, Box<RetVal>),
-  #[error("Unable to map argument {1:?} to {0}")]
-  NoArgMapping(V8MappingError, Box<Arg>),
+  #[error("Unable to map return value {2:?} to {1}")]
+  NoRetValMapping(Span, V8MappingError, Box<RetVal>),
+  #[error("Unable to map argument {2:?} to {1}")]
+  NoArgMapping(Span, V8MappingError, Box<Arg>),
 }
 
 impl From<V8SignatureMappingError> for syn::Error {
   fn from(value: V8SignatureMappingError) -> Self {
     let msg = value.to_string();
-    let span = match value {
-      V8SignatureMappingError::NoRetValMapping(_, _) => Span::call_site(),
-      V8SignatureMappingError::NoArgMapping(_, _) => Span::call_site(),
+    let span = match &value {
+      V8SignatureMappingError::NoRetValMapping(span, _, _) => *span,
+      V8SignatureMappingError::NoArgMapping(span, _, _) => *span,
     };
 
     syn::Error::new(span, msg)
@@ -152,9 +168,22 @@ pub(crate) fn op2(
   attr: TokenStream,
   item: TokenStream,
 ) -> Result<TokenStream, Op2Error> {
-  let Ok(func) = parse2::<ItemFn>(item.clone()) else {
-    let impl_block = parse2::<syn::ItemImpl>(item)?;
-    return object_wrap::generate_impl_ops(attr, impl_block);
+  let func = match parse2::<ItemFn>(item.clone()) {
+    Ok(func) => func,
+    Err(fn_err) => match parse2::<syn::ItemImpl>(item) {
+      Ok(impl_block) => {
+        return object_wrap::generate_impl_ops(attr, impl_block);
+      }
+      Err(impl_err) => {
+        let mut err = syn::Error::new(
+          fn_err.span(),
+          "Expected a function or impl block for #[op2]",
+        );
+        err.combine(fn_err);
+        err.combine(impl_err);
+        return Err(err.into());
+      }
+    },
   };
 
   let span = attr.span();
@@ -369,8 +398,8 @@ pub(crate) fn generate_op2(
   let bound = signature
     .generic_bounds
     .values()
-    .map(|p| parse_str::<Type>(p).expect("Failed to reparse type bounds"))
-    .collect::<Vec<_>>();
+    .map(|p| parse_str::<Type>(p))
+    .collect::<Result<Vec<_>, _>>()?;
 
   let meta_key = signature.metadata.keys().collect::<Vec<_>>();
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
@@ -456,7 +485,9 @@ pub(crate) fn generate_op2(
 }
 
 fn combine_err(e: syn::Error, msg: String) -> syn::Error {
-  syn::Error::new(e.span(), format!("{msg}: {e}"))
+  let mut outer = syn::Error::new(e.span(), msg);
+  outer.combine(e);
+  outer
 }
 
 mod kw {

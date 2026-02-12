@@ -21,6 +21,7 @@ use super::signature::Special;
 use super::signature::Strings;
 use crate::op2::dispatch_async::map_async_return_type;
 use proc_macro2::Ident;
+use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::format_ident;
 use quote::quote;
@@ -97,17 +98,20 @@ impl FastSignature {
   pub(crate) fn call_args(
     &self,
     generator_state: &mut GeneratorState,
+    arg_spans: &[Span],
   ) -> Result<Vec<TokenStream>, V8SignatureMappingError> {
     let mut call_args = vec![];
-    for arg in &self.args {
+    for (idx, arg) in self.args.iter().enumerate() {
       match arg {
         FastArg::Actual { arg, name_out, .. }
         | FastArg::Virtual { name_out, arg } => {
           if !matches!(arg, Arg::Ref(_, Special::HandleScope)) {
+            let span = arg_spans.get(idx).copied().unwrap_or_else(Span::call_site);
             call_args.push(
               map_v8_fastcall_arg_to_arg(generator_state, name_out, arg)
                 .map_err(|s| {
                   V8SignatureMappingError::NoArgMapping(
+                    span,
                     s,
                     Box::new(arg.clone()),
                   )
@@ -282,8 +286,9 @@ pub(crate) fn get_fast_signature(
   let mut args = vec![];
   let mut index_in = 0;
   for (index_out, (arg, _)) in signature.args.iter().cloned().enumerate() {
+    let arg_span = signature.arg_spans.get(index_out).copied().unwrap_or_else(Span::call_site);
     let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg).map_err(|s| {
-      V8SignatureMappingError::NoArgMapping(s, Box::new(arg.clone()))
+      V8SignatureMappingError::NoArgMapping(arg_span, s, Box::new(arg.clone()))
     })?
     else {
       return Ok(None);
@@ -312,6 +317,7 @@ pub(crate) fn get_fast_signature(
   };
   let output = match map_retval_to_v8_fastcall_type(ret_val).map_err(|s| {
     V8SignatureMappingError::NoRetValMapping(
+      signature.ret_span,
       s,
       Box::new(signature.ret_val.clone()),
     )
@@ -388,8 +394,13 @@ pub(crate) fn generate_dispatch_fast(
   if let Some(alternative) = &config.fast_alternative {
     // TODO(mmastrac): we should validate the alternatives. For now we just assume the caller knows what
     // they are doing.
-    let alternative =
-      syn::parse_str::<Type>(alternative).expect("Failed to reparse type");
+    let alternative = syn::parse_str::<Type>(alternative).map_err(|_| {
+      V8SignatureMappingError::NoRetValMapping(
+        Span::call_site(),
+        "failed to reparse fast alternative type",
+        Box::new(signature.ret_val.clone()),
+      )
+    })?;
     return Ok(Some((
       quote!(#alternative().fast_fn()),
       quote!(#alternative().fast_fn_with_metrics()),
@@ -421,7 +432,7 @@ pub(crate) fn generate_dispatch_fast(
   }
 
   // Note that this triggers needs_* values in generator_state
-  let call_args = fastsig.call_args(generator_state)?;
+  let call_args = fastsig.call_args(generator_state, &signature.arg_spans)?;
 
   let handle_result = if signature.ret_val.is_async() {
     generator_state.needs_opctx = true;
@@ -429,6 +440,7 @@ pub(crate) fn generate_dispatch_fast(
       map_async_return_type(generator_state, &signature.ret_val).map_err(
         |s| {
           V8SignatureMappingError::NoRetValMapping(
+            signature.ret_span,
             s,
             Box::new(signature.ret_val.clone()),
           )
@@ -805,7 +817,7 @@ fn map_v8_fastcall_arg_to_arg(
     }
     Arg::CppGcResource(_, ty) => {
       let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+        syn::parse_str::<syn::Path>(ty).map_err(|_| "failed to reparse type")?;
 
       *needs_fast_isolate = true;
       let throw_exception =
@@ -822,7 +834,7 @@ fn map_v8_fastcall_arg_to_arg(
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty}"));
       let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+        syn::parse_str::<syn::Path>(ty).map_err(|_| "failed to reparse type")?;
       gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
