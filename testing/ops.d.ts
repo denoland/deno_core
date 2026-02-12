@@ -40,6 +40,11 @@ export class DOMPoint {
   wrappingSmi(value: number): number;
 }
 
+export class DOMPoint3D extends DOMPoint {
+  constructor(x: number, y: number, z: number);
+  description(): number;
+}
+
 export class TestObjectWrap {
   constructor();
   withVarargs(...args: any[]): number;
