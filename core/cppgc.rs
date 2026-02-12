@@ -8,115 +8,16 @@ use serde::Serialize;
 use std::any::TypeId;
 use std::any::type_name;
 use std::collections::BTreeMap;
+use std::collections::HashMap;
 pub use v8::cppgc::GarbageCollected;
 pub use v8::cppgc::GcCell;
 
 const CPPGC_SINGLE_TAG: u16 = 1;
-const CPPGC_PROTO_TAG: u16 = 2;
 
 #[repr(C)]
 struct CppGcObject<T: GarbageCollected> {
   tag: TypeId,
   member: T,
-}
-
-/// PrototypeChain defines the position of the object in the prototype chain.
-///
-///   A    (index 0)
-///  / \
-/// B   C  (index 1)
-/// |
-/// D      (index 2)
-///
-/// where each B, C and D hold their own prototype chain.
-pub trait PrototypeChain {
-  fn prototype_index() -> Option<usize> {
-    None
-  }
-}
-
-/// A good enough number for the maximum prototype chain depth based on the
-/// usage.
-const MAX_PROTO_CHAIN: usize = 3;
-
-struct DummyT;
-unsafe impl GarbageCollected for DummyT {
-  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {
-    unreachable!();
-  }
-
-  fn get_name(&self) -> &'static std::ffi::CStr {
-    unreachable!();
-  }
-}
-
-/// ErasedPtr is a wrapper around a `v8::cppgc::Member` that allows downcasting
-/// to a specific type. Safety is guaranteed by the `tag` field in the
-/// `CppGcObject` struct.
-struct ErasedMember {
-  member: v8::cppgc::Member<CppGcObject<DummyT>>,
-}
-
-impl ErasedMember {
-  fn downcast<T: GarbageCollected + 'static>(
-    &self,
-  ) -> Option<v8::cppgc::UnsafePtr<CppGcObject<T>>> {
-    let ptr = unsafe { v8::cppgc::UnsafePtr::new(&self.member)? };
-    if unsafe { ptr.as_ref() }.tag == TypeId::of::<T>() {
-      // Safety: The tag is always guaranteed by `wrap_object` to be the
-      // correct type.
-      Some(unsafe {
-        std::mem::transmute::<
-          v8::cppgc::UnsafePtr<CppGcObject<DummyT>>,
-          v8::cppgc::UnsafePtr<CppGcObject<T>>,
-        >(ptr)
-      })
-    } else {
-      None
-    }
-  }
-}
-
-impl<T: GarbageCollected> From<v8::cppgc::UnsafePtr<CppGcObject<T>>>
-  for ErasedMember
-{
-  fn from(ptr: v8::cppgc::UnsafePtr<CppGcObject<T>>) -> Self {
-    debug_assert!(
-      std::mem::size_of::<v8::cppgc::Member<CppGcObject<T>>>()
-        == std::mem::size_of::<ErasedMember>()
-    );
-
-    let member = v8::cppgc::Member::new(&ptr);
-
-    Self {
-      // Safety: Both have the same size, representation and a tag guarantees safe
-      // downcasting.
-      member: unsafe {
-        std::mem::transmute::<
-          v8::cppgc::Member<CppGcObject<T>>,
-          v8::cppgc::Member<CppGcObject<DummyT>>,
-        >(member)
-      },
-    }
-  }
-}
-
-struct PrototypeChainStore([Option<ErasedMember>; MAX_PROTO_CHAIN]);
-
-unsafe impl v8::cppgc::GarbageCollected for PrototypeChainStore {
-  fn trace(&self, visitor: &mut v8::cppgc::Visitor) {
-    // Trace all the objects top-down the prototype chain.
-    //
-    // This works out with ErasedPtr because v8::cppgc::Member doesn't
-    // trace based on `T` but rather the pointer.
-    for erased in self.0.iter().flatten() {
-      visitor.trace(&erased.member);
-    }
-  }
-
-  fn get_name(&self) -> &'static std::ffi::CStr {
-    c"PrototypeChainStore"
-  }
 }
 
 unsafe impl<T: GarbageCollected> v8::cppgc::GarbageCollected
@@ -146,7 +47,7 @@ pub(crate) fn make_cppgc_template<'s, 'i>(
 
 #[doc(hidden)]
 pub fn make_cppgc_empty_object<'a, 'i, T: GarbageCollected + 'static>(
-  scope: &mut v8::PinScope<'a, 'i>,
+  scope: &v8::PinScope<'a, 'i>,
 ) -> v8::Local<'a, v8::Object> {
   let state = JsRuntime::state_from(scope);
   let templates = state.function_templates.borrow();
@@ -196,160 +97,11 @@ pub fn wrap_object<'a, T: GarbageCollected + 'static>(
   }
 }
 
-pub fn make_cppgc_proto_object<
-  'a,
-  'i,
-  T: GarbageCollected + PrototypeChain + 'static,
->(
+pub fn make_cppgc_proto_object<'a, 'i, T: GarbageCollected + 'static>(
   scope: &mut v8::PinScope<'a, 'i>,
   t: T,
 ) -> v8::Local<'a, v8::Object> {
-  let obj = make_cppgc_empty_object::<T>(scope);
-  wrap_object1(scope, obj, t)
-}
-
-#[doc(hidden)]
-pub fn wrap_object1<'a, T: GarbageCollected + PrototypeChain + 'static>(
-  isolate: &mut v8::Isolate,
-  obj: v8::Local<'a, v8::Object>,
-  t: T,
-) -> v8::Local<'a, v8::Object> {
-  let heap = isolate.get_cpp_heap().unwrap();
-
-  let member = unsafe {
-    v8::cppgc::make_garbage_collected(
-      heap,
-      PrototypeChainStore([
-        Some(
-          v8::cppgc::make_garbage_collected(
-            heap,
-            CppGcObject {
-              tag: TypeId::of::<T>(),
-              member: t,
-            },
-          )
-          .into(),
-        ),
-        None,
-        None,
-      ]),
-    )
-  };
-
-  unsafe {
-    v8::Object::wrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(
-      isolate, obj, &member,
-    );
-  }
-  obj
-}
-
-#[doc(hidden)]
-pub fn wrap_object2<
-  'a,
-  T: GarbageCollected + PrototypeChain + 'static,
-  S: GarbageCollected + PrototypeChain + 'static,
->(
-  isolate: &mut v8::Isolate,
-  obj: v8::Local<'a, v8::Object>,
-  t: (T, S),
-) -> v8::Local<'a, v8::Object> {
-  let heap = isolate.get_cpp_heap().unwrap();
-
-  let member = unsafe {
-    v8::cppgc::make_garbage_collected(
-      heap,
-      PrototypeChainStore([
-        Some(
-          v8::cppgc::make_garbage_collected(
-            heap,
-            CppGcObject {
-              tag: TypeId::of::<T>(),
-              member: t.0,
-            },
-          )
-          .into(),
-        ),
-        Some(
-          v8::cppgc::make_garbage_collected(
-            heap,
-            CppGcObject {
-              tag: TypeId::of::<S>(),
-              member: t.1,
-            },
-          )
-          .into(),
-        ),
-        None,
-      ]),
-    )
-  };
-
-  unsafe {
-    v8::Object::wrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(
-      isolate, obj, &member,
-    );
-  }
-  obj
-}
-
-#[doc(hidden)]
-pub fn wrap_object3<
-  'a,
-  T: GarbageCollected + PrototypeChain + 'static,
-  S: GarbageCollected + PrototypeChain + 'static,
-  R: GarbageCollected + PrototypeChain + 'static,
->(
-  isolate: &mut v8::Isolate,
-  obj: v8::Local<'a, v8::Object>,
-  t: (T, S, R),
-) -> v8::Local<'a, v8::Object> {
-  let heap = isolate.get_cpp_heap().unwrap();
-
-  let member = unsafe {
-    v8::cppgc::make_garbage_collected(
-      heap,
-      PrototypeChainStore([
-        Some(
-          v8::cppgc::make_garbage_collected(
-            heap,
-            CppGcObject {
-              tag: TypeId::of::<T>(),
-              member: t.0,
-            },
-          )
-          .into(),
-        ),
-        Some(
-          v8::cppgc::make_garbage_collected(
-            heap,
-            CppGcObject {
-              tag: TypeId::of::<S>(),
-              member: t.1,
-            },
-          )
-          .into(),
-        ),
-        Some(
-          v8::cppgc::make_garbage_collected(
-            heap,
-            CppGcObject {
-              tag: TypeId::of::<R>(),
-              member: t.2,
-            },
-          )
-          .into(),
-        ),
-      ]),
-    )
-  };
-
-  unsafe {
-    v8::Object::wrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(
-      isolate, obj, &member,
-    );
-  }
-  obj
+  make_cppgc_object(scope, t)
 }
 
 pub struct UnsafePtr<T: GarbageCollected> {
@@ -385,9 +137,10 @@ impl<T: GarbageCollected> std::ops::Deref for UnsafePtr<T> {
 
 #[doc(hidden)]
 #[allow(clippy::needless_lifetimes)]
-pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
+fn try_unwrap_cppgc_with<'sc, T: GarbageCollected + 'static>(
   isolate: &mut v8::Isolate,
   val: v8::Local<'sc, v8::Value>,
+  inheriting: &[TypeId],
 ) -> Option<UnsafePtr<T>> {
   let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
     return None;
@@ -400,7 +153,8 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
     v8::Object::unwrap::<CPPGC_SINGLE_TAG, CppGcObject<T>>(isolate, obj)
   }?;
 
-  if unsafe { obj.as_ref() }.tag != TypeId::of::<T>() {
+  let tag = unsafe { obj.as_ref() }.tag;
+  if tag != TypeId::of::<T>() && !inheriting.contains(&tag) {
     return None;
   }
 
@@ -408,6 +162,27 @@ pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
     inner: obj,
     root: None,
   })
+}
+
+#[doc(hidden)]
+#[allow(clippy::needless_lifetimes)]
+pub fn try_unwrap_cppgc_object<'sc, T: GarbageCollected + 'static>(
+  isolate: &mut v8::Isolate,
+  val: v8::Local<'sc, v8::Value>,
+) -> Option<UnsafePtr<T>> {
+  try_unwrap_cppgc_with::<T>(isolate, val, &[])
+}
+
+#[doc(hidden)]
+#[allow(clippy::needless_lifetimes)]
+pub fn try_unwrap_cppgc_base_object<
+  'sc,
+  T: GarbageCollected + Base + 'static,
+>(
+  isolate: &mut v8::Isolate,
+  val: v8::Local<'sc, v8::Value>,
+) -> Option<UnsafePtr<T>> {
+  try_unwrap_cppgc_with::<T>(isolate, val, T::inheriting_types())
 }
 
 pub struct Ref<T: GarbageCollected> {
@@ -436,6 +211,21 @@ pub fn try_unwrap_cppgc_persistent_object<
   })
 }
 
+#[doc(hidden)]
+#[allow(clippy::needless_lifetimes)]
+pub fn try_unwrap_cppgc_base_persistent_object<
+  'sc,
+  T: GarbageCollected + Base + 'static,
+>(
+  isolate: &mut v8::Isolate,
+  val: v8::Local<'sc, v8::Value>,
+) -> Option<Ref<T>> {
+  let ptr = try_unwrap_cppgc_base_object::<T>(isolate, val)?;
+  Some(Ref {
+    inner: v8::cppgc::Persistent::new(&ptr.inner),
+  })
+}
+
 pub struct Member<T: GarbageCollected> {
   inner: v8::cppgc::Member<CppGcObject<T>>,
 }
@@ -459,52 +249,6 @@ impl<T: GarbageCollected> v8::cppgc::Traced for Member<T> {
   fn trace(&self, visitor: &mut v8::cppgc::Visitor) {
     visitor.trace(&self.inner);
   }
-}
-
-#[doc(hidden)]
-#[allow(clippy::needless_lifetimes)]
-pub fn try_unwrap_cppgc_proto_object<
-  'sc,
-  T: GarbageCollected + PrototypeChain + 'static,
->(
-  isolate: &mut v8::Isolate,
-  val: v8::Local<'sc, v8::Value>,
-) -> Option<UnsafePtr<T>> {
-  let Ok(obj): Result<v8::Local<v8::Object>, _> = val.try_into() else {
-    return None;
-  };
-  if !obj.is_api_wrapper() {
-    return None;
-  }
-
-  let obj = if let Some(proto_index) = T::prototype_index() {
-    let proto_chain = unsafe {
-      v8::Object::unwrap::<CPPGC_PROTO_TAG, PrototypeChainStore>(isolate, obj)
-    }?;
-
-    if proto_index >= MAX_PROTO_CHAIN {
-      return None;
-    }
-
-    let obj = unsafe { proto_chain.as_ref().0[proto_index].as_ref()? };
-
-    obj.downcast::<T>()?
-  } else {
-    let obj = unsafe {
-      v8::Object::unwrap::<CPPGC_SINGLE_TAG, CppGcObject<T>>(isolate, obj)
-    }?;
-
-    if unsafe { obj.as_ref() }.tag != TypeId::of::<T>() {
-      return None;
-    }
-
-    obj
-  };
-
-  Some(UnsafePtr {
-    inner: obj,
-    root: None,
-  })
 }
 
 #[derive(Default)]
@@ -605,5 +349,141 @@ impl<T: GarbageCollected + 'static> SameObject<T> {
     let obj = self.cell.get()?;
     let val = v8::Local::new(scope, obj);
     try_unwrap_cppgc_object(scope, val.cast())
+  }
+}
+
+pub unsafe trait Inherits<T: GarbageCollected + 'static>:
+  GarbageCollected + 'static
+{
+}
+
+fn find_transitive_inheritors(root: TypeId) -> Vec<TypeId> {
+  let mut adjacency_map: HashMap<TypeId, Vec<TypeId>> = HashMap::new();
+
+  for edge in inventory::iter::<InheritanceEdge> {
+    adjacency_map
+      .entry(edge.base)
+      .or_default()
+      .push(edge.derived);
+  }
+
+  let mut descendants = Vec::new();
+  let mut queue = vec![root];
+  let mut visited = std::collections::HashSet::new();
+  visited.insert(root);
+
+  while let Some(current) = queue.pop() {
+    if let Some(children) = adjacency_map.get(&current) {
+      for &child in children {
+        if visited.insert(child) {
+          descendants.push(child);
+          queue.push(child);
+        }
+      }
+    }
+  }
+
+  descendants
+}
+
+pub unsafe trait Base: GarbageCollected + 'static {
+  fn __cache() -> &'static std::sync::OnceLock<Vec<TypeId>> {
+    static CACHE: std::sync::OnceLock<Vec<TypeId>> = std::sync::OnceLock::new();
+    &CACHE
+  }
+  fn inheriting_types() -> &'static [TypeId] {
+    Self::__cache()
+      .get_or_init(|| find_transitive_inheritors(TypeId::of::<Self>()))
+  }
+}
+
+pub const fn verify_inherits<
+  Base: GarbageCollected + 'static,
+  Derived: Inherits<Base>,
+>() -> InheritanceEdge {
+  InheritanceEdge {
+    base: TypeId::of::<Base>(),
+    derived: TypeId::of::<Derived>(),
+    _private: Private,
+  }
+}
+
+struct Private;
+
+pub struct InheritanceEdge {
+  pub base: TypeId,
+  pub derived: TypeId,
+  _private: Private, // make sure it can't be constructed outside of this module
+}
+
+inventory::collect!(InheritanceEdge);
+
+#[cfg(test)]
+mod tests {
+  use super::*;
+  use deno_ops::{CppgcBase, CppgcInherits};
+  use std::any::TypeId;
+
+  #[repr(C)]
+  #[derive(CppgcBase)]
+  #[cppgc_inheritors(Derived, Derived2)]
+  struct BaseType {
+    _value: u8,
+  }
+
+  unsafe impl GarbageCollected for BaseType {
+    fn trace(&self, _: &mut v8::cppgc::Visitor) {}
+
+    fn get_name(&self) -> &'static std::ffi::CStr {
+      c"BaseType"
+    }
+  }
+
+  #[repr(C)]
+  #[derive(CppgcInherits, CppgcBase)]
+  #[cppgc_inheritors(Derived2)]
+  #[cppgc_base(BaseType)]
+  struct Derived {
+    base: BaseType,
+    _extra: u8,
+  }
+
+  unsafe impl GarbageCollected for Derived {
+    fn trace(&self, _: &mut v8::cppgc::Visitor) {}
+
+    fn get_name(&self) -> &'static std::ffi::CStr {
+      c"DerivedType"
+    }
+  }
+
+  const fn check<A: Inherits<B>, B: Base>() {}
+
+  const _: () = {
+    check::<Derived, BaseType>();
+    check::<Derived2, BaseType>();
+    check::<Derived2, Derived>();
+  };
+
+  #[test]
+  fn inheriting_types_list_contains_derived() {
+    assert!(BaseType::inheriting_types().contains(&TypeId::of::<Derived>()));
+    assert!(BaseType::inheriting_types().contains(&TypeId::of::<Derived2>()));
+    assert!(Derived::inheriting_types().contains(&TypeId::of::<Derived2>()));
+  }
+
+  unsafe impl GarbageCollected for Derived2 {
+    fn trace(&self, _: &mut v8::cppgc::Visitor) {}
+
+    fn get_name(&self) -> &'static std::ffi::CStr {
+      c"Derived2"
+    }
+  }
+
+  #[repr(C)]
+  #[derive(CppgcInherits)]
+  #[cppgc_base(Derived)]
+  struct Derived2 {
+    base: Derived,
+    _value: u8,
   }
 }

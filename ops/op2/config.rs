@@ -54,7 +54,7 @@ pub struct MacroConfig {
   /// Symbol.for("op_name") for the op.
   pub symbol: bool,
   /// Use proto for cppgc object.
-  pub use_proto_cppgc: bool,
+  pub use_cppgc_base: bool,
   /// Calls the fn with the promise_id of the async op.
   pub promise_id: bool,
   pub validate: Option<Path>,

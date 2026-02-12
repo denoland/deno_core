@@ -1085,33 +1085,6 @@ pub fn return_value_infallible(
     ArgMarker::Number => {
       gs_quote!(generator_state(result) => (deno_core::_ops::RustToV8Marker::<deno_core::_ops::NumberMarker, _>::from(#result)))
     }
-    ArgMarker::Cppgc if generator_state.use_this_cppgc => {
-      generator_state.needs_isolate = true;
-      let wrap_object = match ret_type {
-        Arg::CppGcProtochain(chain) => {
-          let wrap_object = format_ident!("wrap_object{}", chain.len());
-          quote!(#wrap_object)
-        }
-        _ => {
-          if generator_state.use_proto_cppgc {
-            quote!(wrap_object1)
-          } else {
-            quote!(wrap_object)
-          }
-        }
-      };
-      gs_quote!(generator_state(result, scope) => (
-           Some(deno_core::cppgc::#wrap_object(&mut #scope, args.this(), #result))
-      ))
-    }
-    ArgMarker::Cppgc if generator_state.use_proto_cppgc => {
-      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcProtoMarker, _>::from);
-      if ret_type.is_option() {
-        gs_quote!(generator_state(result) => (#result.map(#marker)))
-      } else {
-        gs_quote!(generator_state(result) => (#marker(#result)))
-      }
-    }
     ArgMarker::Cppgc => {
       let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);
       if ret_type.is_option() {

@@ -6,8 +6,19 @@
 use proc_macro::TokenStream;
 
 mod conversion;
+mod cppgc;
 mod op2;
 mod webidl;
+
+#[proc_macro_derive(CppgcInherits, attributes(cppgc_base))]
+pub fn cppgc_inherits(item: TokenStream) -> TokenStream {
+  cppgc::derives_inherits(item)
+}
+
+#[proc_macro_derive(CppgcBase, attributes(cppgc_inheritors))]
+pub fn cppgc_base(item: TokenStream) -> TokenStream {
+  cppgc::derives_base(item)
+}
 
 /// A macro designed to provide an extremely fast V8->Rust interface layer.
 #[doc = include_str!("op2/README.md")]

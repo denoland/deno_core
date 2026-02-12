@@ -1,6 +1,7 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 use proc_macro2::TokenStream;
+use quote::ToTokens;
 use quote::format_ident;
 use quote::quote;
 use syn::ImplItem;
@@ -80,12 +81,7 @@ pub(crate) fn generate_impl_ops(
   let mut tokens = TokenStream::new();
 
   let self_ty = &item.self_ty;
-  let syn::Type::Path(path) = &**self_ty else {
-    return Err(Op2Error::NonIdentifierImplBlock);
-  };
-  let Some(self_ty_ident) = path.path.get_ident() else {
-    return Err(Op2Error::NonIdentifierImplBlock);
-  };
+  let self_ty_ident = self_ty.to_token_stream().to_string();
 
   // State
   let mut constructor = None;
@@ -113,8 +109,8 @@ pub(crate) fn generate_impl_ops(
 
       let mut config = MacroConfig::from_attributes(span, attrs)?;
 
-      if args.class_ty.is_some() {
-        config.use_proto_cppgc = true;
+      if matches!(args.class_ty, Some(ClassTy::Base { .. })) {
+        config.use_cppgc_base = true;
       }
 
       if let Some(ref rename) = config.rename {
@@ -128,7 +124,7 @@ pub(crate) fn generate_impl_ops(
       let ident = func.sig.ident.clone();
       if config.constructor {
         if constructor.is_some() {
-          return Err(Op2Error::MultipleConstructors(func.span()));
+          return Err(Op2Error::MultipleConstructors(span));
         }
 
         constructor = Some(ident);
@@ -141,10 +137,10 @@ pub(crate) fn generate_impl_ops(
           methods.push(ident);
         }
 
-        config.method = Some(self_ty_ident.clone());
+        config.method = Some(format_ident!("{}", self_ty_ident));
       }
 
-      config.self_name = Some(self_ty_ident.clone());
+      config.self_name = Some(format_ident!("{}", self_ty_ident));
 
       let op = generate_op2(config, func)?;
       tokens.extend(op);
@@ -157,42 +153,16 @@ pub(crate) fn generate_impl_ops(
     quote! { None }
   };
 
-  let (prototype_index, inherits_type_name) = match &args.class_ty {
-    Some(ClassTy::Base { .. }) => (
-      quote! {
-        impl deno_core::cppgc::PrototypeChain for #self_ty {
-          fn prototype_index() -> Option<usize> {
-            Some(0)
-          }
-        }
-      },
-      quote! {
-        inherits_type_name: || None,
-      },
-    ),
-    Some(ClassTy::Inherit { ty, .. }) => (
-      quote! {
-        impl deno_core::cppgc::PrototypeChain for #self_ty {
-          fn prototype_index() -> Option<usize> {
-            Some(<#ty as deno_core::cppgc::PrototypeChain>::prototype_index().unwrap_or_default() + 1)
-          }
-        }
-      },
-      quote! {
-        inherits_type_name: || Some(std::any::type_name::<#ty>()),
-      },
-    ),
-    None => (
-      quote! {},
-      quote! {
-        inherits_type_name: || None,
-      },
-    ),
+  let inherits_type_name = match &args.class_ty {
+    Some(ClassTy::Inherit { ty, .. }) => quote! {
+      inherits_type_name: || Some(std::any::type_name::<#ty>()),
+    },
+    _ => quote! {
+      inherits_type_name: || None,
+    },
   };
 
   let res = quote! {
-      #prototype_index
-
       impl #self_ty {
         pub const DECL: deno_core::_ops::OpMethodDecl = deno_core::_ops::OpMethodDecl {
           methods: &[

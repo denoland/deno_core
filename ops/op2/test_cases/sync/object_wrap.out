@@ -81,13 +81,10 @@ impl Foo {
                 };
                 rv.set(
                     deno_core::_ops::RustToV8::to_v8(
-                        Some(
-                            deno_core::cppgc::wrap_object(
-                                &mut scope,
-                                args.this(),
-                                result,
-                            ),
-                        ),
+                        deno_core::_ops::RustToV8Marker::<
+                            deno_core::_ops::CppGcMarker,
+                            _,
+                        >::from(result),
                         &mut scope,
                     ),
                 );
