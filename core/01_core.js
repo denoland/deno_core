@@ -38,6 +38,7 @@
     __initializeCoreMethods,
     __resolvePromise,
     __resolveCallback,
+    callbackQueue,
   } = window.__infra;
   const {
     op_abort_wasm_streaming,
@@ -185,6 +186,21 @@
         __resolvePromise(promiseId, res, isOk);
       }
     }
+
+    if (callbackQueue.length > 0) {
+      // drain `callbackQueue` before processing microtasks, to give priority to ops that use it (currently only used by `Deno.writeSync` and `Deno.readSync`)
+      for (let i = 0; i < callbackQueue.length; i++) {
+        const queueItem = callbackQueue[i];
+        const [cb, res, isOk] = queueItem;
+        try {
+          cb(res, isOk);
+        } catch (e) {
+          reportExceptionCallback(e);
+        }
+      }
+      callbackQueue.length = 0;
+    }
+
     // Drain nextTick queue if there's a tick scheduled.
     if (arguments[arguments.length - 1]) {
       for (let i = 0; i < nextTickCallbacks.length; i++) {

@@ -42,16 +42,6 @@
   const NO_CALLBACK = null;
   const callbackRing = ArrayPrototypeFill(new Array(RING_SIZE), NO_CALLBACK);
 
-  function setCallback(id, fn) {
-    const idx = id % RING_SIZE;
-    const old = callbackRing[idx];
-    if (old !== NO_CALLBACK) {
-      const oldId = id - RING_SIZE;
-      MapPrototypeSet(callbackMap, oldId, old);
-    }
-    callbackRing[idx] = fn;
-  }
-
   function __resolveCallback(id, res, isOk) {
     const outOfBounds = id < nextCallbackId - RING_SIZE;
     if (outOfBounds) {
@@ -60,7 +50,7 @@
         throw "Missing callback in map @ " + id;
       }
       MapPrototypeDelete(callbackMap, id);
-      cb(res, isOk);
+      callbackQueue.push([cb, res, isOk]);
     } else {
       const idx = id % RING_SIZE;
       const cb = callbackRing[idx];
@@ -68,12 +58,34 @@
         throw "Missing callback in ring @ " + id;
       }
       callbackRing[idx] = NO_CALLBACK;
-      cb(res, isOk);
+      callbackQueue.push([cb, res, isOk]);
     }
   }
 
+  const callbackQueue = [];
+
   // Store raw (unwrapped) async op functions for callback-based invocation
   const rawAsyncOps = {};
+
+  function asyncOpWithCallback(opName, cb, ...args) {
+    const cbId = nextCallbackId++;
+    const originalOp = rawAsyncOps[opName];
+    const idx = id % RING_SIZE;
+    const old = callbackRing[idx];
+    if (old !== NO_CALLBACK) {
+      const oldId = id - RING_SIZE;
+      MapPrototypeSet(callbackMap, oldId, old);
+    }
+    callbackRing[idx] = fn;
+
+    const negId = -(cbId + 1);
+    const maybeResult = rawStreamWrite(negId, rid, data);
+    if (maybeResult !== undefined) {
+      // Eager completion - fire callback synchronously now
+      __resolveCallback(cbId, maybeResult, true);
+    }
+  }
+
   // TODO(bartlomieju): in the future use `v8::Private` so it's not visible
   // to users. Currently missing bindings.
   const promiseIdSymbol = SymbolFor("Deno.core.internalPromiseId");
@@ -480,22 +492,13 @@
     hasPromise,
     promiseIdSymbol,
     rawAsyncOps,
-    setCallback,
-    __resolveCallback,
-  });
-
-  // Expose nextCallbackId as a getter/setter property so callers
-  // can read and increment the shared counter.
-  ObjectDefineProperty(core, "nextCallbackId", {
-    get() { return nextCallbackId; },
-    set(v) { nextCallbackId = v; },
-    enumerable: true,
-    configurable: true,
+    asyncOpWithCallback,
   });
 
   const infra = {
     __resolvePromise,
     __resolveCallback,
+    callbackQueue,
     __setLeakTracingEnabled,
     __isLeakTracingEnabled,
     __initializeCoreMethods,
