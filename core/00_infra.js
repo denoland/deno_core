@@ -79,7 +79,7 @@
     callbackRing[idx] = fn;
 
     const negId = -(cbId + 1);
-    const maybeResult = rawStreamWrite(negId, rid, data);
+    const maybeResult = originalOp(negId, ...args);
     if (maybeResult !== undefined) {
       // Eager completion - fire callback synchronously now
       __resolveCallback(cbId, maybeResult, true);
