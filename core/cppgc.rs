@@ -442,7 +442,7 @@ mod tests {
   #[repr(C)]
   #[derive(CppgcInherits, CppgcBase)]
   #[cppgc_inheritors(Derived2)]
-  #[cppgc_base(BaseType)]
+  #[cppgc_inherits_from(BaseType)]
   struct Derived {
     base: BaseType,
     _extra: u8,
@@ -481,7 +481,7 @@ mod tests {
 
   #[repr(C)]
   #[derive(CppgcInherits)]
-  #[cppgc_base(Derived)]
+  #[cppgc_inherits_from(Derived)]
   struct Derived2 {
     base: Derived,
     _value: u8,

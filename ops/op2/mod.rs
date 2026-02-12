@@ -311,12 +311,8 @@ pub(crate) fn generate_op2(
   let mut fast_generator_state = base_generator_state.clone();
 
   let (fast_definition, fast_definition_metrics, fast_fn) =
-    match generate_dispatch_fast(
-      &config,
-      &mut fast_generator_state,
-      &signature,
-    )
-    .map_err(|e| Op2Error::from(e).with_default_span(sig_span))?
+    match generate_dispatch_fast(&config, &mut fast_generator_state, &signature)
+      .map_err(|e| Op2Error::from(e).with_default_span(sig_span))?
     {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast

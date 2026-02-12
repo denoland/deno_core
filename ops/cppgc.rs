@@ -155,13 +155,13 @@ fn ensure_repr_c(attrs: &[Attribute], span: proc_macro2::Span) -> Result<()> {
 fn parse_base_attr(attrs: &[Attribute]) -> Result<Type> {
   let mut found = None;
   for attr in attrs {
-    if !attr.path().is_ident("cppgc_base") {
+    if !attr.path().is_ident("cppgc_inherits_from") {
       continue;
     }
     if found.is_some() {
       return Err(Error::new(
         attr.span(),
-        "cppgc_base specified more than once",
+        "cppgc_inherits_from specified more than once",
       ));
     }
     let base = attr.parse_args::<Type>()?;
@@ -170,7 +170,7 @@ fn parse_base_attr(attrs: &[Attribute]) -> Result<Type> {
   found.ok_or_else(|| {
     Error::new(
       proc_macro2::Span::call_site(),
-      "derive(CppgcInherits) requires #[cppgc_base(BaseType)]",
+      "derive(CppgcInherits) requires #[cppgc_inherits_from(BaseType)]",
     )
   })
 }

@@ -147,8 +147,8 @@ pub(crate) fn generate_impl_ops(
 
       config.self_name = Some(format_ident!("{}", self_ty_ident));
 
-      let op = generate_op2(config, func)
-        .map_err(|e| e.with_default_span(span))?;
+      let op =
+        generate_op2(config, func).map_err(|e| e.with_default_span(span))?;
       tokens.extend(op);
     }
   }

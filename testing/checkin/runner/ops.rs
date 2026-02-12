@@ -164,7 +164,7 @@ impl TestObjectWrap {
 }
 
 #[derive(CppgcInherits)]
-#[cppgc_base(DOMPointReadOnly)]
+#[cppgc_inherits_from(DOMPointReadOnly)]
 #[repr(C)]
 pub struct DOMPoint {
   base: DOMPointReadOnly,

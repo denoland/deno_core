@@ -10,13 +10,13 @@ mod cppgc;
 mod op2;
 mod webidl;
 
-#[proc_macro_derive(CppgcInherits, attributes(cppgc_base))]
+#[proc_macro_derive(CppgcInherits, attributes(cppgc_inherits_from))]
 pub fn cppgc_inherits(item: TokenStream) -> TokenStream {
   cppgc::derives_inherits(item)
 }
 
 #[proc_macro_derive(CppgcBase, attributes(cppgc_inheritors))]
-pub fn cppgc_base(item: TokenStream) -> TokenStream {
+pub fn cppgc_inherits_from(item: TokenStream) -> TokenStream {
   cppgc::derives_base(item)
 }
 
