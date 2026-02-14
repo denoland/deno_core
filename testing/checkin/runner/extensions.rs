@@ -54,6 +54,7 @@ deno_core::extension!(
   objects = [
     ops::DOMPointReadOnly,
     ops::DOMPoint,
+    ops::DOMPoint3D,
     ops::TestObjectWrap,
     ops::TestEnumWrap
   ],

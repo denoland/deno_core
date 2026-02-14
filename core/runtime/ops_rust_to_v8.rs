@@ -30,8 +30,6 @@ use std::borrow::Cow;
 use std::marker::PhantomData;
 use std::rc::Rc;
 
-use crate::cppgc::PrototypeChain;
-
 /// Convert a value to a `v8::Local`, potentially allocating.
 pub trait RustToV8<'a> {
   fn to_v8<'i>(
@@ -451,20 +449,6 @@ impl<'a, T: crate::cppgc::GarbageCollected + 'static> RustToV8<'a>
     scope: &mut v8::PinScope<'a, 'i>,
   ) -> v8::Local<'a, v8::Value> {
     v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_object(
-      scope, self.0,
-    ))
-  }
-}
-
-impl<'a, T: crate::cppgc::GarbageCollected + PrototypeChain + 'static>
-  RustToV8<'a> for RustToV8Marker<CppGcProtoMarker, T>
-{
-  #[inline(always)]
-  fn to_v8<'i>(
-    self,
-    scope: &mut v8::PinScope<'a, 'i>,
-  ) -> v8::Local<'a, v8::Value> {
-    v8::Local::<v8::Value>::from(deno_core::cppgc::make_cppgc_proto_object(
       scope, self.0,
     ))
   }

@@ -2,9 +2,10 @@
 
 import {
   DOMPoint,
+  DOMPoint3D,
   DOMPointReadOnly,
   TestEnumWrap,
   TestObjectWrap,
 } from "ext:core/ops";
 
-export { DOMPoint, DOMPointReadOnly, TestEnumWrap, TestObjectWrap };
+export { DOMPoint, DOMPoint3D, DOMPointReadOnly, TestEnumWrap, TestObjectWrap };
