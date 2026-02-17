@@ -260,7 +260,7 @@ pub(crate) fn generate_op2(
   } else {
     generate_dispatch_slow(&config, &mut slow_generator_state, &signature)?
   };
-  let is_async = signature.ret_val.is_async();
+  let is_async = signature.ret_val.is_async() || config.fake_async;
   let is_reentrant = config.reentrant;
   let no_side_effect = config.no_side_effects;
 
@@ -305,7 +305,7 @@ pub(crate) fn generate_op2(
     };
 
   let arg_count: usize = if let Some(required) = config.required {
-    required as usize
+    required as usize + is_async as usize
   } else {
     args.len() + is_async as usize
   };

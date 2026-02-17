@@ -11,6 +11,7 @@ use super::dispatch_slow::throw_exception;
 use super::dispatch_slow::with_fn_args;
 use super::dispatch_slow::with_opctx;
 use super::dispatch_slow::with_opstate;
+use super::dispatch_slow::with_required_check;
 use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
 use super::dispatch_slow::with_self;
@@ -160,6 +161,15 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
+  let with_required_check = if generator_state.needs_args
+    && let Some(required) = config.required
+    && required > 0
+  {
+    with_required_check(generator_state, required, true)
+  } else {
+    quote!()
+  };
+
   let with_scope =
     if generator_state.needs_scope | generator_state.needs_stack_trace {
       with_scope(generator_state)
@@ -182,6 +192,7 @@ pub(crate) fn generate_dispatch_async(
         #with_scope
         #with_retval
         #with_args
+        #with_required_check
         #with_opctx
         #with_opstate
         #with_self
