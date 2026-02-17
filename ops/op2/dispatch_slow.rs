@@ -148,7 +148,7 @@ pub(crate) fn generate_dispatch_slow(
     && let Some(required) = config.required
     && required > 0
   {
-    with_required_check(generator_state, required)
+    with_required_check(generator_state, required, false)
   } else {
     quote!()
   };
@@ -280,6 +280,7 @@ pub(crate) fn get_prefix(generator_state: &mut GeneratorState) -> String {
 pub(crate) fn with_required_check(
   generator_state: &mut GeneratorState,
   required: u8,
+  is_async: bool,
 ) -> TokenStream {
   generator_state.needs_scope = true;
   let arguments_lit = if required > 1 {
@@ -290,14 +291,16 @@ pub(crate) fn with_required_check(
 
   let prefix = get_prefix(generator_state);
 
+  let async_offset = if is_async { 1 } else { 0 };
+
   gs_quote!(generator_state(fn_args, scope) =>
-    (if #fn_args.length() < #required as i32 {
+    (if #fn_args.length() < (#required as i32) + #async_offset {
       let msg = format!(
         "{}: {} {} required, but only {} present",
         #prefix,
         #required,
         #arguments_lit,
-        #fn_args.length()
+        #fn_args.length() - #async_offset
       );
       let msg = deno_core::v8::String::new(&mut #scope, &msg).unwrap();
       let exception = deno_core::v8::Exception::type_error(&mut #scope, msg.into());
