@@ -34,10 +34,30 @@ pub const fn op_async() -> ::deno_core::_ops::OpDecl {
             let _reentrancy_check_guard = deno_core::_ops::reentrancy_check(
                 &<Self as deno_core::_ops::Op>::DECL,
             );
+            let scope = ::std::pin::pin!(
+                unsafe { deno_core::v8::CallbackScope::new(info) }
+            );
+            let mut scope = scope.init();
             let mut rv = deno_core::v8::ReturnValue::from_function_callback_info(info);
             let args = deno_core::v8::FunctionCallbackArguments::from_function_callback_info(
                 info,
             );
+            if args.length() < (1u8 as i32) + 1i32 {
+                let msg = format!(
+                    "{}: {} {} required, but only {} present",
+                    "Failed to execute 'UNINIT.call'",
+                    1u8,
+                    "argument",
+                    args.length() - 1i32,
+                );
+                let msg = deno_core::v8::String::new(&mut scope, &msg).unwrap();
+                let exception = deno_core::v8::Exception::type_error(
+                    &mut scope,
+                    msg.into(),
+                );
+                scope.throw_exception(exception);
+                return 1;
+            }
             let opctx: &'s _ = unsafe {
                 &*(deno_core::v8::Local::<
                     deno_core::v8::External,
