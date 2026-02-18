@@ -10,6 +10,7 @@ mod async_cancel;
 mod async_cell;
 pub mod convert;
 pub mod cppgc;
+pub mod event_loop;
 pub mod error;
 mod extension_set;
 mod extensions;
@@ -26,9 +27,14 @@ mod ops_builtin;
 mod ops_builtin_types;
 mod ops_builtin_v8;
 mod ops_metrics;
+pub mod reactor;
+#[cfg(feature = "reactor-tokio")]
+pub mod reactor_tokio;
 mod runtime;
 mod source_map;
 mod tasks;
+#[allow(non_camel_case_types, non_upper_case_globals, clippy::missing_safety_doc)]
+pub mod uv_compat;
 mod web_timeout;
 pub mod webidl;
 
@@ -234,8 +240,6 @@ macro_rules! located_script_name {
 mod tests {
   use std::process::Command;
   use std::process::Stdio;
-
-  use super::*;
 
   #[test]
   fn located_script_name() {
