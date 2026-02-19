@@ -441,10 +441,7 @@ fn find_transitive_inheritors(root: TypeId) -> Vec<TypeId> {
 /// Use `#[derive(CppgcBase)]` instead of implementing this trait manually.
 pub unsafe trait Base: GarbageCollected + 'static {
   #[doc(hidden)]
-  fn __cache() -> &'static std::sync::OnceLock<Vec<TypeId>> {
-    static CACHE: std::sync::OnceLock<Vec<TypeId>> = std::sync::OnceLock::new();
-    &CACHE
-  }
+  fn __cache() -> &'static std::sync::OnceLock<Vec<TypeId>>;
 
   /// Returns the [`TypeId`]s of all types that transitively inherit from this type.
   fn inheriting_types() -> &'static [TypeId] {
