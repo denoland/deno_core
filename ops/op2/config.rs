@@ -15,6 +15,7 @@ use syn::parse::ParseStream;
 use syn::parse2;
 
 use crate::op2::Op2Error;
+use crate::op2::Op2ErrorKind;
 
 #[derive(Debug, Default, Eq, PartialEq)]
 pub struct MacroConfig {
@@ -54,7 +55,7 @@ pub struct MacroConfig {
   /// Symbol.for("op_name") for the op.
   pub symbol: bool,
   /// Use proto for cppgc object.
-  pub use_proto_cppgc: bool,
+  pub use_cppgc_base: bool,
   /// Calls the fn with the promise_id of the async op.
   pub promise_id: bool,
   pub validate: Option<Path>,
@@ -67,6 +68,20 @@ impl MacroConfig {
   ) -> Result<Self, Op2Error> {
     let flags = attributes
       .into_iter()
+      .filter(|attribute| {
+        // Skip standard Rust attributes that aren't op2 config flags.
+        // These end up here because object_wrap partitions attrs into
+        // "op2 signature attrs" vs "everything else", and the latter
+        // includes doc comments, #[allow], #[cfg], etc.
+        !matches!(
+          attribute
+            .path()
+            .get_ident()
+            .map(|i| i.to_string())
+            .as_deref(),
+          Some("doc" | "allow" | "cfg")
+        )
+      })
       .map(|attribute| {
         let meta = attribute.meta;
 
@@ -135,22 +150,24 @@ impl MacroConfig {
 
     // Test for invalid attribute combinations
     if config.fast && config.nofast {
-      return Err(Op2Error::InvalidAttributeCombination(
-        span, "fast", "nofast",
+      return Err(Op2Error::with_span(
+        span,
+        Op2ErrorKind::InvalidAttributeCombination("fast", "nofast"),
       ));
     }
     if config.fast && config.fast_alternative.is_some() {
-      return Err(Op2Error::InvalidAttributeCombination(
+      return Err(Op2Error::with_span(
         span,
-        "fast",
-        "fast(...)",
+        Op2ErrorKind::InvalidAttributeCombination("fast", "fast(...)"),
       ));
     }
     if config.no_side_effects && config.reentrant {
-      return Err(Op2Error::InvalidAttributeCombination(
+      return Err(Op2Error::with_span(
         span,
-        "no_side_effects",
-        "reentrant",
+        Op2ErrorKind::InvalidAttributeCombination(
+          "no_side_effects",
+          "reentrant",
+        ),
       ));
     }
 
