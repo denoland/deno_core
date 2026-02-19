@@ -1133,7 +1133,8 @@ pub fn parse_signature(
       | Arg::RcRefCell(Special::JsRuntimeState) => {
         jsruntimestate_count += 1;
         if jsruntimestate_count > 1 {
-          jsruntimestate_dup_span = arg_spans.get(idx).copied().unwrap_or_else(Span::call_site);
+          jsruntimestate_dup_span =
+            arg_spans.get(idx).copied().unwrap_or_else(Span::call_site);
         }
       }
       _ => {}
@@ -1142,7 +1143,9 @@ pub fn parse_signature(
 
   // Ensure that there is at most one JsRuntimeState
   if jsruntimestate_count > 1 {
-    return Err(SignatureError::InvalidMultipleJsRuntimeState(jsruntimestate_dup_span));
+    return Err(SignatureError::InvalidMultipleJsRuntimeState(
+      jsruntimestate_dup_span,
+    ));
   }
 
   let metadata = parse_metadata(&attributes)?;
@@ -1230,7 +1233,10 @@ fn parse_generics(
         let bound = parse_bound(&ty.bounds)?;
 
         if where_clauses.insert(ident.clone(), bound).is_some() {
-          return Err(SignatureError::DuplicateGeneric(ident.span(), ident.to_string()));
+          return Err(SignatureError::DuplicateGeneric(
+            ident.span(),
+            ident.to_string(),
+          ));
         }
       } else {
         return Err(SignatureError::InvalidWherePredicate(predicate.span()));
@@ -1256,7 +1262,10 @@ fn parse_generics(
       };
 
       if res.contains_key(name) {
-        return Err(SignatureError::DuplicateGeneric(name.span(), name.to_string()));
+        return Err(SignatureError::DuplicateGeneric(
+          name.span(),
+          name.to_string(),
+        ));
       }
       res.insert(name.clone(), bound);
     }

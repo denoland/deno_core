@@ -74,7 +74,11 @@ impl MacroConfig {
         // "op2 signature attrs" vs "everything else", and the latter
         // includes doc comments, #[allow], #[cfg], etc.
         !matches!(
-          attribute.path().get_ident().map(|i| i.to_string()).as_deref(),
+          attribute
+            .path()
+            .get_ident()
+            .map(|i| i.to_string())
+            .as_deref(),
           Some("doc" | "allow" | "cfg")
         )
       })

@@ -106,7 +106,8 @@ impl FastSignature {
         FastArg::Actual { arg, name_out, .. }
         | FastArg::Virtual { name_out, arg } => {
           if !matches!(arg, Arg::Ref(_, Special::HandleScope)) {
-            let span = arg_spans.get(idx).copied().unwrap_or_else(Span::call_site);
+            let span =
+              arg_spans.get(idx).copied().unwrap_or_else(Span::call_site);
             call_args.push(
               map_v8_fastcall_arg_to_arg(generator_state, name_out, arg)
                 .map_err(|s| {
@@ -286,7 +287,11 @@ pub(crate) fn get_fast_signature(
   let mut args = vec![];
   let mut index_in = 0;
   for (index_out, (arg, _)) in signature.args.iter().cloned().enumerate() {
-    let arg_span = signature.arg_spans.get(index_out).copied().unwrap_or_else(Span::call_site);
+    let arg_span = signature
+      .arg_spans
+      .get(index_out)
+      .copied()
+      .unwrap_or_else(Span::call_site);
     let Some(arg_type) = map_arg_to_v8_fastcall_type(&arg).map_err(|s| {
       V8SignatureMappingError::NoArgMapping(arg_span, s, Box::new(arg.clone()))
     })?
@@ -816,8 +821,8 @@ fn map_v8_fastcall_arg_to_arg(
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
     Arg::CppGcResource(_, ty) => {
-      let ty =
-        syn::parse_str::<syn::Path>(ty).map_err(|_| "failed to reparse type")?;
+      let ty = syn::parse_str::<syn::Path>(ty)
+        .map_err(|_| "failed to reparse type")?;
 
       *needs_fast_isolate = true;
       let throw_exception =
@@ -833,8 +838,8 @@ fn map_v8_fastcall_arg_to_arg(
       *needs_fast_isolate = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {ty}"));
-      let ty =
-        syn::parse_str::<syn::Path>(ty).map_err(|_| "failed to reparse type")?;
+      let ty = syn::parse_str::<syn::Path>(ty)
+        .map_err(|_| "failed to reparse type")?;
       gs_quote!(generator_state(scope, try_unwrap_cppgc) => {
         let #arg_ident = if #arg_ident.is_null_or_undefined() {
           None
