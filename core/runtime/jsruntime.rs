@@ -1545,6 +1545,35 @@ impl JsRuntime {
     self.inner.state.op_state.clone()
   }
 
+  /// Register a `uv_loop_t` with the runtime so that its event loop phases
+  /// (timers, I/O, idle, prepare, check, close) are driven by
+  /// `poll_event_loop`.
+  ///
+  /// The v8::Context pointer is stored in `loop_.data` at the start of each
+  /// event loop tick so that libuv-style callbacks can retrieve it.
+  ///
+  /// # Safety
+  /// `loop_ptr` must be a valid, initialized `uv_loop_t` pointer that
+  /// outlives the runtime.
+  pub unsafe fn register_uv_loop(
+    &mut self,
+    loop_ptr: *mut crate::uv_compat::uv_loop_t,
+  ) {
+    let context_state = &self.inner.main_realm.0.context_state;
+    let inner_ptr = unsafe {
+      crate::uv_compat::uv_loop_get_inner_ptr(loop_ptr)
+    };
+    let uv_inner =
+      inner_ptr as *const crate::uv_compat::UvLoopInner;
+    context_state.uv_loop_inner.set(Some(uv_inner));
+    context_state.uv_loop_ptr.set(Some(loop_ptr));
+
+    // Give the uv_compat layer the event loop waker so that I/O
+    // completions from tokio tasks wake poll_event_loop.
+    let waker = self.inner.state.waker.clone();
+    unsafe { (*uv_inner).set_event_loop_waker(waker) };
+  }
+
   /// Returns the runtime's op names, ordered by OpId.
   pub fn op_names(&self) -> Vec<&'static str> {
     let state = &self.inner.main_realm.0.context_state;
@@ -1990,6 +2019,20 @@ impl JsRuntime {
     let realm = &self.inner.main_realm;
     let modules = &realm.0.module_map;
     let context_state = &realm.0.context_state;
+
+    // Set the v8::Context pointer in the uv_loop so libuv-style callbacks
+    // can retrieve it via context_from_loop().
+    if let Some(loop_ptr) = context_state.uv_loop_ptr.get() {
+      let context = scope.get_current_context();
+      // SAFETY: We store the raw v8::Local pointer for the duration of this
+      // event loop tick. Callbacks reconstruct it via transmute in
+      // context_from_loop().
+      unsafe {
+        let ctx_ptr: *mut std::ffi::c_void =
+          std::mem::transmute(context);
+        (*loop_ptr).data = ctx_ptr;
+      }
+    }
     let exception_state = &context_state.exception_state;
 
     let mut dispatched_ops = false;
@@ -2040,6 +2083,11 @@ impl JsRuntime {
     // unhandledrejection handlers are run in macrotask callbacks)
     Self::dispatch_rejections(scope, context_state, exception_state)?;
     scope.perform_microtask_checkpoint();
+
+    // ===== Phase 2.5 (I/O) =====
+    if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
+      unsafe { (*uv_inner_ptr).run_io() };
+    }
 
     // ===== Phase 3 (Idle/Prepare) =====
     if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
@@ -2366,6 +2414,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_external_ops: bool,
   has_outstanding_immediates: bool,
   has_refed_immediates: u32,
+  has_uv_alive_handles: bool,
 }
 
 impl EventLoopPendingState {
@@ -2401,6 +2450,12 @@ impl EventLoopPendingState {
       let info = state.immediate_info.borrow();
       (info.has_outstanding, info.ref_count)
     };
+    let has_uv_alive_handles =
+      if let Some(uv_inner_ptr) = state.uv_loop_inner.get() {
+        unsafe { (*uv_inner_ptr).has_alive_handles() }
+      } else {
+        false
+      };
     EventLoopPendingState {
       has_pending_ops: has_pending_refed_ops
         || has_pending_timers
@@ -2415,6 +2470,7 @@ impl EventLoopPendingState {
       has_pending_external_ops: state.external_ops_tracker.has_pending_ops(),
       has_outstanding_immediates,
       has_refed_immediates,
+      has_uv_alive_handles,
     }
   }
 
@@ -2435,6 +2491,7 @@ impl EventLoopPendingState {
       || self.has_refed_immediates > 0
       || self.has_pending_promise_events
       || self.has_pending_external_ops
+      || self.has_uv_alive_handles
   }
 }
 

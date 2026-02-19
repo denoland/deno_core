@@ -108,6 +108,9 @@ pub struct ContextState {
   /// Pointer to the UvLoopInner for the libuv compat layer.
   /// Set when a `uv_loop_t` is initialized and associated with this context.
   pub(crate) uv_loop_inner: Cell<Option<*const UvLoopInner>>,
+  /// Raw pointer to the `uv_loop_t` handle, used to set `loop_.data`
+  /// to the current v8::Context at the start of each event loop tick.
+  pub(crate) uv_loop_ptr: Cell<Option<*mut crate::uv_compat::uv_loop_t>>,
 }
 
 impl ContextState {
@@ -145,6 +148,7 @@ impl ContextState {
       ext_import_meta_proto: Default::default(),
       event_loop_phases: Default::default(),
       uv_loop_inner: Cell::new(None),
+      uv_loop_ptr: Cell::new(None),
     }
   }
 }
