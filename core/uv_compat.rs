@@ -1,22 +1,22 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
 //! **Pure Rust libuv Compatibility Layer**
-//! 
+//!
 //! This module provides a completely self-contained, pure Rust implementation
 //! of libuv's C API. It has **NO external dependencies** on libuv, libuvrust,
 //! or any other C libraries.
-//! 
+//!
 //! ## Features
 //! - Complete C ABI compatibility with libuv
 //! - Zero external dependencies - pure Rust implementation
 //! - Supports timers, idle, prepare, and check handles
 //! - Event loop phase execution matching libuv architecture
 //! - Memory-safe with proper cleanup semantics
-//! 
+//!
 //! ## Usage with ext/node HTTP2
 //! This layer is designed to be a drop-in replacement for libuv, allowing
 //! Node.js HTTP2 code in ../deno/ext/node to work without modification.
-//! 
+//!
 //! ## Architecture
 //! The implementation uses `UvLoopInner` as the core event loop state,
 //! integrated with deno_core's phase-based event loop execution.
@@ -61,6 +61,31 @@ pub enum uv_run_mode {
 const UV_HANDLE_ACTIVE: u32 = 1 << 0;
 const UV_HANDLE_REF: u32 = 1 << 1;
 const UV_HANDLE_CLOSING: u32 = 1 << 2;
+
+/// UV error codes following libuv's convention.
+///
+/// On Unix the code is the negation of the corresponding system `errno`.
+/// On Windows libuv uses fixed negative values to avoid conflicts with
+/// redefined errno codes (see libuv `include/uv/errno.h`).
+/// `UV_EOF` is a sentinel that does not correspond to any system errno.
+pub const UV_EOF: i32 = -4095;
+
+macro_rules! uv_errno {
+  ($name:ident, $unix:expr, $win:expr) => {
+    #[cfg(unix)]
+    pub const $name: i32 = -($unix);
+    #[cfg(windows)]
+    pub const $name: i32 = $win;
+  };
+}
+
+uv_errno!(UV_EAGAIN, libc::EAGAIN, -4088);
+uv_errno!(UV_EBADF, libc::EBADF, -4083);
+uv_errno!(UV_EADDRINUSE, libc::EADDRINUSE, -4091);
+uv_errno!(UV_ECONNREFUSED, libc::ECONNREFUSED, -4078);
+uv_errno!(UV_EINVAL, libc::EINVAL, -4071);
+uv_errno!(UV_ENOTCONN, libc::ENOTCONN, -4053);
+uv_errno!(UV_EPIPE, libc::EPIPE, -4047);
 
 #[repr(C)]
 pub struct uv_loop_t {
@@ -155,9 +180,7 @@ pub struct uv_tcp_t {
 
 /// State for an in-progress TCP connect.
 struct ConnectPending {
-  future: Pin<
-    Box<dyn Future<Output = std::io::Result<tokio::net::TcpStream>>>,
-  >,
+  future: Pin<Box<dyn Future<Output = std::io::Result<tokio::net::TcpStream>>>>,
   req: *mut uv_connect_t,
   cb: Option<uv_connect_cb>,
 }
@@ -203,8 +226,10 @@ pub type uv_prepare_cb = unsafe extern "C" fn(*mut uv_prepare_t);
 pub type uv_check_cb = unsafe extern "C" fn(*mut uv_check_t);
 pub type uv_close_cb = unsafe extern "C" fn(*mut uv_handle_t);
 pub type uv_write_cb = unsafe extern "C" fn(*mut uv_write_t, i32);
-pub type uv_alloc_cb = unsafe extern "C" fn(*mut uv_handle_t, usize, *mut uv_buf_t);
-pub type uv_read_cb = unsafe extern "C" fn(*mut uv_stream_t, isize, *const uv_buf_t);
+pub type uv_alloc_cb =
+  unsafe extern "C" fn(*mut uv_handle_t, usize, *mut uv_buf_t);
+pub type uv_read_cb =
+  unsafe extern "C" fn(*mut uv_stream_t, isize, *const uv_buf_t);
 pub type uv_connection_cb = unsafe extern "C" fn(*mut uv_stream_t, i32);
 pub type uv_connect_cb = unsafe extern "C" fn(*mut uv_connect_t, i32);
 pub type uv_shutdown_cb = unsafe extern "C" fn(*mut uv_shutdown_t, i32);
@@ -244,8 +269,7 @@ pub(crate) struct UvLoopInner {
   // so that tokio's reactor can wake the event loop when I/O is ready.
   waker: RefCell<Option<Waker>>,
 
-  closing_handles:
-    RefCell<VecDeque<(*mut uv_handle_t, Option<uv_close_cb>)>>,
+  closing_handles: RefCell<VecDeque<(*mut uv_handle_t, Option<uv_close_cb>)>>,
 
   time_origin: Instant,
 }
@@ -408,11 +432,10 @@ impl UvLoopInner {
 
     for key in expired {
       self.timers.borrow_mut().remove(&key);
-      let handle_ptr =
-        match self.timer_handles.borrow().get(&key.id).copied() {
-          Some(h) => h,
-          None => continue,
-        };
+      let handle_ptr = match self.timer_handles.borrow().get(&key.id).copied() {
+        Some(h) => h,
+        None => continue,
+      };
       let handle = unsafe { &mut *handle_ptr };
       // Only fire if still active
       if handle.flags & UV_HANDLE_ACTIVE == 0 {
@@ -548,198 +571,181 @@ impl UvLoopInner {
     for _pass in 0..16 {
       let mut any_work = false;
 
-    let mut i = 0;
-    loop {
-      let tcp_ptr = {
-        let handles = self.tcp_handles.borrow();
-        if i >= handles.len() {
-          break;
+      let mut i = 0;
+      loop {
+        let tcp_ptr = {
+          let handles = self.tcp_handles.borrow();
+          if i >= handles.len() {
+            break;
+          }
+          handles[i]
+        };
+        i += 1;
+        let tcp = unsafe { &mut *tcp_ptr };
+        if tcp.flags & UV_HANDLE_ACTIVE == 0 {
+          continue;
         }
-        handles[i]
-      };
-      i += 1;
-      let tcp = unsafe { &mut *tcp_ptr };
-      if tcp.flags & UV_HANDLE_ACTIVE == 0 {
-        continue;
-      }
 
-      // 1. Poll pending connect
-      if let Some(ref mut pending) = tcp.internal_connect {
-        if let Poll::Ready(result) = pending.future.as_mut().poll(&mut cx)
-        {
-          let req = pending.req;
-          let cb = pending.cb;
-          let status = match result {
-            Ok(stream) => {
-              if tcp.internal_nodelay {
-                stream.set_nodelay(true).ok();
+        // 1. Poll pending connect
+        if let Some(ref mut pending) = tcp.internal_connect {
+          if let Poll::Ready(result) = pending.future.as_mut().poll(&mut cx) {
+            let req = pending.req;
+            let cb = pending.cb;
+            let status = match result {
+              Ok(stream) => {
+                if tcp.internal_nodelay {
+                  stream.set_nodelay(true).ok();
+                }
+                tcp.internal_stream = Some(stream);
+                0
               }
-              tcp.internal_stream = Some(stream);
-              0
-            }
-            Err(_) => -61, // ECONNREFUSED
-          };
-          tcp.internal_connect = None;
-          unsafe {
-            (*req).handle = tcp_ptr as *mut uv_stream_t;
-          }
-          if let Some(cb) = cb {
-            unsafe { cb(req, status) };
-          }
-        }
-      }
-
-      // 2. Poll listener for new connections
-      if let Some(ref listener) = tcp.internal_listener {
-        if tcp.internal_connection_cb.is_some() {
-          // Accept all pending connections
-          loop {
-            match listener.poll_accept(&mut cx) {
-              Poll::Ready(Ok((stream, _))) => {
-                tcp.internal_backlog.push_back(stream);
-                any_work = true;
-              }
-              _ => break,
-            }
-          }
-          // Fire connection_cb for each pending connection
-          while !tcp.internal_backlog.is_empty() {
-            if let Some(cb) = tcp.internal_connection_cb {
-              unsafe { cb(tcp_ptr as *mut uv_stream_t, 0) };
-            }
-            // If uv_accept wasn't called in the callback, stop to
-            // avoid infinite loop
-            if !tcp.internal_backlog.is_empty() {
-              break;
-            }
-          }
-        }
-      }
-
-      // 3. Poll readable stream
-      if tcp.internal_reading && tcp.internal_stream.is_some() {
-        let alloc_cb = tcp.internal_alloc_cb;
-        let read_cb = tcp.internal_read_cb;
-        if let (Some(alloc_cb), Some(read_cb)) = (alloc_cb, read_cb) {
-          // Register interest with the reactor via poll_read_ready.
-          let _ = tcp
-            .internal_stream
-            .as_ref()
-            .unwrap()
-            .poll_read_ready(&mut cx);
-
-          loop {
-            // Re-check after each callback: the callback may have
-            // called uv_close/uv_read_stop, dropping the stream.
-            if !tcp.internal_reading || tcp.internal_stream.is_none() {
-              break;
-            }
-            let mut buf = uv_buf_t {
-              base: std::ptr::null_mut(),
-              len: 0,
+              Err(_) => UV_ECONNREFUSED,
             };
+            tcp.internal_connect = None;
             unsafe {
-              alloc_cb(tcp_ptr as *mut uv_handle_t, 65536, &mut buf);
+              (*req).handle = tcp_ptr as *mut uv_stream_t;
             }
-            if buf.base.is_null() || buf.len == 0 {
-              break;
+            if let Some(cb) = cb {
+              unsafe { cb(req, status) };
             }
-            let slice = unsafe {
-              std::slice::from_raw_parts_mut(
-                buf.base as *mut u8,
-                buf.len,
-              )
-            };
-            match tcp.internal_stream.as_ref().unwrap().try_read(slice) {
-              Ok(0) => {
-                // EOF
-                unsafe {
-                  read_cb(tcp_ptr as *mut uv_stream_t, -4095, &buf)
-                };
-                tcp.internal_reading = false;
-                break;
+          }
+        }
+
+        // 2. Poll listener for new connections
+        if let Some(ref listener) = tcp.internal_listener {
+          if tcp.internal_connection_cb.is_some() {
+            // Accept all pending connections
+            loop {
+              match listener.poll_accept(&mut cx) {
+                Poll::Ready(Ok((stream, _))) => {
+                  tcp.internal_backlog.push_back(stream);
+                  any_work = true;
+                }
+                _ => break,
               }
-              Ok(n) => {
-                any_work = true;
-                unsafe {
-                  read_cb(
-                    tcp_ptr as *mut uv_stream_t,
-                    n as isize,
-                    &buf,
-                  )
-                };
-                // Callback may have stopped reading or closed
+            }
+            // Fire connection_cb for each pending connection
+            while !tcp.internal_backlog.is_empty() {
+              if let Some(cb) = tcp.internal_connection_cb {
+                unsafe { cb(tcp_ptr as *mut uv_stream_t, 0) };
               }
-              Err(ref e)
-                if e.kind() == std::io::ErrorKind::WouldBlock =>
-              {
-                break;
-              }
-              Err(_) => {
-                unsafe {
-                  read_cb(tcp_ptr as *mut uv_stream_t, -4095, &buf)
-                };
-                tcp.internal_reading = false;
+              // If uv_accept wasn't called in the callback, stop to
+              // avoid infinite loop
+              if !tcp.internal_backlog.is_empty() {
                 break;
               }
             }
           }
         }
-      }
 
-      // 4. Drain write queue in order
-      if !tcp.internal_write_queue.is_empty()
-        && tcp.internal_stream.is_some()
-      {
-        let stream = tcp.internal_stream.as_ref().unwrap();
-        let _ = stream.poll_write_ready(&mut cx);
+        // 3. Poll readable stream
+        if tcp.internal_reading && tcp.internal_stream.is_some() {
+          let alloc_cb = tcp.internal_alloc_cb;
+          let read_cb = tcp.internal_read_cb;
+          if let (Some(alloc_cb), Some(read_cb)) = (alloc_cb, read_cb) {
+            // Register interest with the reactor via poll_read_ready.
+            let _ = tcp
+              .internal_stream
+              .as_ref()
+              .unwrap()
+              .poll_read_ready(&mut cx);
 
-        loop {
-          let pw = match tcp.internal_write_queue.front_mut() {
-            Some(pw) => pw,
-            None => break,
-          };
-          let mut done = false;
-          let mut error = false;
+            loop {
+              // Re-check after each callback: the callback may have
+              // called uv_close/uv_read_stop, dropping the stream.
+              if !tcp.internal_reading || tcp.internal_stream.is_none() {
+                break;
+              }
+              let mut buf = uv_buf_t {
+                base: std::ptr::null_mut(),
+                len: 0,
+              };
+              unsafe {
+                alloc_cb(tcp_ptr as *mut uv_handle_t, 65536, &mut buf);
+              }
+              if buf.base.is_null() || buf.len == 0 {
+                break;
+              }
+              let slice = unsafe {
+                std::slice::from_raw_parts_mut(buf.base as *mut u8, buf.len)
+              };
+              match tcp.internal_stream.as_ref().unwrap().try_read(slice) {
+                Ok(0) => {
+                  // EOF
+                  unsafe { read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf) };
+                  tcp.internal_reading = false;
+                  break;
+                }
+                Ok(n) => {
+                  any_work = true;
+                  unsafe {
+                    read_cb(tcp_ptr as *mut uv_stream_t, n as isize, &buf)
+                  };
+                  // Callback may have stopped reading or closed
+                }
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                  break;
+                }
+                Err(_) => {
+                  unsafe { read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf) };
+                  tcp.internal_reading = false;
+                  break;
+                }
+              }
+            }
+          }
+        }
+
+        // 4. Drain write queue in order
+        if !tcp.internal_write_queue.is_empty() && tcp.internal_stream.is_some()
+        {
+          let stream = tcp.internal_stream.as_ref().unwrap();
+          let _ = stream.poll_write_ready(&mut cx);
+
           loop {
-            if pw.offset >= pw.data.len() {
-              done = true;
-              break;
-            }
-            match stream.try_write(&pw.data[pw.offset..]) {
-              Ok(n) => pw.offset += n,
-              Err(ref e)
-                if e.kind() == std::io::ErrorKind::WouldBlock =>
-              {
-                break; // try again next tick
-              }
-              Err(_) => {
-                error = true;
+            let pw = match tcp.internal_write_queue.front_mut() {
+              Some(pw) => pw,
+              None => break,
+            };
+            let mut done = false;
+            let mut error = false;
+            loop {
+              if pw.offset >= pw.data.len() {
+                done = true;
                 break;
               }
+              match stream.try_write(&pw.data[pw.offset..]) {
+                Ok(n) => pw.offset += n,
+                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                  break; // try again next tick
+                }
+                Err(_) => {
+                  error = true;
+                  break;
+                }
+              }
             }
-          }
-          if done {
-            let pw = tcp.internal_write_queue.pop_front().unwrap();
-            if let Some(cb) = pw.cb {
-              unsafe { cb(pw.req, 0) };
+            if done {
+              let pw = tcp.internal_write_queue.pop_front().unwrap();
+              if let Some(cb) = pw.cb {
+                unsafe { cb(pw.req, 0) };
+              }
+            } else if error {
+              let pw = tcp.internal_write_queue.pop_front().unwrap();
+              if let Some(cb) = pw.cb {
+                unsafe { cb(pw.req, UV_EPIPE) };
+              }
+            } else {
+              break; // WouldBlock, stop draining
             }
-          } else if error {
-            let pw = tcp.internal_write_queue.pop_front().unwrap();
-            if let Some(cb) = pw.cb {
-              unsafe { cb(pw.req, -32) }; // UV_EPIPE
-            }
-          } else {
-            break; // WouldBlock, stop draining
           }
         }
-      }
-    } // end per-handle loop
+      } // end per-handle loop
 
-    if !any_work {
-      break;
-    }
-    did_any_work = true;
+      if !any_work {
+        break;
+      }
+      did_any_work = true;
     } // end multi-pass loop
     did_any_work
   }
@@ -981,18 +987,16 @@ pub unsafe extern "C" fn uv_timer_stop(handle: *mut uv_timer_t) -> c_int {
 }
 
 /// Restart a repeat timer. If the timer was not started or has no repeat
-/// interval, this returns UV_EINVAL (-22).
+/// interval, this returns `UV_EINVAL`.
 ///
 /// # Safety
 /// `handle` must have been initialized with `uv_timer_init`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_timer_again(
-  handle: *mut uv_timer_t,
-) -> c_int {
+pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
   unsafe {
     let repeat = (*handle).repeat;
     if repeat == 0 {
-      return -22; // UV_EINVAL
+      return UV_EINVAL;
     }
     let loop_ = (*handle).loop_;
     let inner = get_inner(loop_);
@@ -1023,9 +1027,7 @@ pub unsafe extern "C" fn uv_timer_again(
 /// # Safety
 /// `handle` must have been initialized with `uv_timer_init`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_timer_get_repeat(
-  handle: *const uv_timer_t,
-) -> u64 {
+pub unsafe extern "C" fn uv_timer_get_repeat(handle: *const uv_timer_t) -> u64 {
   unsafe { (*handle).repeat }
 }
 
@@ -1161,9 +1163,7 @@ pub unsafe extern "C" fn uv_prepare_start(
 /// # Safety
 /// `handle` must have been initialized with `uv_prepare_init`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_prepare_stop(
-  handle: *mut uv_prepare_t,
-) -> c_int {
+pub unsafe extern "C" fn uv_prepare_stop(handle: *mut uv_prepare_t) -> c_int {
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE == 0 {
       return 0;
@@ -1378,11 +1378,7 @@ pub unsafe extern "C" fn uv_run(
           }
           inner.tick();
         }
-        if inner.has_alive_handles() {
-          1
-        } else {
-          0
-        }
+        if inner.has_alive_handles() { 1 } else { 0 }
       }
       uv_run_mode::UV_RUN_ONCE => {
         let timeout = inner.compute_wait_timeout();
@@ -1395,19 +1391,11 @@ pub unsafe extern "C" fn uv_run(
           std::thread::sleep(sleep_dur);
         }
         inner.tick();
-        if inner.has_alive_handles() {
-          1
-        } else {
-          0
-        }
+        if inner.has_alive_handles() { 1 } else { 0 }
       }
       uv_run_mode::UV_RUN_NOWAIT => {
         inner.tick();
-        if inner.has_alive_handles() {
-          1
-        } else {
-          0
-        }
+        if inner.has_alive_handles() { 1 } else { 0 }
       }
     }
   }
@@ -1446,11 +1434,7 @@ unsafe fn sockaddr_to_std(addr: *const c_void) -> Option<SocketAddr> {
 /// # Safety
 /// `out` must point to a buffer large enough for the sockaddr type.
 /// `len` must be a valid pointer.
-unsafe fn std_to_sockaddr(
-  addr: SocketAddr,
-  out: *mut c_void,
-  len: *mut c_int,
-) {
+unsafe fn std_to_sockaddr(addr: SocketAddr, out: *mut c_void, len: *mut c_int) {
   match addr {
     SocketAddr::V4(v4) => {
       let sin = out as *mut libc::sockaddr_in;
@@ -1488,10 +1472,7 @@ unsafe fn std_to_sockaddr(
 // Stream / TCP functions
 // ---------------------------------------------------------------------------
 
-pub unsafe fn uv_tcp_init(
-  loop_: *mut uv_loop_t,
-  tcp: *mut uv_tcp_t,
-) -> c_int {
+pub unsafe fn uv_tcp_init(loop_: *mut uv_loop_t, tcp: *mut uv_tcp_t) -> c_int {
   // Use ptr::write for each field to avoid dropping uninitialized memory
   // when tcp points to MaybeUninit storage.
   unsafe {
@@ -1531,7 +1512,7 @@ pub unsafe fn uv_tcp_open(tcp: *mut uv_tcp_t, fd: c_int) -> c_int {
         (*tcp).internal_stream = Some(stream);
         0
       }
-      Err(_) => -22, // UV_EINVAL
+      Err(_) => UV_EINVAL,
     }
   }
 }
@@ -1548,7 +1529,7 @@ pub unsafe fn uv_tcp_bind(
       unsafe { (*tcp).internal_bind_addr = Some(sa) };
       0
     }
-    None => -22, // UV_EINVAL
+    None => UV_EINVAL,
   }
 }
 
@@ -1561,7 +1542,7 @@ pub unsafe fn uv_tcp_connect(
   let sock_addr = unsafe { sockaddr_to_std(addr) };
   let sock_addr = match sock_addr {
     Some(sa) => sa,
-    None => return -22, // UV_EINVAL
+    None => return UV_EINVAL,
   };
 
   unsafe {
@@ -1595,7 +1576,7 @@ pub unsafe fn uv_tcp_nodelay(tcp: *mut uv_tcp_t, enable: c_int) -> c_int {
     (*tcp).internal_nodelay = enabled;
     if let Some(ref stream) = (*tcp).internal_stream {
       if stream.set_nodelay(enabled).is_err() {
-        return -22; // UV_EINVAL
+        return UV_EINVAL;
       }
     }
   }
@@ -1614,10 +1595,10 @@ pub unsafe fn uv_tcp_getpeername(
           std_to_sockaddr(addr, name, namelen);
           0
         }
-        Err(_) => -107, // UV_ENOTCONN
+        Err(_) => UV_ENOTCONN,
       }
     } else {
-      -107 // UV_ENOTCONN
+      UV_ENOTCONN
     }
   }
 }
@@ -1635,7 +1616,7 @@ pub unsafe fn uv_tcp_getsockname(
           std_to_sockaddr(addr, name, namelen);
           return 0;
         }
-        Err(_) => return -22,
+        Err(_) => return UV_EINVAL,
       }
     }
     if let Some(addr) = (*tcp).internal_listener_addr {
@@ -1647,7 +1628,7 @@ pub unsafe fn uv_tcp_getsockname(
       std_to_sockaddr(addr, name, namelen);
       return 0;
     }
-    -22 // UV_EINVAL
+    UV_EINVAL
   }
 }
 
@@ -1668,15 +1649,17 @@ pub unsafe fn uv_listen(
     // Bind with std first to get the actual address, then convert to tokio
     let std_listener = match std::net::TcpListener::bind(bind_addr) {
       Ok(l) => l,
-      Err(_) => return -98, // UV_EADDRINUSE
+      Err(e) => {
+        eprintln!("bind error: {e}");
+        return UV_EADDRINUSE;
+      }
     };
     std_listener.set_nonblocking(true).ok();
     let listener_addr = std_listener.local_addr().ok();
-    let tokio_listener =
-      match tokio::net::TcpListener::from_std(std_listener) {
-        Ok(l) => l,
-        Err(_) => return -22, // UV_EINVAL
-      };
+    let tokio_listener = match tokio::net::TcpListener::from_std(std_listener) {
+      Ok(l) => l,
+      Err(_) => return UV_EINVAL,
+    };
 
     // Store the listener directly for polling in run_io()
     tcp_ref.internal_listener = Some(tokio_listener);
@@ -1710,7 +1693,7 @@ pub unsafe fn uv_accept(
         client_tcp.internal_stream = Some(stream);
         0
       }
-      None => -11, // UV_EAGAIN
+      None => UV_EAGAIN,
     }
   }
 }
@@ -1759,27 +1742,24 @@ pub unsafe fn uv_read_stop(stream: *mut uv_stream_t) -> c_int {
 
 /// Try to write data directly without allocating a write request.
 /// Returns the number of bytes written, or a negative error code.
-/// Returns UV_EAGAIN (-11) if the write would block or there are queued writes.
-pub unsafe fn uv_try_write(
-  handle: *mut uv_stream_t,
-  data: &[u8],
-) -> i32 {
+/// Returns `UV_EAGAIN` if the write would block or there are queued writes.
+pub unsafe fn uv_try_write(handle: *mut uv_stream_t, data: &[u8]) -> i32 {
   let tcp_ref = unsafe { &mut *(handle as *mut uv_tcp_t) };
 
   // Can't bypass the queue if there are pending writes
   if !tcp_ref.internal_write_queue.is_empty() {
-    return -11; // UV_EAGAIN
+    return UV_EAGAIN;
   }
 
   let stream = match tcp_ref.internal_stream.as_ref() {
     Some(s) => s,
-    None => return -9, // UV_EBADF
+    None => return UV_EBADF,
   };
 
   match stream.try_write(data) {
     Ok(n) => n as i32,
-    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => -11,
-    Err(_) => -32, // UV_EPIPE
+    Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => UV_EAGAIN,
+    Err(_) => UV_EPIPE,
   }
 }
 
@@ -1799,7 +1779,7 @@ pub unsafe fn uv_write(
       Some(s) => s,
       None => {
         if let Some(cb) = cb {
-          cb(req, -107); // UV_ENOTCONN
+          cb(req, UV_ENOTCONN);
         }
         return 0;
       }
@@ -1821,8 +1801,7 @@ pub unsafe fn uv_write(
     if nbufs == 1 {
       let buf = &*bufs;
       if !buf.base.is_null() && buf.len > 0 {
-        let data =
-          std::slice::from_raw_parts(buf.base as *const u8, buf.len);
+        let data = std::slice::from_raw_parts(buf.base as *const u8, buf.len);
         let mut offset = 0;
         loop {
           match stream.try_write(&data[offset..]) {
@@ -1835,9 +1814,7 @@ pub unsafe fn uv_write(
                 return 0;
               }
             }
-            Err(ref e)
-              if e.kind() == std::io::ErrorKind::WouldBlock =>
-            {
+            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
               // Queue the remainder
               tcp_ref.internal_write_queue.push_back(WritePending {
                 req,
@@ -1849,7 +1826,7 @@ pub unsafe fn uv_write(
             }
             Err(_) => {
               if let Some(cb) = cb {
-                cb(req, -32); // UV_EPIPE
+                cb(req, UV_EPIPE);
               }
               return 0;
             }
@@ -1864,8 +1841,8 @@ pub unsafe fn uv_write(
     }
 
     // Multi-buffer path: try vectored write first, then fall back
-    let iovecs: smallvec::SmallVec<[std::io::IoSlice<'_>; 8]> = (0
-      ..nbufs as usize)
+    let iovecs: smallvec::SmallVec<[std::io::IoSlice<'_>; 8]> = (0..nbufs
+      as usize)
       .filter_map(|i| {
         let buf = &*bufs.add(i);
         if buf.base.is_null() || buf.len == 0 {
@@ -1924,7 +1901,7 @@ pub unsafe fn uv_write(
       }
       Err(_) => {
         if let Some(cb) = cb {
-          cb(req, -32); // UV_EPIPE
+          cb(req, UV_EPIPE);
         }
       }
     }
@@ -1971,10 +1948,10 @@ pub unsafe fn uv_shutdown(
       if libc::shutdown(fd, libc::SHUT_WR) == 0 {
         0
       } else {
-        -107 // UV_ENOTCONN
+        UV_ENOTCONN
       }
     } else {
-      -107
+      UV_ENOTCONN
     };
 
     if let Some(cb) = cb {
@@ -2040,7 +2017,7 @@ pub fn new_shutdown() -> UvShutdown {
 mod tests {
   use super::*;
   use std::mem::MaybeUninit;
-  use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
+  use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 
   /// Helper: allocate and init a loop on the heap.
   unsafe fn make_loop() -> *mut uv_loop_t {
@@ -2173,8 +2150,7 @@ mod tests {
       unsafe extern "C" fn prepare_cb(handle: *mut uv_prepare_t) {
         unsafe {
           let loop_ = (*handle).loop_;
-          let order =
-            &mut *((*loop_).data as *mut Vec<&str>);
+          let order = &mut *((*loop_).data as *mut Vec<&str>);
           order.push("prepare");
           uv_prepare_stop(handle);
         }
@@ -2183,8 +2159,7 @@ mod tests {
       unsafe extern "C" fn check_cb(handle: *mut uv_check_t) {
         unsafe {
           let loop_ = (*handle).loop_;
-          let order =
-            &mut *((*loop_).data as *mut Vec<&str>);
+          let order = &mut *((*loop_).data as *mut Vec<&str>);
           order.push("check");
           uv_check_stop(handle);
         }
@@ -2222,10 +2197,7 @@ mod tests {
       uv_timer_start(timer_ptr, noop_cb, 1000, 0);
       uv_close(timer_ptr as *mut uv_handle_t, Some(close_cb));
 
-      assert_eq!(
-        (*timer_ptr).flags & UV_HANDLE_CLOSING,
-        UV_HANDLE_CLOSING
-      );
+      assert_eq!((*timer_ptr).flags & UV_HANDLE_CLOSING, UV_HANDLE_CLOSING);
       // Close callback should not have been called yet
       assert!(!CLOSE_CALLED.load(Ordering::Relaxed));
 
@@ -2306,7 +2278,7 @@ mod tests {
       uv_timer_init(loop_, timer_ptr);
 
       // timer_again with repeat=0 should fail
-      assert_eq!(uv_timer_again(timer_ptr), -22);
+      assert_eq!(uv_timer_again(timer_ptr), UV_EINVAL);
 
       static AGAIN_FIRED: AtomicBool = AtomicBool::new(false);
       unsafe extern "C" fn timer_cb(handle: *mut uv_timer_t) {
@@ -2370,12 +2342,7 @@ mod tests {
 
       // Bind to ephemeral port
       let bind_addr = make_sockaddr_in(0);
-      uv_tcp_bind(
-        server_ptr,
-        &bind_addr as *const _ as *const c_void,
-        0,
-        0,
-      );
+      uv_tcp_bind(server_ptr, &bind_addr as *const _ as *const c_void, 0, 0);
 
       static CONN_CALLED: AtomicBool = AtomicBool::new(false);
 
@@ -2402,17 +2369,13 @@ mod tests {
       }
 
       CONN_CALLED.store(false, Ordering::Relaxed);
-      let rc = uv_listen(
-        server_ptr as *mut uv_stream_t,
-        128,
-        Some(on_connection),
-      );
+      let rc =
+        uv_listen(server_ptr as *mut uv_stream_t, 128, Some(on_connection));
       assert_eq!(rc, 0);
 
       // Get the actual port
       let mut name_buf: libc::sockaddr_in = std::mem::zeroed();
-      let mut namelen =
-        std::mem::size_of::<libc::sockaddr_in>() as c_int;
+      let mut namelen = std::mem::size_of::<libc::sockaddr_in>() as c_int;
       uv_tcp_getsockname(
         server_ptr,
         &mut name_buf as *mut _ as *mut c_void,
@@ -2426,9 +2389,8 @@ mod tests {
       std::thread::spawn(move || {
         // Give the loop a moment to start
         std::thread::sleep(Duration::from_millis(50));
-        let _ = std::net::TcpStream::connect(
-          format!("127.0.0.1:{}", port_copy),
-        );
+        let _ =
+          std::net::TcpStream::connect(format!("127.0.0.1:{}", port_copy));
       });
 
       // Run loop - will exit when uv_stop is called in callback
@@ -2449,8 +2411,7 @@ mod tests {
       let loop_ = make_loop();
 
       // Create a std listener on an ephemeral port
-      let std_listener =
-        std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
       let port = std_listener.local_addr().unwrap().port();
 
       // Spawn a thread to accept and read
@@ -2462,7 +2423,9 @@ mod tests {
         loop {
           match std::io::Read::read(&mut stream, &mut buf) {
             Ok(0) => break,
-            Ok(n) => received_clone.lock().unwrap().extend_from_slice(&buf[..n]),
+            Ok(n) => {
+              received_clone.lock().unwrap().extend_from_slice(&buf[..n])
+            }
             Err(_) => break,
           }
         }
@@ -2480,10 +2443,7 @@ mod tests {
       static CONNECT_CALLED: AtomicBool = AtomicBool::new(false);
       static WRITE_CALLED: AtomicBool = AtomicBool::new(false);
 
-      unsafe extern "C" fn on_connect(
-        req: *mut uv_connect_t,
-        status: i32,
-      ) {
+      unsafe extern "C" fn on_connect(req: *mut uv_connect_t, status: i32) {
         assert_eq!(status, 0);
         CONNECT_CALLED.store(true, Ordering::Relaxed);
 
@@ -2496,10 +2456,7 @@ mod tests {
         };
         let write_req = Box::into_raw(Box::new(new_write()));
 
-        unsafe extern "C" fn on_write(
-          req: *mut uv_write_t,
-          status: i32,
-        ) {
+        unsafe extern "C" fn on_write(req: *mut uv_write_t, status: i32) {
           assert_eq!(status, 0);
           WRITE_CALLED.store(true, Ordering::Relaxed);
           drop(Box::from_raw(req));
@@ -2547,8 +2504,7 @@ mod tests {
       let loop_ = make_loop();
 
       // Create a std listener
-      let std_listener =
-        std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
       let port = std_listener.local_addr().unwrap().port();
 
       // Spawn writer thread
@@ -2633,8 +2589,7 @@ mod tests {
       let loop_ = make_loop();
 
       // Create a std listener
-      let std_listener =
-        std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
       let port = std_listener.local_addr().unwrap().port();
 
       // Accept in background
@@ -2662,8 +2617,7 @@ mod tests {
 
         // getpeername
         let mut peer_addr: libc::sockaddr_in = std::mem::zeroed();
-        let mut peer_len =
-          std::mem::size_of::<libc::sockaddr_in>() as c_int;
+        let mut peer_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
         let rc = uv_tcp_getpeername(
           tcp,
           &mut peer_addr as *mut _ as *mut c_void,
@@ -2675,8 +2629,7 @@ mod tests {
 
         // getsockname
         let mut local_addr: libc::sockaddr_in = std::mem::zeroed();
-        let mut local_len =
-          std::mem::size_of::<libc::sockaddr_in>() as c_int;
+        let mut local_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
         let rc = uv_tcp_getsockname(
           tcp,
           &mut local_addr as *mut _ as *mut c_void,
@@ -2731,10 +2684,7 @@ mod tests {
       (*tcp_ptr).flags |= UV_HANDLE_ACTIVE;
 
       uv_close(tcp_ptr as *mut uv_handle_t, Some(close_cb));
-      assert_eq!(
-        (*tcp_ptr).flags & UV_HANDLE_CLOSING,
-        UV_HANDLE_CLOSING
-      );
+      assert_eq!((*tcp_ptr).flags & UV_HANDLE_CLOSING, UV_HANDLE_CLOSING);
 
       uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
       assert!(CLOSE_FIRED.load(Ordering::Relaxed));
@@ -2766,5 +2716,4 @@ mod tests {
       destroy_loop(loop_);
     }
   }
-
 }

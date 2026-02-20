@@ -1427,12 +1427,8 @@ impl JsRuntime {
       let core_obj: v8::Local<v8::Object> =
         bindings::get(scope, deno_obj, CORE, "Deno.core");
 
-      let resolve_ops_cb: v8::Local<v8::Function> = bindings::get(
-        scope,
-        core_obj,
-        RESOLVE_OPS,
-        "Deno.core.__resolveOps",
-      );
+      let resolve_ops_cb: v8::Local<v8::Function> =
+        bindings::get(scope, core_obj, RESOLVE_OPS, "Deno.core.__resolveOps");
       let drain_next_tick_and_macrotasks_cb: v8::Local<v8::Function> =
         bindings::get(
           scope,
@@ -1560,11 +1556,9 @@ impl JsRuntime {
     loop_ptr: *mut crate::uv_compat::uv_loop_t,
   ) {
     let context_state = &self.inner.main_realm.0.context_state;
-    let inner_ptr = unsafe {
-      crate::uv_compat::uv_loop_get_inner_ptr(loop_ptr)
-    };
-    let uv_inner =
-      inner_ptr as *const crate::uv_compat::UvLoopInner;
+    let inner_ptr =
+      unsafe { crate::uv_compat::uv_loop_get_inner_ptr(loop_ptr) };
+    let uv_inner = inner_ptr as *const crate::uv_compat::UvLoopInner;
     context_state.uv_loop_inner.set(Some(uv_inner));
     context_state.uv_loop_ptr.set(Some(loop_ptr));
   }
@@ -2023,8 +2017,7 @@ impl JsRuntime {
       // event loop tick. Callbacks reconstruct it via transmute in
       // context_from_loop().
       unsafe {
-        let ctx_ptr: *mut std::ffi::c_void =
-          std::mem::transmute(context);
+        let ctx_ptr: *mut std::ffi::c_void = std::mem::transmute(context);
         (*loop_ptr).data = ctx_ptr;
       }
     }
@@ -2050,8 +2043,7 @@ impl JsRuntime {
     modules.poll_progress(cx, scope)?;
 
     // 2a. V8 task spawner tasks
-    dispatched_ops |=
-      Self::dispatch_task_spawner(cx, scope, context_state);
+    dispatched_ops |= Self::dispatch_task_spawner(cx, scope, context_state);
 
     // 2b. Poll and resolve completed async ops
     // NOTE: No microtask checkpoint between ops and nextTick/macrotask!
@@ -2059,8 +2051,7 @@ impl JsRuntime {
     // nextTick drains, and macrotasks run all within the same JS call
     // before any microtask checkpoint. Promise continuations (like await
     // resumption) run only after all three have completed.
-    dispatched_ops |=
-      Self::dispatch_pending_ops(cx, scope, context_state)?;
+    dispatched_ops |= Self::dispatch_pending_ops(cx, scope, context_state)?;
 
     // 2c. nextTick drain + macrotask drain (before microtask checkpoint)
     // Only drain if there's actual work (ops dispatched, tick scheduled, or timers fired).
@@ -2119,7 +2110,6 @@ impl JsRuntime {
       unsafe { (*uv_inner_ptr).run_check() };
     }
     scope.perform_microtask_checkpoint();
-
 
     // ===== Phase 6 (Close) =====
     exception_state.check_exception_condition(scope)?;
@@ -2765,8 +2755,7 @@ impl JsRuntime {
 
       // Set timer depth via JS setter
       {
-        let set_timer_depth_cb =
-          context_state.js_set_timer_depth_cb.borrow();
+        let set_timer_depth_cb = context_state.js_set_timer_depth_cb.borrow();
         let set_timer_depth_fn =
           set_timer_depth_cb.as_ref().unwrap().open(scope);
         let depth_val = v8::Integer::new(scope, *depth as i32);
@@ -2813,10 +2802,8 @@ impl JsRuntime {
 
     // Reset timer depth to 0 after all timers
     {
-      let set_timer_depth_cb =
-        context_state.js_set_timer_depth_cb.borrow();
-      let set_timer_depth_fn =
-        set_timer_depth_cb.as_ref().unwrap().open(scope);
+      let set_timer_depth_cb = context_state.js_set_timer_depth_cb.borrow();
+      let set_timer_depth_fn = set_timer_depth_cb.as_ref().unwrap().open(scope);
       let zero = v8::Integer::new(scope, 0);
       set_timer_depth_fn.call(scope, undefined, &[zero.into()]);
     }
@@ -2969,8 +2956,7 @@ impl JsRuntime {
 
     v8::tc_scope!(let tc_scope, scope);
 
-    let handle_rejections_cb =
-      context_state.js_handle_rejections_cb.borrow();
+    let handle_rejections_cb = context_state.js_handle_rejections_cb.borrow();
     let handle_rejections_fn =
       handle_rejections_cb.as_ref().unwrap().open(tc_scope);
     handle_rejections_fn.call(tc_scope, undefined, args.as_slice());
@@ -2992,8 +2978,7 @@ impl JsRuntime {
 
     v8::tc_scope!(let tc_scope, scope);
 
-    let drain_cb =
-      context_state.js_drain_next_tick_and_macrotasks_cb.borrow();
+    let drain_cb = context_state.js_drain_next_tick_and_macrotasks_cb.borrow();
     let drain_fn = drain_cb.as_ref().unwrap().open(tc_scope);
     let has_tick_val = v8::Boolean::new(tc_scope, has_tick_scheduled);
     drain_fn.call(tc_scope, undefined, &[has_tick_val.into()]);

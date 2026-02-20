@@ -12,6 +12,7 @@ use crate::error::CreateCodeCacheError;
 use crate::error::JsError;
 use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
+use crate::event_loop::EventLoopPhases;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
@@ -22,11 +23,10 @@ use crate::modules::ModuleName;
 use crate::modules::script_origin;
 use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
-use crate::stats::RuntimeActivityTraces;
-use crate::event_loop::EventLoopPhases;
 use crate::reactor::DefaultReactor;
-use crate::uv_compat::UvLoopInner;
+use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
+use crate::uv_compat::UvLoopInner;
 use crate::web_timeout::WebTimers;
 use futures::stream::StreamExt;
 use std::cell::Cell;
@@ -79,12 +79,9 @@ pub struct ContextState {
   pub(crate) js_resolve_ops_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_drain_next_tick_and_macrotasks_cb:
     RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) js_handle_rejections_cb:
-    RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) js_set_timer_depth_cb:
-    RefCell<Option<v8::Global<v8::Function>>>,
-  pub(crate) js_report_exception_cb:
-    RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_handle_rejections_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_set_timer_depth_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_report_exception_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) run_immediate_callbacks_cb:
     RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_wasm_streaming_cb: RefCell<Option<v8::Global<v8::Function>>>,
@@ -237,7 +234,9 @@ impl JsRealmInner {
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
     std::mem::take(&mut *state.js_resolve_ops_cb.borrow_mut());
-    std::mem::take(&mut *state.js_drain_next_tick_and_macrotasks_cb.borrow_mut());
+    std::mem::take(
+      &mut *state.js_drain_next_tick_and_macrotasks_cb.borrow_mut(),
+    );
     std::mem::take(&mut *state.js_handle_rejections_cb.borrow_mut());
     std::mem::take(&mut *state.js_set_timer_depth_cb.borrow_mut());
     std::mem::take(&mut *state.js_report_exception_cb.borrow_mut());

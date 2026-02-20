@@ -194,8 +194,7 @@ impl<Tmr: ReactorTimer + 'static> MutableSleep<Tmr> {
         // Skip this check under Miri as it interferes with time simulation.
         #[cfg(not(miri))]
         {
-          let sleep =
-            unsafe { self.sleep.get().as_mut().unwrap_unchecked() };
+          let sleep = unsafe { self.sleep.get().as_mut().unwrap_unchecked() };
           if let Some(sleep) = sleep
             && Tmr::Instant::now() >= sleep.deadline()
           {
@@ -432,8 +431,7 @@ impl<T: Clone, R: Reactor> WebTimers<T, R> {
     let mut data = self.data_map.borrow_mut();
     let mut output = vec![];
 
-    let mut split =
-      timers.split_off(&TimerKey(now, 0, TimerType::Once, false));
+    let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once, false));
     std::mem::swap(&mut split, &mut timers);
     for TimerKey(_, id, timer_type, is_system_timer) in split {
       if let TimerType::Repeat(interval) = timer_type {
