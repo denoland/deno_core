@@ -594,13 +594,20 @@ impl JsStackFrame {
     // For wasm frames, skip source map application — source maps don't apply to wasm.
     // V8 returns the function index via getLineNumber() and byte offset via getColumnNumber().
     let (file_name, line_number, column_number) = if is_wasm {
-      (raw_file_name, call!(GET_LINE_NUMBER), call!(GET_COLUMN_NUMBER))
+      (
+        raw_file_name,
+        call!(GET_LINE_NUMBER),
+        call!(GET_COLUMN_NUMBER),
+      )
     } else {
       let state = JsRuntime::state_from(scope);
       let mut source_mapper = state.source_mapper.borrow_mut();
       // apply source map
-      match (raw_file_name, call!(GET_LINE_NUMBER), call!(GET_COLUMN_NUMBER))
-      {
+      match (
+        raw_file_name,
+        call!(GET_LINE_NUMBER),
+        call!(GET_COLUMN_NUMBER),
+      ) {
         (Some(f), Some(l), Some(c)) => {
           let (file_name, line_num, col_num) =
             apply_source_map(&mut source_mapper, f.into(), l, c);
@@ -1590,11 +1597,8 @@ pub mod callsite_fns {
 
     // if the types are right, apply the source map (unless wasm), otherwise just take them as is
     if !is_wasm
-      && let Some((
-        mapped_file_name,
-        mapped_line_number,
-        mapped_column_number,
-      )) = maybe_apply_source_map(scope, file_name, line_number, column_number)
+      && let Some((mapped_file_name, mapped_line_number, mapped_column_number)) =
+        maybe_apply_source_map(scope, file_name, line_number, column_number)
     {
       let mapped_file_name_trimmed =
         maybe_to_path_str(&mapped_file_name).unwrap_or(mapped_file_name);
@@ -2076,18 +2080,15 @@ pub fn format_location<F: ErrorFormat>(
     // and byte offset via getColumnNumber()
     if let Some(line_number) = frame.line_number {
       let func_index = line_number - 1;
-      let wasm_func =
-        format!("wasm-function[{func_index}]");
+      let wasm_func = format!("wasm-function[{func_index}]");
       result += &F::fmt_element(PlainText, in_extension_code, ":");
-      result +=
-        &F::fmt_element(LineNumber, in_extension_code, &wasm_func);
+      result += &F::fmt_element(LineNumber, in_extension_code, &wasm_func);
     }
     if let Some(column_number) = frame.column_number {
       // V8's getColumnNumber() is 1-based, but wasm byte offsets are 0-based
       let pc_offset = format!("0x{:x}", column_number - 1);
       result += &F::fmt_element(PlainText, in_extension_code, ":");
-      result +=
-        &F::fmt_element(ColumnNumber, in_extension_code, &pc_offset);
+      result += &F::fmt_element(ColumnNumber, in_extension_code, &pc_offset);
     }
   } else if let Some(line_number) = frame.line_number {
     result += &F::fmt_element(PlainText, in_extension_code, ":");
