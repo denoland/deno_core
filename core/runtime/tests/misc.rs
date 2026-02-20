@@ -1393,7 +1393,7 @@ async fn global_template_middleware() {
   ) -> v8::Intercepted {
     CALLS.lock().push("descriptor".to_string());
 
-    v8::Intercepted::No
+    v8::Intercepted::kNo
   }
 
   pub fn setter<'s>(
@@ -1404,7 +1404,7 @@ async fn global_template_middleware() {
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
     CALLS.lock().push("setter".to_string());
-    v8::Intercepted::No
+    v8::Intercepted::kNo
   }
 
   fn definer<'s>(
@@ -1415,7 +1415,7 @@ async fn global_template_middleware() {
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
     CALLS.lock().push("definer".to_string());
-    v8::Intercepted::No
+    v8::Intercepted::kNo
   }
 
   pub fn gt_middleware<'s>(

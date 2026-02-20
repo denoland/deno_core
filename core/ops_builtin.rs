@@ -232,7 +232,7 @@ pub fn op_print(
   Ok(())
 }
 
-pub struct WasmStreamingResource(pub(crate) RefCell<v8::WasmStreaming>);
+pub struct WasmStreamingResource(pub(crate) RefCell<v8::WasmStreaming<false>>);
 
 impl Resource for WasmStreamingResource {
   fn close(self: Rc<Self>) {
