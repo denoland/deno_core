@@ -85,6 +85,7 @@ uv_errno!(UV_EADDRINUSE, libc::EADDRINUSE, -4091);
 uv_errno!(UV_ECONNREFUSED, libc::ECONNREFUSED, -4078);
 uv_errno!(UV_EINVAL, libc::EINVAL, -4071);
 uv_errno!(UV_ENOTCONN, libc::ENOTCONN, -4053);
+uv_errno!(UV_ECANCELED, libc::ECANCELED, -4081);
 uv_errno!(UV_EPIPE, libc::EPIPE, -4047);
 
 #[repr(C)]
@@ -173,6 +174,8 @@ pub struct uv_tcp_t {
   internal_connect: Option<ConnectPending>,
   // Write queue (pending async writes, drained in order by run_io)
   internal_write_queue: VecDeque<WritePending>,
+  // Shutdown state (deferred until write queue drains)
+  internal_shutdown: Option<ShutdownPending>,
   // Listener state
   internal_connection_cb: Option<uv_connection_cb>,
   internal_backlog: VecDeque<tokio::net::TcpStream>,
@@ -191,6 +194,12 @@ struct WritePending {
   data: Vec<u8>,
   offset: usize,
   cb: Option<uv_write_cb>,
+}
+
+/// State for a pending shutdown that waits for writes to drain.
+struct ShutdownPending {
+  req: *mut uv_shutdown_t,
+  cb: Option<uv_shutdown_cb>,
 }
 
 #[repr(C)]
@@ -672,7 +681,9 @@ impl UvLoopInner {
               match tcp.internal_stream.as_ref().unwrap().try_read(slice) {
                 Ok(0) => {
                   // EOF
-                  unsafe { read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf) };
+                  unsafe {
+                    read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf)
+                  };
                   tcp.internal_reading = false;
                   break;
                 }
@@ -687,7 +698,9 @@ impl UvLoopInner {
                   break;
                 }
                 Err(_) => {
-                  unsafe { read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf) };
+                  unsafe {
+                    read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf)
+                  };
                   tcp.internal_reading = false;
                   break;
                 }
@@ -715,7 +728,10 @@ impl UvLoopInner {
                 break;
               }
               match stream.try_write(&pw.data[pw.offset..]) {
-                Ok(n) => pw.offset += n,
+                Ok(n) => {
+                  pw.offset += n;
+                  any_work = true;
+                }
                 Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
                   break; // try again next tick
                 }
@@ -739,6 +755,25 @@ impl UvLoopInner {
               break; // WouldBlock, stop draining
             }
           }
+        }
+
+        // 5. Process pending shutdown once write queue is fully drained
+        if tcp.internal_write_queue.is_empty()
+          && tcp.internal_shutdown.is_some()
+          && tcp.internal_stream.is_some()
+        {
+          let pending = tcp.internal_shutdown.take().unwrap();
+          use std::os::unix::io::AsRawFd;
+          let fd = tcp.internal_stream.as_ref().unwrap().as_raw_fd();
+          let status = if unsafe { libc::shutdown(fd, libc::SHUT_WR) } == 0 {
+            0
+          } else {
+            UV_ENOTCONN
+          };
+          if let Some(cb) = pending.cb {
+            unsafe { cb(pending.req, status) };
+          }
+          any_work = true;
         }
       } // end per-handle loop
 
@@ -808,6 +843,13 @@ impl UvLoopInner {
       tcp.internal_connection_cb = None;
       tcp.internal_connect = None;
       tcp.internal_write_queue.clear();
+      // Fire pending shutdown callback with UV_ECANCELED (matches libuv's
+      // uv__stream_destroy behavior when close races with shutdown).
+      if let Some(pending) = tcp.internal_shutdown.take() {
+        if let Some(cb) = pending.cb {
+          cb(pending.req, UV_ECANCELED);
+        }
+      }
       tcp.internal_stream = None;
       tcp.internal_listener = None;
       tcp.internal_backlog.clear();
@@ -1492,6 +1534,7 @@ pub unsafe fn uv_tcp_init(loop_: *mut uv_loop_t, tcp: *mut uv_tcp_t) -> c_int {
     write(addr_of_mut!((*tcp).internal_reading), false);
     write(addr_of_mut!((*tcp).internal_connect), None);
     write(addr_of_mut!((*tcp).internal_write_queue), VecDeque::new());
+    write(addr_of_mut!((*tcp).internal_shutdown), None);
     write(addr_of_mut!((*tcp).internal_connection_cb), None);
     write(addr_of_mut!((*tcp).internal_backlog), VecDeque::new());
   }
@@ -1691,6 +1734,18 @@ pub unsafe fn uv_accept(
           stream.set_nodelay(true).ok();
         }
         client_tcp.internal_stream = Some(stream);
+
+        // Mark client handle active and register for I/O processing
+        client_tcp.flags |= UV_HANDLE_ACTIVE;
+        let inner = get_inner(client_tcp.loop_);
+        let mut handles = inner.tcp_handles.borrow_mut();
+        if !handles
+          .iter()
+          .any(|&h| std::ptr::eq(h, client as *mut uv_tcp_t))
+        {
+          handles.push(client as *mut uv_tcp_t);
+        }
+
         0
       }
       None => UV_EAGAIN,
@@ -1729,10 +1784,11 @@ pub unsafe fn uv_read_stop(stream: *mut uv_stream_t) -> c_int {
     tcp_ref.internal_reading = false;
     tcp_ref.internal_alloc_cb = None;
     tcp_ref.internal_read_cb = None;
-    // Only clear ACTIVE if not also listening
+    // Only clear ACTIVE if not also listening/writing/shutting down
     if tcp_ref.internal_connection_cb.is_none()
       && tcp_ref.internal_connect.is_none()
       && tcp_ref.internal_write_queue.is_empty()
+      && tcp_ref.internal_shutdown.is_none()
     {
       tcp_ref.flags &= !UV_HANDLE_ACTIVE;
     }
@@ -1940,23 +1996,20 @@ pub unsafe fn uv_shutdown(
 ) -> c_int {
   unsafe {
     let tcp = stream as *mut uv_tcp_t;
+    let tcp_ref = &mut *tcp;
     (*req).handle = stream;
 
-    let status = if let Some(ref stream) = (*tcp).internal_stream {
-      use std::os::unix::io::AsRawFd;
-      let fd = stream.as_raw_fd();
-      if libc::shutdown(fd, libc::SHUT_WR) == 0 {
-        0
-      } else {
-        UV_ENOTCONN
+    if tcp_ref.internal_stream.is_none() {
+      if let Some(cb) = cb {
+        cb(req, UV_ENOTCONN);
       }
-    } else {
-      UV_ENOTCONN
-    };
-
-    if let Some(cb) = cb {
-      cb(req, status);
+      return 0;
     }
+
+    // Always defer shutdown to run_io, matching libuv's async behavior.
+    // When the write queue is fully drained, run_io will execute the
+    // shutdown(2) syscall and fire the callback.
+    tcp_ref.internal_shutdown = Some(ShutdownPending { req, cb });
   }
   0
 }
@@ -1980,6 +2033,7 @@ pub fn new_tcp() -> UvTcp {
     internal_reading: false,
     internal_connect: None,
     internal_write_queue: VecDeque::new(),
+    internal_shutdown: None,
     internal_connection_cb: None,
     internal_backlog: VecDeque::new(),
   }
