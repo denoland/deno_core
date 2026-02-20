@@ -445,6 +445,7 @@ pub struct JsStackFrame {
   pub is_constructor: bool,
   pub is_async: bool,
   pub is_promise_all: bool,
+  pub is_wasm: bool,
   pub promise_index: Option<i64>,
 }
 
@@ -552,6 +553,7 @@ impl JsStackFrame {
       is_constructor: false,
       is_async: false,
       is_promise_all: false,
+      is_wasm: false,
       promise_index: None,
     }
   }
@@ -583,32 +585,47 @@ impl JsStackFrame {
       ($key: ident) => { call!($key : _) };
     }
 
-    let state = JsRuntime::state_from(scope);
-    let mut source_mapper = state.source_mapper.borrow_mut();
-    // apply source map
-    let (file_name, line_number, column_number) = match (
-      call!(GET_FILE_NAME : Option<String>),
-      call!(GET_LINE_NUMBER),
-      call!(GET_COLUMN_NUMBER),
-    ) {
-      (Some(f), Some(l), Some(c)) => {
-        let (file_name, line_num, col_num) =
-          apply_source_map(&mut source_mapper, f.into(), l, c);
-        (Some(file_name.into_owned()), Some(line_num), Some(col_num))
+    let raw_file_name = call!(GET_FILE_NAME : Option<String>);
+    let is_wasm = raw_file_name
+      .as_deref()
+      .map(|f| f.starts_with("wasm://"))
+      .unwrap_or(false);
+
+    // For wasm frames, skip source map application — source maps don't apply to wasm.
+    // V8 returns the function index via getLineNumber() and byte offset via getColumnNumber().
+    let (file_name, line_number, column_number) = if is_wasm {
+      (raw_file_name, call!(GET_LINE_NUMBER), call!(GET_COLUMN_NUMBER))
+    } else {
+      let state = JsRuntime::state_from(scope);
+      let mut source_mapper = state.source_mapper.borrow_mut();
+      // apply source map
+      match (raw_file_name, call!(GET_LINE_NUMBER), call!(GET_COLUMN_NUMBER))
+      {
+        (Some(f), Some(l), Some(c)) => {
+          let (file_name, line_num, col_num) =
+            apply_source_map(&mut source_mapper, f.into(), l, c);
+          (Some(file_name.into_owned()), Some(line_num), Some(col_num))
+        }
+        (f, l, c) => (f, l, c),
       }
-      (f, l, c) => (f, l, c),
     };
 
     // apply source map to the eval origin, if the error originates from `eval`ed code
-    let eval_origin = call!(GET_EVAL_ORIGIN: Option<String>).and_then(|o| {
-      let Some((before, (file, line, col), after)) = parse_eval_origin(&o)
-      else {
-        return Some(o);
-      };
-      let (file, line, col) =
-        apply_source_map(&mut source_mapper, file.into(), line, col);
-      Some(format!("{before}{file}:{line}:{col}{after}"))
-    });
+    let eval_origin = if is_wasm {
+      None
+    } else {
+      call!(GET_EVAL_ORIGIN: Option<String>).and_then(|o| {
+        let Some((before, (file, line, col), after)) = parse_eval_origin(&o)
+        else {
+          return Some(o);
+        };
+        let state = JsRuntime::state_from(scope);
+        let mut source_mapper = state.source_mapper.borrow_mut();
+        let (file, line, col) =
+          apply_source_map(&mut source_mapper, file.into(), line, col);
+        Some(format!("{before}{file}:{line}:{col}{after}"))
+      })
+    };
 
     Some(Self {
       file_name,
@@ -624,6 +641,7 @@ impl JsStackFrame {
       is_constructor: call!(IS_CONSTRUCTOR),
       is_async: call!(IS_ASYNC),
       is_promise_all: call!(IS_PROMISE_ALL),
+      is_wasm,
       promise_index: call!(GET_PROMISE_INDEX),
     })
   }
@@ -1562,11 +1580,21 @@ pub mod callsite_fns {
       &[],
     );
 
+    // For wasm frames, skip source map application and cache the original values
+    let is_wasm = file_name
+      .and_then(|v| v.try_cast::<v8::String>().ok())
+      .map(|s| serde_v8::to_utf8(s, scope).starts_with("wasm://"))
+      .unwrap_or(false);
+
     let info = v8::Array::new(scope, 3);
 
-    // if the types are right, apply the source map, otherwise just take them as is
-    if let Some((mapped_file_name, mapped_line_number, mapped_column_number)) =
-      maybe_apply_source_map(scope, file_name, line_number, column_number)
+    // if the types are right, apply the source map (unless wasm), otherwise just take them as is
+    if !is_wasm
+      && let Some((
+        mapped_file_name,
+        mapped_line_number,
+        mapped_column_number,
+      )) = maybe_apply_source_map(scope, file_name, line_number, column_number)
     {
       let mapped_file_name_trimmed =
         maybe_to_path_str(&mapped_file_name).unwrap_or(mapped_file_name);
@@ -1661,13 +1689,20 @@ pub mod callsite_fns {
     let orig_file_name =
       call_method::<v8::Value>(scope, orig, GET_FILE_NAME, &[])
         .and_then(|v| v.try_cast::<v8::String>().ok())?;
+    let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
+
+    // For wasm frames, V8's original toString() already formats correctly
+    // (with wasm-function[N]:0xOFFSET), so return it unchanged.
+    if orig_file_name.starts_with("wasm://") {
+      return Some(orig_to_string_v8);
+    }
+
     let orig_line_number =
       call_method::<v8::Value>(scope, orig, GET_LINE_NUMBER, &[])
         .and_then(|v| v.try_cast::<v8::Number>().ok())?;
     let orig_column_number =
       call_method::<v8::Value>(scope, orig, GET_COLUMN_NUMBER, &[])
         .and_then(|v| v.try_cast::<v8::Number>().ok())?;
-    let orig_file_name = serde_v8::to_utf8(orig_file_name, scope);
     let orig_line_number = orig_line_number.value() as i64;
     let orig_column_number = orig_column_number.value() as i64;
     let orig_file_name_line_col =
@@ -2034,7 +2069,27 @@ pub fn format_location<F: ErrorFormat>(
     }
     result += &F::fmt_element(Anonymous, in_extension_code, "<anonymous>");
   }
-  if let Some(line_number) = frame.line_number {
+  if frame.is_wasm {
+    // W3C WebAssembly Web API spec format:
+    // {url}:wasm-function[{funcIndex}]:0x{pcOffset}
+    // V8 returns function index (1-based) via getLineNumber()
+    // and byte offset via getColumnNumber()
+    if let Some(line_number) = frame.line_number {
+      let func_index = line_number - 1;
+      let wasm_func =
+        format!("wasm-function[{func_index}]");
+      result += &F::fmt_element(PlainText, in_extension_code, ":");
+      result +=
+        &F::fmt_element(LineNumber, in_extension_code, &wasm_func);
+    }
+    if let Some(column_number) = frame.column_number {
+      // V8's getColumnNumber() is 1-based, but wasm byte offsets are 0-based
+      let pc_offset = format!("0x{:x}", column_number - 1);
+      result += &F::fmt_element(PlainText, in_extension_code, ":");
+      result +=
+        &F::fmt_element(ColumnNumber, in_extension_code, &pc_offset);
+    }
+  } else if let Some(line_number) = frame.line_number {
     result += &F::fmt_element(PlainText, in_extension_code, ":");
     result +=
       &F::fmt_element(LineNumber, in_extension_code, &line_number.to_string());
