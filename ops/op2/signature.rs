@@ -994,7 +994,7 @@ impl From<RetError> for syn::Error {
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub(crate) struct Attributes {
-  primary: Option<AttributeModifier>,
+  pub(crate) primary: Option<AttributeModifier>,
   pub(crate) rest: Vec<AttributeModifier>,
 }
 
