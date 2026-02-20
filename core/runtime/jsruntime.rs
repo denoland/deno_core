@@ -313,8 +313,10 @@ pub(crate) static CONTEXT_SETUP_SOURCES: [InternalSourceFile; 2] = [
 
 /// These files are executed when we start setting up extensions. They rely
 /// on ops being already fully set up.
-pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 1] =
-  [internal_source_file!("01_core.js")];
+pub(crate) static BUILTIN_SOURCES: [InternalSourceFile; 2] = [
+  internal_source_file!("00_node_compat.js"),
+  internal_source_file!("01_core.js"),
+];
 
 /// Executed after `BUILTIN_SOURCES` are executed. Provides a thin ES module
 /// that exports `core`, `internals` and `primordials` objects.
