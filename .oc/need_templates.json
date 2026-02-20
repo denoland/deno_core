@@ -1,188 +1,185 @@
 {
   "templates": [
     {
-      "id": "e77a177a6ddf5b64",
-      "intent": "general",
+      "id": "228e1127e889acc7",
+      "intent": "find_refs",
       "needs": [
         {
-          "kind": "file_tree",
-          "resolver": "list",
-          "pattern": "core",
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "libuvrust",
           "stability": 1,
-          "avg_tokens": 128
+          "avg_tokens": 23
+        },
+        {
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "libuv",
+          "stability": 1,
+          "avg_tokens": 997
         },
         {
           "kind": "file",
           "resolver": "read",
-          "pattern": "core/event_loop.rs",
+          "pattern": "Cargo.toml",
           "stability": 1,
-          "avg_tokens": 1369
+          "avg_tokens": 612
         },
         {
-          "kind": "related_file",
+          "kind": "file",
           "resolver": "read",
-          "pattern": "core/reactor.rs",
+          "pattern": "core/Cargo.toml",
           "stability": 1,
-          "avg_tokens": 498
+          "avg_tokens": 606
         },
         {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/reactor_tokio.rs",
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "uv_",
           "stability": 1,
-          "avg_tokens": 476
+          "avg_tokens": 920
         },
         {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/uv_compat.rs",
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "extern",
           "stability": 1,
-          "avg_tokens": 8932
+          "avg_tokens": 11
         },
         {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/lib.rs",
+          "kind": "file_search",
+          "resolver": "grep",
+          "pattern": "build.rs",
           "stability": 1,
-          "avg_tokens": 2332
+          "avg_tokens": 0
+        },
+        {
+          "kind": "file_search",
+          "resolver": "grep",
+          "pattern": "*.toml",
+          "stability": 1,
+          "avg_tokens": 0
         }
       ],
       "actions": [
-        "bash:cargo",
-        "edit_file",
-        "bash:cd"
+        "bash:true"
       ],
       "trigger_words": [
-        "pass",
-        "tests",
-        "verify"
+        "depend",
+        "let's",
+        "libuvrust",
+        "not",
+        "ok",
+        "well"
       ],
       "seen_count": 1
     },
     {
-      "id": "01d65740d931eb4f",
+      "id": "e256ee8e7aff6957",
       "intent": "find_refs",
       "needs": [
-        {
-          "kind": "file_tree",
-          "resolver": "list",
-          "pattern": ".}",
-          "stability": 1,
-          "avg_tokens": 15
-        },
-        {
-          "kind": "file_tree",
-          "resolver": "list",
-          "pattern": ".",
-          "stability": 1,
-          "avg_tokens": 57
-        },
         {
           "kind": "file",
           "resolver": "read",
           "pattern": "core/uv_compat.rs",
           "stability": 1,
-          "avg_tokens": 9188
-        },
-        {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/event_loop.rs",
-          "stability": 1,
-          "avg_tokens": 1499
-        },
-        {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/reactor.rs",
-          "stability": 1,
-          "avg_tokens": 563
-        },
-        {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/reactor_tokio.rs",
-          "stability": 1,
-          "avg_tokens": 572
-        },
-        {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/lib.rs",
-          "stability": 1,
-          "avg_tokens": 2350
+          "avg_tokens": 309
         },
         {
           "kind": "grep_results",
           "resolver": "grep",
-          "pattern": "uv_compat",
+          "pattern": "use.*libuv",
           "stability": 1,
-          "avg_tokens": 24
-        },
-        {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/runtime.jsrealm.rs",
-          "stability": 1,
-          "avg_tokens": 19
-        },
-        {
-          "kind": "file_tree",
-          "resolver": "list",
-          "pattern": "core",
-          "stability": 1,
-          "avg_tokens": 128
-        },
-        {
-          "kind": "related_file",
-          "resolver": "read",
-          "pattern": "core/runtime.rs",
-          "stability": 1,
-          "avg_tokens": 17
+          "avg_tokens": 23
         },
         {
           "kind": "grep_results",
           "resolver": "grep",
-          "pattern": "UvLoopInner",
+          "pattern": "extern.*libuv",
           "stability": 1,
-          "avg_tokens": 203
+          "avg_tokens": 23
+        },
+        {
+          "kind": "related_file",
+          "resolver": "read",
+          "pattern": "core/uv_compat.rs",
+          "stability": 1,
+          "avg_tokens": 309
+        },
+        {
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "dlopen|dlsym|LoadLibrary|GetProcAddress",
+          "stability": 1,
+          "avg_tokens": 23
+        },
+        {
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "link|#\\[link.*\\]",
+          "stability": 1,
+          "avg_tokens": 23
+        },
+        {
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "#\\[cfg.*libuv\\]",
+          "stability": 1,
+          "avg_tokens": 23
+        },
+        {
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "cfg.*feature.*uv",
+          "stability": 1,
+          "avg_tokens": 0
+        },
+        {
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "struct",
+          "stability": 1,
+          "avg_tokens": 9
+        },
+        {
+          "kind": "grep_results",
+          "resolver": "grep",
+          "pattern": "uv_loop_inner",
+          "stability": 1,
+          "avg_tokens": 164
         },
         {
           "kind": "source_file",
           "resolver": "grep",
-          "pattern": "uv_compat",
+          "pattern": "uv_loop_inner",
           "stability": 1,
-          "avg_tokens": 5494
-        },
-        {
-          "kind": "grep_results",
-          "resolver": "grep",
-          "pattern": "poll_event_loop",
-          "stability": 1,
-          "avg_tokens": 632
-        },
-        {
-          "kind": "source_file",
-          "resolver": "grep",
-          "pattern": "poll_event_loop",
-          "stability": 1,
-          "avg_tokens": 25582
+          "avg_tokens": 144
         }
       ],
-      "actions": null,
+      "actions": [
+        "bash:sed -n",
+        "todowrite",
+        "edit_file"
+      ],
       "trigger_words": [
-        "compat",
-        "deno_core",
-        "explain",
-        "how",
-        "implemented",
-        "libuv",
-        "tokio"
+        "continue"
       ],
       "seen_count": 1
     }
   ],
   "intent_categories": [
+    {
+      "id": "run_checks_seed",
+      "label": "run_checks",
+      "pattern_ids": null,
+      "canonical_sig": {},
+      "example_prompts": [
+        "run tests",
+        "run go test",
+        "execute test suite"
+      ],
+      "seen_count": 0
+    },
     {
       "id": "explain_code_seed",
       "label": "explain_code",
@@ -250,50 +247,38 @@
       "seen_count": 0
     },
     {
-      "id": "general_e77a177a",
-      "label": "general",
+      "id": "find_refs_228e1127",
+      "label": "find_refs",
       "pattern_ids": [
-        "e77a177a6ddf5b64"
+        "228e1127e889acc7"
       ],
       "canonical_sig": {
-        "assert:bash": 3,
-        "exec:bash": 3,
-        "exec:edit_file": 3,
-        "query:list_files": 1,
-        "read:read_file": 3
+        "exec:bash": 1,
+        "query:bash": 3,
+        "query:grep": 3,
+        "read:read_file": 2
       },
       "example_prompts": [
-        "verify tests pass"
+        "Ok well let's make it not depend on libuvrust"
       ],
       "seen_count": 1
     },
     {
-      "id": "general_e77a177a",
-      "label": "general",
-      "pattern_ids": [
-        "e77a177a6ddf5b64"
-      ],
-      "canonical_sig": {
-        "exec:bash": 1
-      },
-      "example_prompts": [
-        "verify tests pass"
-      ],
-      "seen_count": 2
-    },
-    {
-      "id": "find_refs_01d65740",
+      "id": "find_refs_e256ee8e",
       "label": "find_refs",
       "pattern_ids": [
-        "01d65740d931eb4f"
+        "e256ee8e7aff6957"
       ],
       "canonical_sig": {
-        "query:bash": 3,
-        "query:list_files": 3,
+        "exec:bash": 2,
+        "exec:edit_file": 2,
+        "exec:todowrite": 2,
+        "query:bash": 2,
+        "query:grep": 3,
         "read:read_file": 3
       },
       "example_prompts": [
-        "Explain how libuv compat is implemented using tokio in deno_core"
+        "Continue"
       ],
       "seen_count": 1
     }

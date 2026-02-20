@@ -1567,11 +1567,6 @@ impl JsRuntime {
       inner_ptr as *const crate::uv_compat::UvLoopInner;
     context_state.uv_loop_inner.set(Some(uv_inner));
     context_state.uv_loop_ptr.set(Some(loop_ptr));
-
-    // Give the uv_compat layer the event loop waker so that I/O
-    // completions from tokio tasks wake poll_event_loop.
-    let waker = self.inner.state.waker.clone();
-    unsafe { (*uv_inner).set_event_loop_waker(waker) };
   }
 
   /// Returns the runtime's op names, ordered by OpId.
@@ -2035,8 +2030,12 @@ impl JsRuntime {
     }
     let exception_state = &context_state.exception_state;
 
+    // Tight I/O loop: when run_io does work, re-run I/O phases immediately
+    // without returning to tokio. This avoids kqueue/kevent round-trip
+    // latency between batches.
     let mut dispatched_ops = false;
     let mut did_work = false;
+    let mut uv_did_io = false;
     // ===== Phase 1 (Timers) =====
     // 1a. Fire expired libuv C timers
     if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
@@ -2085,8 +2084,24 @@ impl JsRuntime {
     scope.perform_microtask_checkpoint();
 
     // ===== Phase 2.5 (I/O) =====
+    // Tight I/O loop: when run_io reads data and fires callbacks, the
+    // resulting JS work (nextTick/macrotasks from HTTP2 frame processing)
+    // may produce write calls. Drain those immediately and re-poll for
+    // more data, avoiding expensive event loop overhead between batches.
     if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
-      unsafe { (*uv_inner_ptr).run_io() };
+      unsafe {
+        (*uv_inner_ptr).set_waker(cx.waker());
+      }
+      for _io_spin in 0..8 {
+        let did_io = unsafe { (*uv_inner_ptr).run_io() };
+        if !did_io {
+          break;
+        }
+        uv_did_io = true;
+        scope.perform_microtask_checkpoint();
+        Self::drain_next_tick_and_macrotasks(scope, context_state)?;
+        scope.perform_microtask_checkpoint();
+      }
     }
 
     // ===== Phase 3 (Idle/Prepare) =====
@@ -2104,6 +2119,7 @@ impl JsRuntime {
       unsafe { (*uv_inner_ptr).run_check() };
     }
     scope.perform_microtask_checkpoint();
+
 
     // ===== Phase 6 (Close) =====
     exception_state.check_exception_condition(scope)?;
@@ -2156,6 +2172,7 @@ impl JsRuntime {
         || pending_state.has_outstanding_immediates
         || pending_state.has_refed_immediates > 0
         || pending_state.has_pending_promise_events
+        || uv_did_io
       {
         self.inner.state.waker.wake();
       } else
