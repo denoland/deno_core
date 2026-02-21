@@ -53,6 +53,7 @@ export class TestObjectWrap {
   withThis(): void;
   withScopeFast(): void;
   undefinedResult(): undefined;
+  undefinedUnit(): undefined;
   withValidateInt(value: number): void;
 }
 
