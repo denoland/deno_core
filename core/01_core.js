@@ -242,14 +242,23 @@
     // If we have any rejections for this tick, attempt to process them
     const rejections = arguments[arguments.length - 3];
     if (rejections) {
-      for (let i = 0; i < rejections.length; i += 2) {
-        const handled = unhandledPromiseRejectionHandler(
-          rejections[i],
-          rejections[i + 1],
-        );
-        if (!handled) {
-          const err = rejections[i + 1];
-          op_dispatch_exception(err, true);
+      for (let i = 0; i < rejections.length; i += 3) {
+        // Restore the async context that was active when the promise was
+        // rejected, so that AsyncLocalStorage.getStore() works correctly
+        // inside unhandledrejection handlers (matching Node.js behavior).
+        const prevContext = getAsyncContext();
+        setAsyncContext(rejections[i + 2]);
+        try {
+          const handled = unhandledPromiseRejectionHandler(
+            rejections[i],
+            rejections[i + 1],
+          );
+          if (!handled) {
+            const err = rejections[i + 1];
+            op_dispatch_exception(err, true);
+          }
+        } finally {
+          setAsyncContext(prevContext);
         }
       }
     }

@@ -13,7 +13,13 @@ pub(crate) struct ExceptionState {
   dispatched_exception: Cell<Option<v8::Global<v8::Value>>>,
   dispatched_exception_is_promise: Cell<bool>,
   pub(crate) pending_promise_rejections:
-    RefCell<VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>>,
+    RefCell<
+      VecDeque<(
+        v8::Global<v8::Promise>,
+        v8::Global<v8::Value>,
+        v8::Global<v8::Value>,
+      )>,
+    >,
   pub(crate) pending_handled_promise_rejections:
     RefCell<VecDeque<(v8::Global<v8::Promise>, v8::Global<v8::Value>)>>,
   pub(crate) js_build_custom_error_cb:
@@ -129,10 +135,13 @@ impl ExceptionState {
       PromiseRejectWithNoHandler => {
         let error = rejection_value.unwrap();
         let error_global = v8::Global::new(scope, error);
+        let async_context =
+          scope.get_continuation_preserved_embedder_data();
+        let async_context_global = v8::Global::new(scope, async_context);
         self
           .pending_promise_rejections
           .borrow_mut()
-          .push_back((promise_global, error_global));
+          .push_back((promise_global, error_global, async_context_global));
       }
       PromiseHandlerAddedAfterReject => {
         // The code has until the event loop yields to attach a handler and avoid an unhandled rejection
@@ -141,7 +150,7 @@ impl ExceptionState {
         // and we need to fire a rejectionhandled event.
         let mut rejections = self.pending_promise_rejections.borrow_mut();
         let previous_len = rejections.len();
-        rejections.retain(|(key, _)| key != &promise_global);
+        rejections.retain(|(key, _, _)| key != &promise_global);
         if rejections.len() == previous_len {
           // Don't hold the lock while we go back into v8
           drop(rejections);
