@@ -49,15 +49,26 @@ const UV_HANDLE_ACTIVE: u32 = 1 << 0;
 const UV_HANDLE_REF: u32 = 1 << 1;
 const UV_HANDLE_CLOSING: u32 = 1 << 2;
 
-// libuv-compatible error codes (negative errno values).
-const UV_EAGAIN: i32 = -11;
-const UV_EINVAL: i32 = -22;
-const UV_EPIPE: i32 = -32;
-const UV_ECONNREFUSED: i32 = -61;
-const UV_EADDRINUSE: i32 = -98;
-const UV_ENOTCONN: i32 = -107;
-const UV_EOF: i32 = -4095;
-const UV_EBADF: i32 = -9;
+// libuv-compatible error codes (negative errno values on unix,
+// which vary depending on platform, fixed values on windows).
+macro_rules! uv_errno {
+  ($name:ident, $unix:expr, $win:expr) => {
+    #[cfg(unix)]
+    pub const $name: i32 = -($unix);
+    #[cfg(windows)]
+    pub const $name: i32 = $win;
+  };
+}
+
+uv_errno!(UV_EAGAIN, libc::EAGAIN, -4088);
+uv_errno!(UV_EBADF, libc::EBADF, -4083);
+uv_errno!(UV_EADDRINUSE, libc::EADDRINUSE, -4091);
+uv_errno!(UV_ECONNREFUSED, libc::ECONNREFUSED, -4078);
+uv_errno!(UV_EINVAL, libc::EINVAL, -4071);
+uv_errno!(UV_ENOTCONN, libc::ENOTCONN, -4053);
+uv_errno!(UV_ECANCELED, libc::ECANCELED, -4081);
+uv_errno!(UV_EPIPE, libc::EPIPE, -4047);
+pub const UV_EOF: i32 = -4095;
 
 #[repr(C)]
 pub struct uv_loop_t {
