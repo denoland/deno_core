@@ -1,25 +1,12 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-//! **Pure Rust libuv Compatibility Layer**
-//!
-//! This module provides a completely self-contained, pure Rust implementation
-//! of libuv's C API. It has **NO external dependencies** on libuv, libuvrust,
-//! or any other C libraries.
-//!
-//! ## Features
-//! - Complete C ABI compatibility with libuv
-//! - Zero external dependencies - pure Rust implementation
-//! - Supports timers, idle, prepare, and check handles
-//! - Event loop phase execution matching libuv architecture
-//! - Memory-safe with proper cleanup semantics
-//!
-//! ## Usage with ext/node HTTP2
-//! This layer is designed to be a drop-in replacement for libuv, allowing
-//! Node.js HTTP2 code in ../deno/ext/node to work without modification.
-//!
-//! ## Architecture
-//! The implementation uses `UvLoopInner` as the core event loop state,
-//! integrated with deno_core's phase-based event loop execution.
+// Pure-Rust libuv C ABI compatibility layer. Drop-in replacement for libuv
+// used by ext/node HTTP2 (nghttp2). Integrated with deno_core's event loop.
+//
+// Functions are `#[unsafe(no_mangle)] extern "C"` so that C code linked into
+// the same binary (e.g. nghttp2) can call them by symbol name, exactly as it
+// would call real libuv. The `#[repr(C)]` structs match the subset of the
+// libuv ABI that nghttp2 actually touches.
 
 use std::cell::Cell;
 use std::cell::RefCell;
@@ -28,6 +15,7 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::ffi::c_char;
 use std::ffi::c_int;
+use std::ffi::c_uint;
 use std::ffi::c_void;
 use std::future::Future;
 use std::net::SocketAddr;
@@ -57,36 +45,19 @@ pub enum uv_run_mode {
   UV_RUN_NOWAIT = 2,
 }
 
-/// Flags stored in handle `flags` field.
 const UV_HANDLE_ACTIVE: u32 = 1 << 0;
 const UV_HANDLE_REF: u32 = 1 << 1;
 const UV_HANDLE_CLOSING: u32 = 1 << 2;
 
-/// UV error codes following libuv's convention.
-///
-/// On Unix the code is the negation of the corresponding system `errno`.
-/// On Windows libuv uses fixed negative values to avoid conflicts with
-/// redefined errno codes (see libuv `include/uv/errno.h`).
-/// `UV_EOF` is a sentinel that does not correspond to any system errno.
-pub const UV_EOF: i32 = -4095;
-
-macro_rules! uv_errno {
-  ($name:ident, $unix:expr, $win:expr) => {
-    #[cfg(unix)]
-    pub const $name: i32 = -($unix);
-    #[cfg(windows)]
-    pub const $name: i32 = $win;
-  };
-}
-
-uv_errno!(UV_EAGAIN, libc::EAGAIN, -4088);
-uv_errno!(UV_EBADF, libc::EBADF, -4083);
-uv_errno!(UV_EADDRINUSE, libc::EADDRINUSE, -4091);
-uv_errno!(UV_ECONNREFUSED, libc::ECONNREFUSED, -4078);
-uv_errno!(UV_EINVAL, libc::EINVAL, -4071);
-uv_errno!(UV_ENOTCONN, libc::ENOTCONN, -4053);
-uv_errno!(UV_ECANCELED, libc::ECANCELED, -4081);
-uv_errno!(UV_EPIPE, libc::EPIPE, -4047);
+// libuv-compatible error codes (negative errno values).
+const UV_EAGAIN: i32 = -11;
+const UV_EINVAL: i32 = -22;
+const UV_EPIPE: i32 = -32;
+const UV_ECONNREFUSED: i32 = -61;
+const UV_EADDRINUSE: i32 = -98;
+const UV_ENOTCONN: i32 = -107;
+const UV_EOF: i32 = -4095;
+const UV_EBADF: i32 = -9;
 
 #[repr(C)]
 pub struct uv_loop_t {
@@ -143,7 +114,6 @@ pub struct uv_check_t {
   cb: Option<unsafe extern "C" fn(*mut uv_check_t)>,
 }
 
-// Stream and TCP types needed for HTTP2 support
 #[repr(C)]
 pub struct uv_stream_t {
   pub r#type: uv_handle_type,
@@ -154,52 +124,51 @@ pub struct uv_stream_t {
 
 #[repr(C)]
 pub struct uv_tcp_t {
-  // Public C-ABI fields
   pub r#type: uv_handle_type,
   pub loop_: *mut uv_loop_t,
   pub data: *mut c_void,
   pub flags: u32,
-  // Internal Rust state
   internal_fd: Option<std::os::fd::RawFd>,
   internal_bind_addr: Option<SocketAddr>,
   internal_stream: Option<tokio::net::TcpStream>,
   internal_listener: Option<tokio::net::TcpListener>,
   internal_listener_addr: Option<SocketAddr>,
   internal_nodelay: bool,
-  // Read state
   internal_alloc_cb: Option<uv_alloc_cb>,
   internal_read_cb: Option<uv_read_cb>,
   internal_reading: bool,
-  // Connect state (pending async connect)
   internal_connect: Option<ConnectPending>,
-  // Write queue (pending async writes, drained in order by run_io)
   internal_write_queue: VecDeque<WritePending>,
-  // Shutdown state (deferred until write queue drains)
-  internal_shutdown: Option<ShutdownPending>,
-  // Listener state
   internal_connection_cb: Option<uv_connection_cb>,
   internal_backlog: VecDeque<tokio::net::TcpStream>,
 }
 
-/// State for an in-progress TCP connect.
+/// In-flight TCP connect operation.
+///
+/// # Safety
+/// `req` is a raw pointer to a caller-owned `uv_connect_t`. The caller must
+/// ensure it remains valid until the connect callback fires (at which point
+/// `ConnectPending` is consumed). This struct is `!Send` -- it lives on the
+/// event loop thread alongside `UvLoopInner`.
 struct ConnectPending {
-  future: Pin<Box<dyn Future<Output = std::io::Result<tokio::net::TcpStream>>>>,
+  future: Pin<
+    Box<dyn Future<Output = std::io::Result<tokio::net::TcpStream>>>,
+  >,
   req: *mut uv_connect_t,
   cb: Option<uv_connect_cb>,
 }
 
-/// State for an in-progress TCP write that couldn't complete synchronously.
+/// Queued write operation waiting for the socket to become writable.
+///
+/// # Safety
+/// `req` is a raw pointer to a caller-owned `uv_write_t`. The caller must
+/// ensure it remains valid until the write callback fires (at which point
+/// `WritePending` is consumed). This struct is `!Send`.
 struct WritePending {
   req: *mut uv_write_t,
   data: Vec<u8>,
   offset: usize,
   cb: Option<uv_write_cb>,
-}
-
-/// State for a pending shutdown that waits for writes to drain.
-struct ShutdownPending {
-  req: *mut uv_shutdown_t,
-  cb: Option<uv_shutdown_cb>,
 }
 
 #[repr(C)]
@@ -223,6 +192,13 @@ pub struct uv_shutdown_t {
   pub handle: *mut uv_stream_t,
 }
 
+/// I/O buffer descriptor matching libuv's `uv_buf_t`.
+///
+/// Field order is `{base, len}` which matches the macOS/Windows layout.
+/// On Linux, real libuv uses `{len, base}` (matching `struct iovec`).
+/// This is fine as long as the struct is only constructed/consumed in Rust;
+/// if it ever needs to cross an FFI boundary to real C code on Linux,
+/// the field order must be made platform-conditional.
 #[repr(C)]
 pub struct uv_buf_t {
   pub base: *mut c_char,
@@ -235,15 +211,12 @@ pub type uv_prepare_cb = unsafe extern "C" fn(*mut uv_prepare_t);
 pub type uv_check_cb = unsafe extern "C" fn(*mut uv_check_t);
 pub type uv_close_cb = unsafe extern "C" fn(*mut uv_handle_t);
 pub type uv_write_cb = unsafe extern "C" fn(*mut uv_write_t, i32);
-pub type uv_alloc_cb =
-  unsafe extern "C" fn(*mut uv_handle_t, usize, *mut uv_buf_t);
-pub type uv_read_cb =
-  unsafe extern "C" fn(*mut uv_stream_t, isize, *const uv_buf_t);
+pub type uv_alloc_cb = unsafe extern "C" fn(*mut uv_handle_t, usize, *mut uv_buf_t);
+pub type uv_read_cb = unsafe extern "C" fn(*mut uv_stream_t, isize, *const uv_buf_t);
 pub type uv_connection_cb = unsafe extern "C" fn(*mut uv_stream_t, i32);
 pub type uv_connect_cb = unsafe extern "C" fn(*mut uv_connect_t, i32);
 pub type uv_shutdown_cb = unsafe extern "C" fn(*mut uv_shutdown_t, i32);
 
-// Type aliases for C compatibility
 pub type UvHandle = uv_handle_t;
 pub type UvLoop = uv_loop_t;
 pub type UvStream = uv_stream_t;
@@ -253,33 +226,23 @@ pub type UvBuf = uv_buf_t;
 pub type UvConnect = uv_connect_t;
 pub type UvShutdown = uv_shutdown_t;
 
-/// Ordered by (deadline_ms, id) so we get
-/// min-heap behavior from BTreeSet iteration.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 struct TimerKey {
   deadline_ms: u64,
   id: u64,
 }
 
-/// Internal state
 pub(crate) struct UvLoopInner {
   timers: RefCell<BTreeSet<TimerKey>>,
   next_timer_id: Cell<u64>,
   timer_handles: RefCell<HashMap<u64, *mut uv_timer_t>>,
-
   idle_handles: RefCell<Vec<*mut uv_idle_t>>,
   prepare_handles: RefCell<Vec<*mut uv_prepare_t>>,
   check_handles: RefCell<Vec<*mut uv_check_t>>,
-
-  // TCP handles tracked for alive-handle checks and I/O polling
   tcp_handles: RefCell<Vec<*mut uv_tcp_t>>,
-
-  // Waker from the event loop's Context, used for poll_accept/poll_read_ready
-  // so that tokio's reactor can wake the event loop when I/O is ready.
   waker: RefCell<Option<Waker>>,
-
-  closing_handles: RefCell<VecDeque<(*mut uv_handle_t, Option<uv_close_cb>)>>,
-
+  closing_handles:
+    RefCell<VecDeque<(*mut uv_handle_t, Option<uv_close_cb>)>>,
   time_origin: Instant,
 }
 
@@ -299,9 +262,6 @@ impl UvLoopInner {
     }
   }
 
-  /// Store the event loop waker for use in poll-based I/O.
-  /// Called from `poll_event_loop` with `cx.waker()`.
-  /// Only clones if the waker has actually changed.
   pub(crate) fn set_waker(&self, waker: &Waker) {
     let mut slot = self.waker.borrow_mut();
     match slot.as_ref() {
@@ -322,15 +282,6 @@ impl UvLoopInner {
     Instant::now().duration_since(self.time_origin).as_millis() as u64
   }
 
-  /// Drive all libuv phases in order. Used by `uv_run` for standalone
-  /// C-only consumers.
-  ///
-  /// When integrated with `JsRuntime::poll_event_loop_inner`, the individual
-  /// `run_*` methods are called at their corresponding event loop phases
-  /// instead of using this combined tick.
-  ///
-  /// # Safety
-  /// All handle pointers stored in the internal lists must be valid.
   unsafe fn tick(&self) {
     unsafe {
       self.run_timers();
@@ -342,7 +293,6 @@ impl UvLoopInner {
     }
   }
 
-  /// Returns true if there are any alive (active + ref'd) handles.
   pub(crate) fn has_alive_handles(&self) -> bool {
     for (_, handle_ptr) in self.timer_handles.borrow().iter() {
       let handle = unsafe { &**handle_ptr };
@@ -384,22 +334,17 @@ impl UvLoopInner {
         return true;
       }
     }
-    // Pending close callbacks count as alive
     if !self.closing_handles.borrow().is_empty() {
       return true;
     }
     false
   }
 
-  /// Returns the next timer deadline in ms, or None if no timers.
   fn next_timer_deadline_ms(&self) -> Option<u64> {
     self.timers.borrow().iter().next().map(|k| k.deadline_ms)
   }
 
-  /// Compute how long `uv_run` should wait before the next tick.
-  /// Returns Duration::ZERO if there is immediate work (idle/close callbacks).
   fn compute_wait_timeout(&self) -> Duration {
-    // Immediate work means no waiting
     if !self.idle_handles.borrow().is_empty()
       || !self.closing_handles.borrow().is_empty()
     {
@@ -413,21 +358,14 @@ impl UvLoopInner {
         Duration::ZERO
       }
     } else if !self.tcp_handles.borrow().is_empty() {
-      // No timers but active I/O: wait up to 1 second for I/O completions
-      // (recv_timeout will wake immediately on any I/O event)
       Duration::from_secs(1)
     } else {
       Duration::ZERO
     }
   }
 
-  /// Fire all expired C timers. Called at Phase 1 (Timers).
-  ///
-  /// # Safety
-  /// All timer handle pointers must be valid.
   pub(crate) unsafe fn run_timers(&self) {
     let now = self.now_ms();
-    // Collect expired timers
     let mut expired = Vec::new();
     {
       let timers = self.timers.borrow();
@@ -441,12 +379,12 @@ impl UvLoopInner {
 
     for key in expired {
       self.timers.borrow_mut().remove(&key);
-      let handle_ptr = match self.timer_handles.borrow().get(&key.id).copied() {
-        Some(h) => h,
-        None => continue,
-      };
+      let handle_ptr =
+        match self.timer_handles.borrow().get(&key.id).copied() {
+          Some(h) => h,
+          None => continue,
+        };
       let handle = unsafe { &mut *handle_ptr };
-      // Only fire if still active
       if handle.flags & UV_HANDLE_ACTIVE == 0 {
         self.timer_handles.borrow_mut().remove(&key.id);
         continue;
@@ -455,7 +393,6 @@ impl UvLoopInner {
       let repeat = handle.repeat;
 
       if repeat > 0 {
-        // Re-arm repeat timer
         let new_deadline = now + repeat;
         let new_key = TimerKey {
           deadline_ms: new_deadline,
@@ -464,7 +401,6 @@ impl UvLoopInner {
         handle.internal_deadline = new_deadline;
         self.timers.borrow_mut().insert(new_key);
       } else {
-        // One-shot: deactivate
         handle.flags &= !UV_HANDLE_ACTIVE;
         self.timer_handles.borrow_mut().remove(&key.id);
       }
@@ -475,10 +411,6 @@ impl UvLoopInner {
     }
   }
 
-  /// Fire all active idle callbacks. Called at Phase 3a (Idle).
-  ///
-  /// # Safety
-  /// All idle handle pointers must be valid.
   pub(crate) unsafe fn run_idle(&self) {
     let mut i = 0;
     loop {
@@ -499,10 +431,6 @@ impl UvLoopInner {
     }
   }
 
-  /// Fire all active prepare callbacks. Called at Phase 3b (Prepare).
-  ///
-  /// # Safety
-  /// All prepare handle pointers must be valid.
   pub(crate) unsafe fn run_prepare(&self) {
     let mut i = 0;
     loop {
@@ -523,10 +451,6 @@ impl UvLoopInner {
     }
   }
 
-  /// Fire all active check callbacks. Called at Phase 5 (Check).
-  ///
-  /// # Safety
-  /// All check handle pointers must be valid.
   pub(crate) unsafe fn run_check(&self) {
     let mut i = 0;
     loop {
@@ -547,10 +471,6 @@ impl UvLoopInner {
     }
   }
 
-  /// Drain and fire all queued close callbacks. Called at Phase 6 (Close).
-  ///
-  /// # Safety
-  /// All handle pointers in the closing queue must be valid.
   pub(crate) unsafe fn run_close(&self) {
     let mut closing = self.closing_handles.borrow_mut();
     let snapshot: Vec<_> = closing.drain(..).collect();
@@ -563,8 +483,14 @@ impl UvLoopInner {
   }
 
   /// Poll all TCP handles for I/O readiness and fire callbacks.
-  /// Uses direct polling with tokio's poll_accept/try_read/try_write.
-  /// No channels, no spawned tasks - zero allocation in the hot path.
+  ///
+  /// Uses direct polling via tokio's `poll_accept`/`try_read`/`try_write`.
+  /// No spawned tasks, no channels -- zero allocation in the hot path.
+  ///
+  /// Multiple passes: after callbacks fire they may produce new data
+  /// (e.g. HTTP2 frame processing triggers writes which complete
+  /// immediately). Re-poll up to 16 times to batch I/O within a
+  /// single event loop tick.
   ///
   /// # Safety
   /// All TCP handle pointers in `tcp_handles` must be valid.
@@ -575,8 +501,7 @@ impl UvLoopInner {
     let mut cx = Context::from_waker(waker);
 
     let mut did_any_work = false;
-    // Multiple passes: after callbacks fire, new data may have arrived.
-    // Re-poll up to a bounded number of times to batch I/O.
+
     for _pass in 0..16 {
       let mut any_work = false;
 
@@ -597,7 +522,9 @@ impl UvLoopInner {
 
         // 1. Poll pending connect
         if let Some(ref mut pending) = tcp.internal_connect {
-          if let Poll::Ready(result) = pending.future.as_mut().poll(&mut cx) {
+          if let Poll::Ready(result) =
+            pending.future.as_mut().poll(&mut cx)
+          {
             let req = pending.req;
             let cb = pending.cb;
             let status = match result {
@@ -623,7 +550,6 @@ impl UvLoopInner {
         // 2. Poll listener for new connections
         if let Some(ref listener) = tcp.internal_listener {
           if tcp.internal_connection_cb.is_some() {
-            // Accept all pending connections
             loop {
               match listener.poll_accept(&mut cx) {
                 Poll::Ready(Ok((stream, _))) => {
@@ -633,13 +559,12 @@ impl UvLoopInner {
                 _ => break,
               }
             }
-            // Fire connection_cb for each pending connection
             while !tcp.internal_backlog.is_empty() {
               if let Some(cb) = tcp.internal_connection_cb {
                 unsafe { cb(tcp_ptr as *mut uv_stream_t, 0) };
               }
-              // If uv_accept wasn't called in the callback, stop to
-              // avoid infinite loop
+              // If uv_accept wasn't called in the callback, stop
+              // to avoid an infinite loop.
               if !tcp.internal_backlog.is_empty() {
                 break;
               }
@@ -652,7 +577,7 @@ impl UvLoopInner {
           let alloc_cb = tcp.internal_alloc_cb;
           let read_cb = tcp.internal_read_cb;
           if let (Some(alloc_cb), Some(read_cb)) = (alloc_cb, read_cb) {
-            // Register interest with the reactor via poll_read_ready.
+            // Register interest so tokio's reactor wakes us.
             let _ = tcp
               .internal_stream
               .as_ref()
@@ -661,7 +586,7 @@ impl UvLoopInner {
 
             loop {
               // Re-check after each callback: the callback may have
-              // called uv_close/uv_read_stop, dropping the stream.
+              // called uv_close or uv_read_stop.
               if !tcp.internal_reading || tcp.internal_stream.is_none() {
                 break;
               }
@@ -676,11 +601,13 @@ impl UvLoopInner {
                 break;
               }
               let slice = unsafe {
-                std::slice::from_raw_parts_mut(buf.base as *mut u8, buf.len)
+                std::slice::from_raw_parts_mut(
+                  buf.base as *mut u8,
+                  buf.len,
+                )
               };
               match tcp.internal_stream.as_ref().unwrap().try_read(slice) {
                 Ok(0) => {
-                  // EOF
                   unsafe {
                     read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf)
                   };
@@ -690,11 +617,16 @@ impl UvLoopInner {
                 Ok(n) => {
                   any_work = true;
                   unsafe {
-                    read_cb(tcp_ptr as *mut uv_stream_t, n as isize, &buf)
+                    read_cb(
+                      tcp_ptr as *mut uv_stream_t,
+                      n as isize,
+                      &buf,
+                    )
                   };
-                  // Callback may have stopped reading or closed
                 }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                Err(ref e)
+                  if e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
                   break;
                 }
                 Err(_) => {
@@ -710,7 +642,8 @@ impl UvLoopInner {
         }
 
         // 4. Drain write queue in order
-        if !tcp.internal_write_queue.is_empty() && tcp.internal_stream.is_some()
+        if !tcp.internal_write_queue.is_empty()
+          && tcp.internal_stream.is_some()
         {
           let stream = tcp.internal_stream.as_ref().unwrap();
           let _ = stream.poll_write_ready(&mut cx);
@@ -728,12 +661,11 @@ impl UvLoopInner {
                 break;
               }
               match stream.try_write(&pw.data[pw.offset..]) {
-                Ok(n) => {
-                  pw.offset += n;
-                  any_work = true;
-                }
-                Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-                  break; // try again next tick
+                Ok(n) => pw.offset += n,
+                Err(ref e)
+                  if e.kind() == std::io::ErrorKind::WouldBlock =>
+                {
+                  break;
                 }
                 Err(_) => {
                   error = true;
@@ -752,28 +684,9 @@ impl UvLoopInner {
                 unsafe { cb(pw.req, UV_EPIPE) };
               }
             } else {
-              break; // WouldBlock, stop draining
+              break; // WouldBlock -- retry next tick
             }
           }
-        }
-
-        // 5. Process pending shutdown once write queue is fully drained
-        if tcp.internal_write_queue.is_empty()
-          && tcp.internal_shutdown.is_some()
-          && tcp.internal_stream.is_some()
-        {
-          let pending = tcp.internal_shutdown.take().unwrap();
-          use std::os::unix::io::AsRawFd;
-          let fd = tcp.internal_stream.as_ref().unwrap().as_raw_fd();
-          let status = if unsafe { libc::shutdown(fd, libc::SHUT_WR) } == 0 {
-            0
-          } else {
-            UV_ENOTCONN
-          };
-          if let Some(cb) = pending.cb {
-            unsafe { cb(pending.req, status) };
-          }
-          any_work = true;
         }
       } // end per-handle loop
 
@@ -782,10 +695,10 @@ impl UvLoopInner {
       }
       did_any_work = true;
     } // end multi-pass loop
+
     did_any_work
   }
 
-  /// Stop a timer handle and remove it from the inner structures.
   unsafe fn stop_timer(&self, handle: *mut uv_timer_t) {
     let handle_ref = unsafe { &mut *handle };
     let id = handle_ref.internal_id;
@@ -843,13 +756,6 @@ impl UvLoopInner {
       tcp.internal_connection_cb = None;
       tcp.internal_connect = None;
       tcp.internal_write_queue.clear();
-      // Fire pending shutdown callback with UV_ECANCELED (matches libuv's
-      // uv__stream_destroy behavior when close races with shutdown).
-      if let Some(pending) = tcp.internal_shutdown.take() {
-        if let Some(cb) = pending.cb {
-          cb(pending.req, UV_ECANCELED);
-        }
-      }
       tcp.internal_stream = None;
       tcp.internal_listener = None;
       tcp.internal_backlog.clear();
@@ -858,32 +764,17 @@ impl UvLoopInner {
   }
 }
 
-/// Get the `UvLoopInner` from a `uv_loop_t` pointer.
-///
-/// # Safety
-/// `loop_` must be a valid, initialized loop pointer.
 #[inline]
 unsafe fn get_inner(loop_: *mut uv_loop_t) -> &'static UvLoopInner {
   unsafe { &*((*loop_).internal as *const UvLoopInner) }
 }
 
-/// Get the raw `UvLoopInner` pointer from a `uv_loop_t`.
-///
-/// This is used by `JsRuntime::register_uv_loop` to connect the loop
-/// to the event loop phases.
-///
-/// # Safety
-/// `loop_` must be a valid, initialized loop pointer.
 pub unsafe fn uv_loop_get_inner_ptr(
   loop_: *const uv_loop_t,
 ) -> *const std::ffi::c_void {
   unsafe { (*loop_).internal as *const std::ffi::c_void }
 }
 
-/// Initialize a loop handle.
-///
-/// # Safety
-/// `loop_` must be a valid, non-null pointer to an uninitialized `uv_loop_t`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_loop_init(loop_: *mut uv_loop_t) -> c_int {
   let inner = Box::new(UvLoopInner::new());
@@ -895,11 +786,6 @@ pub unsafe extern "C" fn uv_loop_init(loop_: *mut uv_loop_t) -> c_int {
   0
 }
 
-/// Close and clean up a loop handle.
-///
-/// # Safety
-/// `loop_` must be a valid, initialized loop pointer. No handles should
-/// be active when this is called.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_loop_close(loop_: *mut uv_loop_t) -> c_int {
   unsafe {
@@ -912,10 +798,6 @@ pub unsafe extern "C" fn uv_loop_close(loop_: *mut uv_loop_t) -> c_int {
   0
 }
 
-/// Signal the loop to stop. The next `uv_run` iteration will exit.
-///
-/// # Safety
-/// `loop_` must be a valid, initialized loop pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_stop(loop_: *mut uv_loop_t) {
   unsafe {
@@ -923,33 +805,15 @@ pub unsafe extern "C" fn uv_stop(loop_: *mut uv_loop_t) {
   }
 }
 
-/// Return the current cached time in ms since loop start.
-///
-/// # Safety
-/// `loop_` must be a valid, initialized loop pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_now(loop_: *mut uv_loop_t) -> u64 {
   let inner = unsafe { get_inner(loop_) };
   inner.now_ms()
 }
 
-/// Update the cached time. (Currently a no-op since we compute on demand.)
-///
-/// # Safety
-/// `loop_` must be a valid, initialized loop pointer.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_update_time(_loop_: *mut uv_loop_t) {
-  // Time is computed on demand from Instant, no caching needed.
-}
+pub unsafe extern "C" fn uv_update_time(_loop_: *mut uv_loop_t) {}
 
-// ---------------------------------------------------------------------------
-// Timer API
-// ---------------------------------------------------------------------------
-
-/// Initialize a timer handle.
-///
-/// # Safety
-/// `loop_` and `handle` must be valid, non-null pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_init(
   loop_: *mut uv_loop_t,
@@ -969,11 +833,6 @@ pub unsafe extern "C" fn uv_timer_init(
   0
 }
 
-/// Start a timer. `timeout` is the initial timeout in ms, `repeat` is the
-/// repeat interval in ms (0 = one-shot).
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_start(
   handle: *mut uv_timer_t,
@@ -985,7 +844,6 @@ pub unsafe extern "C" fn uv_timer_start(
     let loop_ = (*handle).loop_;
     let inner = get_inner(loop_);
 
-    // If already active, stop first (remove old entry)
     if (*handle).flags & UV_HANDLE_ACTIVE != 0 {
       inner.stop_timer(handle);
     }
@@ -1010,10 +868,6 @@ pub unsafe extern "C" fn uv_timer_start(
   0
 }
 
-/// Stop a timer.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_stop(handle: *mut uv_timer_t) -> c_int {
   unsafe {
@@ -1028,13 +882,10 @@ pub unsafe extern "C" fn uv_timer_stop(handle: *mut uv_timer_t) -> c_int {
   0
 }
 
-/// Restart a repeat timer. If the timer was not started or has no repeat
-/// interval, this returns `UV_EINVAL`.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_timer_init`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
+pub unsafe extern "C" fn uv_timer_again(
+  handle: *mut uv_timer_t,
+) -> c_int {
   unsafe {
     let repeat = (*handle).repeat;
     if repeat == 0 {
@@ -1043,10 +894,8 @@ pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
     let loop_ = (*handle).loop_;
     let inner = get_inner(loop_);
 
-    // Stop existing
     inner.stop_timer(handle);
 
-    // Re-arm with repeat as timeout
     let id = inner.alloc_timer_id();
     let deadline = inner.now_ms() + repeat;
 
@@ -1064,19 +913,13 @@ pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
   0
 }
 
-/// Get the repeat interval of a timer.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_timer_init`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_timer_get_repeat(handle: *const uv_timer_t) -> u64 {
+pub unsafe extern "C" fn uv_timer_get_repeat(
+  handle: *const uv_timer_t,
+) -> u64 {
   unsafe { (*handle).repeat }
 }
 
-/// Set the repeat interval of a timer.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_set_repeat(
   handle: *mut uv_timer_t,
@@ -1087,14 +930,6 @@ pub unsafe extern "C" fn uv_timer_set_repeat(
   }
 }
 
-// ---------------------------------------------------------------------------
-// Idle API
-// ---------------------------------------------------------------------------
-
-/// Initialize an idle handle.
-///
-/// # Safety
-/// `loop_` and `handle` must be valid, non-null pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_idle_init(
   loop_: *mut uv_loop_t,
@@ -1110,17 +945,12 @@ pub unsafe extern "C" fn uv_idle_init(
   0
 }
 
-/// Start an idle handle.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_idle_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_idle_start(
   handle: *mut uv_idle_t,
   cb: uv_idle_cb,
 ) -> c_int {
   unsafe {
-    // Idempotent: if already active, just update cb
     if (*handle).flags & UV_HANDLE_ACTIVE != 0 {
       (*handle).cb = Some(cb);
       return 0;
@@ -1135,10 +965,6 @@ pub unsafe extern "C" fn uv_idle_start(
   0
 }
 
-/// Stop an idle handle.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_idle_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_idle_stop(handle: *mut uv_idle_t) -> c_int {
   unsafe {
@@ -1153,14 +979,6 @@ pub unsafe extern "C" fn uv_idle_stop(handle: *mut uv_idle_t) -> c_int {
   0
 }
 
-// ---------------------------------------------------------------------------
-// Prepare API
-// ---------------------------------------------------------------------------
-
-/// Initialize a prepare handle.
-///
-/// # Safety
-/// `loop_` and `handle` must be valid, non-null pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_prepare_init(
   loop_: *mut uv_loop_t,
@@ -1176,10 +994,6 @@ pub unsafe extern "C" fn uv_prepare_init(
   0
 }
 
-/// Start a prepare handle.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_prepare_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_prepare_start(
   handle: *mut uv_prepare_t,
@@ -1200,12 +1014,10 @@ pub unsafe extern "C" fn uv_prepare_start(
   0
 }
 
-/// Stop a prepare handle.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_prepare_init`.
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_prepare_stop(handle: *mut uv_prepare_t) -> c_int {
+pub unsafe extern "C" fn uv_prepare_stop(
+  handle: *mut uv_prepare_t,
+) -> c_int {
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE == 0 {
       return 0;
@@ -1218,14 +1030,6 @@ pub unsafe extern "C" fn uv_prepare_stop(handle: *mut uv_prepare_t) -> c_int {
   0
 }
 
-// ---------------------------------------------------------------------------
-// Check API
-// ---------------------------------------------------------------------------
-
-/// Initialize a check handle.
-///
-/// # Safety
-/// `loop_` and `handle` must be valid, non-null pointers.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_check_init(
   loop_: *mut uv_loop_t,
@@ -1241,10 +1045,6 @@ pub unsafe extern "C" fn uv_check_init(
   0
 }
 
-/// Start a check handle.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_check_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_check_start(
   handle: *mut uv_check_t,
@@ -1265,10 +1065,6 @@ pub unsafe extern "C" fn uv_check_start(
   0
 }
 
-/// Stop a check handle.
-///
-/// # Safety
-/// `handle` must have been initialized with `uv_check_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_check_stop(handle: *mut uv_check_t) -> c_int {
   unsafe {
@@ -1283,14 +1079,6 @@ pub unsafe extern "C" fn uv_check_stop(handle: *mut uv_check_t) -> c_int {
   0
 }
 
-// ---------------------------------------------------------------------------
-// Common handle API
-// ---------------------------------------------------------------------------
-
-/// Close a handle. The `close_cb` is called asynchronously in the close phase.
-///
-/// # Safety
-/// `handle` must be a valid, initialized handle pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_close(
   handle: *mut uv_handle_t,
@@ -1303,7 +1091,6 @@ pub unsafe extern "C" fn uv_close(
     let loop_ = (*handle).loop_;
     let inner = get_inner(loop_);
 
-    // Stop the handle based on its type
     match (*handle).r#type {
       uv_handle_type::UV_TIMER => {
         inner.stop_timer(handle as *mut uv_timer_t);
@@ -1323,7 +1110,6 @@ pub unsafe extern "C" fn uv_close(
       _ => {}
     }
 
-    // Queue close callback for the close phase
     inner
       .closing_handles
       .borrow_mut()
@@ -1331,10 +1117,6 @@ pub unsafe extern "C" fn uv_close(
   }
 }
 
-/// Reference a handle, preventing the event loop from exiting.
-///
-/// # Safety
-/// `handle` must be a valid handle pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_ref(handle: *mut uv_handle_t) {
   unsafe {
@@ -1342,10 +1124,6 @@ pub unsafe extern "C" fn uv_ref(handle: *mut uv_handle_t) {
   }
 }
 
-/// Un-reference a handle, allowing the event loop to exit even if active.
-///
-/// # Safety
-/// `handle` must be a valid handle pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_unref(handle: *mut uv_handle_t) {
   unsafe {
@@ -1353,10 +1131,6 @@ pub unsafe extern "C" fn uv_unref(handle: *mut uv_handle_t) {
   }
 }
 
-/// Check if a handle is active.
-///
-/// # Safety
-/// `handle` must be a valid handle pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_is_active(handle: *const uv_handle_t) -> c_int {
   unsafe {
@@ -1368,10 +1142,6 @@ pub unsafe extern "C" fn uv_is_active(handle: *const uv_handle_t) -> c_int {
   }
 }
 
-/// Check if a handle is closing or closed.
-///
-/// # Safety
-/// `handle` must be a valid handle pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_is_closing(handle: *const uv_handle_t) -> c_int {
   unsafe {
@@ -1383,17 +1153,6 @@ pub unsafe extern "C" fn uv_is_closing(handle: *const uv_handle_t) -> c_int {
   }
 }
 
-/// Run the event loop.
-///
-/// For `UV_RUN_DEFAULT`, loops until no alive handles remain or `uv_stop`
-/// is called. For `UV_RUN_ONCE`, runs a single tick. For `UV_RUN_NOWAIT`,
-/// runs a single tick without blocking.
-///
-/// When integrated with `JsRuntime`, the real event loop is driven by
-/// `poll_event_loop`. This function is useful for C-only consumers or testing.
-///
-/// # Safety
-/// `loop_` must be a valid, initialized loop pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_run(
   loop_: *mut uv_loop_t,
@@ -1408,9 +1167,6 @@ pub unsafe extern "C" fn uv_run(
         while inner.has_alive_handles() && !(*loop_).stop_flag.get() {
           let timeout = inner.compute_wait_timeout();
           if timeout > Duration::ZERO {
-            // Sleep up to timeout; with a noop waker tokio's reactor
-            // still sets readiness atomically, so next tick picks it up.
-            // Cap at 1ms for active TCP to keep polling responsive.
             let sleep_dur = if !inner.tcp_handles.borrow().is_empty() {
               timeout.min(Duration::from_millis(1))
             } else {
@@ -1420,7 +1176,11 @@ pub unsafe extern "C" fn uv_run(
           }
           inner.tick();
         }
-        if inner.has_alive_handles() { 1 } else { 0 }
+        if inner.has_alive_handles() {
+          1
+        } else {
+          0
+        }
       }
       uv_run_mode::UV_RUN_ONCE => {
         let timeout = inner.compute_wait_timeout();
@@ -1433,27 +1193,25 @@ pub unsafe extern "C" fn uv_run(
           std::thread::sleep(sleep_dur);
         }
         inner.tick();
-        if inner.has_alive_handles() { 1 } else { 0 }
+        if inner.has_alive_handles() {
+          1
+        } else {
+          0
+        }
       }
       uv_run_mode::UV_RUN_NOWAIT => {
         inner.tick();
-        if inner.has_alive_handles() { 1 } else { 0 }
+        if inner.has_alive_handles() {
+          1
+        } else {
+          0
+        }
       }
     }
   }
 }
 
-// ---------------------------------------------------------------------------
-// sockaddr helpers
-// ---------------------------------------------------------------------------
-
-/// Parse a C sockaddr into a Rust `SocketAddr`.
-///
-/// # Safety
-/// `addr` must point to a valid `sockaddr_in` or `sockaddr_in6`.
 unsafe fn sockaddr_to_std(addr: *const c_void) -> Option<SocketAddr> {
-  // On macOS/BSD, sa_family is at byte offset 1 (u8), on Linux it's u16 at offset 0.
-  // libc::sockaddr_in uses the platform-correct layout.
   let sa = addr as *const libc::sockaddr;
   let family = unsafe { (*sa).sa_family as i32 };
   if family == libc::AF_INET {
@@ -1471,12 +1229,11 @@ unsafe fn sockaddr_to_std(addr: *const c_void) -> Option<SocketAddr> {
   }
 }
 
-/// Write a Rust `SocketAddr` into a C sockaddr buffer.
-///
-/// # Safety
-/// `out` must point to a buffer large enough for the sockaddr type.
-/// `len` must be a valid pointer.
-unsafe fn std_to_sockaddr(addr: SocketAddr, out: *mut c_void, len: *mut c_int) {
+unsafe fn std_to_sockaddr(
+  addr: SocketAddr,
+  out: *mut c_void,
+  len: *mut c_int,
+) {
   match addr {
     SocketAddr::V4(v4) => {
       let sin = out as *mut libc::sockaddr_in;
@@ -1510,13 +1267,10 @@ unsafe fn std_to_sockaddr(addr: SocketAddr, out: *mut c_void, len: *mut c_int) {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Stream / TCP functions
-// ---------------------------------------------------------------------------
-
-pub unsafe fn uv_tcp_init(loop_: *mut uv_loop_t, tcp: *mut uv_tcp_t) -> c_int {
-  // Use ptr::write for each field to avoid dropping uninitialized memory
-  // when tcp points to MaybeUninit storage.
+pub unsafe fn uv_tcp_init(
+  loop_: *mut uv_loop_t,
+  tcp: *mut uv_tcp_t,
+) -> c_int {
   unsafe {
     use std::ptr::{addr_of_mut, write};
     write(addr_of_mut!((*tcp).r#type), uv_handle_type::UV_TCP);
@@ -1534,7 +1288,6 @@ pub unsafe fn uv_tcp_init(loop_: *mut uv_loop_t, tcp: *mut uv_tcp_t) -> c_int {
     write(addr_of_mut!((*tcp).internal_reading), false);
     write(addr_of_mut!((*tcp).internal_connect), None);
     write(addr_of_mut!((*tcp).internal_write_queue), VecDeque::new());
-    write(addr_of_mut!((*tcp).internal_shutdown), None);
     write(addr_of_mut!((*tcp).internal_connection_cb), None);
     write(addr_of_mut!((*tcp).internal_backlog), VecDeque::new());
   }
@@ -1594,7 +1347,6 @@ pub unsafe fn uv_tcp_connect(
 
   let inner = unsafe { get_inner((*tcp).loop_) };
 
-  // Mark handle active and register for tracking
   unsafe {
     (*tcp).flags |= UV_HANDLE_ACTIVE;
     let mut handles = inner.tcp_handles.borrow_mut();
@@ -1602,7 +1354,6 @@ pub unsafe fn uv_tcp_connect(
       handles.push(tcp);
     }
 
-    // Store a ConnectPending with a boxed future; polled in run_io()
     (*tcp).internal_connect = Some(ConnectPending {
       future: Box::pin(tokio::net::TcpStream::connect(sock_addr)),
       req,
@@ -1652,7 +1403,6 @@ pub unsafe fn uv_tcp_getsockname(
   namelen: *mut c_int,
 ) -> c_int {
   unsafe {
-    // Try stream first, then listener addr, then bind addr
     if let Some(ref stream) = (*tcp).internal_stream {
       match stream.local_addr() {
         Ok(addr) => {
@@ -1666,12 +1416,57 @@ pub unsafe fn uv_tcp_getsockname(
       std_to_sockaddr(addr, name, namelen);
       return 0;
     }
-    // Check bind addr
     if let Some(addr) = (*tcp).internal_bind_addr {
       std_to_sockaddr(addr, name, namelen);
       return 0;
     }
     UV_EINVAL
+  }
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn uv_tcp_keepalive(
+  _tcp: *mut uv_tcp_t,
+  _enable: c_int,
+  _delay: c_uint,
+) -> c_int {
+  // Keepalive is a no-op: tokio's TcpStream doesn't expose SO_KEEPALIVE
+  // configuration in a cross-platform way, and nghttp2 only uses this
+  // as a best-effort hint.
+  0
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn uv_tcp_simultaneous_accepts(
+  _tcp: *mut uv_tcp_t,
+  _enable: c_int,
+) -> c_int {
+  0 // no-op
+}
+
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn uv_ip4_addr(
+  ip: *const c_char,
+  port: c_int,
+  addr: *mut libc::sockaddr_in,
+) -> c_int {
+  unsafe {
+    let c_str = std::ffi::CStr::from_ptr(ip);
+    let Ok(s) = c_str.to_str() else {
+      return UV_EINVAL;
+    };
+    let Ok(ip_addr) = s.parse::<std::net::Ipv4Addr>() else {
+      return UV_EINVAL;
+    };
+    std::ptr::write_bytes(addr, 0, 1);
+    #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+    {
+      (*addr).sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+    }
+    (*addr).sin_family = libc::AF_INET as libc::sa_family_t;
+    (*addr).sin_port = (port as u16).to_be();
+    (*addr).sin_addr.s_addr = u32::from(ip_addr).to_be();
+    0
   }
 }
 
@@ -1684,33 +1479,27 @@ pub unsafe fn uv_listen(
     let tcp = stream as *mut uv_tcp_t;
     let tcp_ref = &mut *tcp;
 
-    // Bind and create listener
     let bind_addr = tcp_ref
       .internal_bind_addr
       .unwrap_or_else(|| "0.0.0.0:0".parse().unwrap());
 
-    // Bind with std first to get the actual address, then convert to tokio
     let std_listener = match std::net::TcpListener::bind(bind_addr) {
       Ok(l) => l,
-      Err(e) => {
-        eprintln!("bind error: {e}");
-        return UV_EADDRINUSE;
-      }
+      Err(_) => return UV_EADDRINUSE,
     };
     std_listener.set_nonblocking(true).ok();
     let listener_addr = std_listener.local_addr().ok();
-    let tokio_listener = match tokio::net::TcpListener::from_std(std_listener) {
-      Ok(l) => l,
-      Err(_) => return UV_EINVAL,
-    };
+    let tokio_listener =
+      match tokio::net::TcpListener::from_std(std_listener) {
+        Ok(l) => l,
+        Err(_) => return UV_EINVAL,
+      };
 
-    // Store the listener directly for polling in run_io()
     tcp_ref.internal_listener = Some(tokio_listener);
     tcp_ref.internal_listener_addr = listener_addr;
     tcp_ref.internal_connection_cb = cb;
     tcp_ref.flags |= UV_HANDLE_ACTIVE;
 
-    // Register in tcp_handles if not already present
     let inner = get_inner(tcp_ref.loop_);
     let mut handles = inner.tcp_handles.borrow_mut();
     if !handles.iter().any(|&h| std::ptr::eq(h, tcp)) {
@@ -1734,18 +1523,6 @@ pub unsafe fn uv_accept(
           stream.set_nodelay(true).ok();
         }
         client_tcp.internal_stream = Some(stream);
-
-        // Mark client handle active and register for I/O processing
-        client_tcp.flags |= UV_HANDLE_ACTIVE;
-        let inner = get_inner(client_tcp.loop_);
-        let mut handles = inner.tcp_handles.borrow_mut();
-        if !handles
-          .iter()
-          .any(|&h| std::ptr::eq(h, client as *mut uv_tcp_t))
-        {
-          handles.push(client as *mut uv_tcp_t);
-        }
-
         0
       }
       None => UV_EAGAIN,
@@ -1766,13 +1543,11 @@ pub unsafe fn uv_read_start(
     tcp_ref.internal_reading = true;
     tcp_ref.flags |= UV_HANDLE_ACTIVE;
 
-    // Register in tcp_handles if not already present
     let inner = get_inner(tcp_ref.loop_);
     let mut handles = inner.tcp_handles.borrow_mut();
     if !handles.iter().any(|&h| std::ptr::eq(h, tcp)) {
       handles.push(tcp);
     }
-    // Reading is polled directly in run_io() - no spawned task needed
   }
   0
 }
@@ -1784,11 +1559,9 @@ pub unsafe fn uv_read_stop(stream: *mut uv_stream_t) -> c_int {
     tcp_ref.internal_reading = false;
     tcp_ref.internal_alloc_cb = None;
     tcp_ref.internal_read_cb = None;
-    // Only clear ACTIVE if not also listening/writing/shutting down
     if tcp_ref.internal_connection_cb.is_none()
       && tcp_ref.internal_connect.is_none()
       && tcp_ref.internal_write_queue.is_empty()
-      && tcp_ref.internal_shutdown.is_none()
     {
       tcp_ref.flags &= !UV_HANDLE_ACTIVE;
     }
@@ -1796,13 +1569,12 @@ pub unsafe fn uv_read_stop(stream: *mut uv_stream_t) -> c_int {
   0
 }
 
-/// Try to write data directly without allocating a write request.
-/// Returns the number of bytes written, or a negative error code.
-/// Returns `UV_EAGAIN` if the write would block or there are queued writes.
-pub unsafe fn uv_try_write(handle: *mut uv_stream_t, data: &[u8]) -> i32 {
+pub unsafe fn uv_try_write(
+  handle: *mut uv_stream_t,
+  data: &[u8],
+) -> i32 {
   let tcp_ref = unsafe { &mut *(handle as *mut uv_tcp_t) };
 
-  // Can't bypass the queue if there are pending writes
   if !tcp_ref.internal_write_queue.is_empty() {
     return UV_EAGAIN;
   }
@@ -1841,7 +1613,6 @@ pub unsafe fn uv_write(
       }
     };
 
-    // If there are already queued writes, we MUST queue to preserve ordering.
     if !tcp_ref.internal_write_queue.is_empty() {
       let write_data = collect_bufs(bufs, nbufs);
       tcp_ref.internal_write_queue.push_back(WritePending {
@@ -1853,11 +1624,11 @@ pub unsafe fn uv_write(
       return 0;
     }
 
-    // Fast path: single buffer, try sync write without any Vec allocation
     if nbufs == 1 {
       let buf = &*bufs;
       if !buf.base.is_null() && buf.len > 0 {
-        let data = std::slice::from_raw_parts(buf.base as *const u8, buf.len);
+        let data =
+          std::slice::from_raw_parts(buf.base as *const u8, buf.len);
         let mut offset = 0;
         loop {
           match stream.try_write(&data[offset..]) {
@@ -1870,8 +1641,9 @@ pub unsafe fn uv_write(
                 return 0;
               }
             }
-            Err(ref e) if e.kind() == std::io::ErrorKind::WouldBlock => {
-              // Queue the remainder
+            Err(ref e)
+              if e.kind() == std::io::ErrorKind::WouldBlock =>
+            {
               tcp_ref.internal_write_queue.push_back(WritePending {
                 req,
                 data: data[offset..].to_vec(),
@@ -1889,16 +1661,14 @@ pub unsafe fn uv_write(
           }
         }
       }
-      // Empty buffer
       if let Some(cb) = cb {
         cb(req, 0);
       }
       return 0;
     }
 
-    // Multi-buffer path: try vectored write first, then fall back
-    let iovecs: smallvec::SmallVec<[std::io::IoSlice<'_>; 8]> = (0..nbufs
-      as usize)
+    let iovecs: smallvec::SmallVec<[std::io::IoSlice<'_>; 8]> = (0
+      ..nbufs as usize)
       .filter_map(|i| {
         let buf = &*bufs.add(i);
         if buf.base.is_null() || buf.len == 0 {
@@ -1928,7 +1698,6 @@ pub unsafe fn uv_write(
         return 0;
       }
       Ok(n) => {
-        // Partial write - collect remaining into Vec
         let mut write_data = Vec::with_capacity(total_len - n);
         let mut skip = n;
         for iov in &iovecs {
@@ -1965,7 +1734,6 @@ pub unsafe fn uv_write(
   0
 }
 
-/// Collect scattered uv_buf_t slices into a single Vec.
 unsafe fn collect_bufs(bufs: *const uv_buf_t, nbufs: u32) -> Vec<u8> {
   unsafe {
     let mut total = 0usize;
@@ -1996,25 +1764,26 @@ pub unsafe fn uv_shutdown(
 ) -> c_int {
   unsafe {
     let tcp = stream as *mut uv_tcp_t;
-    let tcp_ref = &mut *tcp;
     (*req).handle = stream;
 
-    if tcp_ref.internal_stream.is_none() {
-      if let Some(cb) = cb {
-        cb(req, UV_ENOTCONN);
+    let status = if let Some(ref stream) = (*tcp).internal_stream {
+      use std::os::unix::io::AsRawFd;
+      let fd = stream.as_raw_fd();
+      if libc::shutdown(fd, libc::SHUT_WR) == 0 {
+        0
+      } else {
+        UV_ENOTCONN
       }
-      return 0;
-    }
+    } else {
+      UV_ENOTCONN
+    };
 
-    // Always defer shutdown to run_io, matching libuv's async behavior.
-    // When the write queue is fully drained, run_io will execute the
-    // shutdown(2) syscall and fire the callback.
-    tcp_ref.internal_shutdown = Some(ShutdownPending { req, cb });
+    if let Some(cb) = cb {
+      cb(req, status);
+    }
   }
   0
 }
-
-// Constructor helpers
 
 pub fn new_tcp() -> UvTcp {
   uv_tcp_t {
@@ -2033,7 +1802,6 @@ pub fn new_tcp() -> UvTcp {
     internal_reading: false,
     internal_connect: None,
     internal_write_queue: VecDeque::new(),
-    internal_shutdown: None,
     internal_connection_cb: None,
     internal_backlog: VecDeque::new(),
   }
@@ -2063,17 +1831,12 @@ pub fn new_shutdown() -> UvShutdown {
   }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
   use super::*;
   use std::mem::MaybeUninit;
-  use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+  use std::sync::atomic::{AtomicU32, AtomicBool, Ordering};
 
-  /// Helper: allocate and init a loop on the heap.
   unsafe fn make_loop() -> *mut uv_loop_t {
     let loop_ = Box::into_raw(Box::new(MaybeUninit::<uv_loop_t>::uninit()))
       as *mut uv_loop_t;
@@ -2081,7 +1844,6 @@ mod tests {
     loop_
   }
 
-  /// Helper: destroy a loop created with `make_loop`.
   unsafe fn destroy_loop(loop_: *mut uv_loop_t) {
     unsafe {
       uv_loop_close(loop_);
@@ -2118,10 +1880,8 @@ mod tests {
       uv_timer_start(timer_ptr, timer_cb, 10, 0);
       assert_eq!((*timer_ptr).flags & UV_HANDLE_ACTIVE, UV_HANDLE_ACTIVE);
 
-      // Run once — should sleep and fire
       uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
       assert!(FIRED.load(Ordering::Relaxed));
-      // One-shot timer should be inactive
       assert_eq!((*timer_ptr).flags & UV_HANDLE_ACTIVE, 0);
 
       destroy_loop(loop_);
@@ -2196,7 +1956,6 @@ mod tests {
       let check_ptr = check.as_mut_ptr();
       uv_check_init(loop_, check_ptr);
 
-      // Use a Vec<&str> stored in loop data to track order
       let mut order: Vec<&str> = Vec::new();
       let order_ptr = &mut order as *mut Vec<&str> as *mut c_void;
       (*loop_).data = order_ptr;
@@ -2204,7 +1963,8 @@ mod tests {
       unsafe extern "C" fn prepare_cb(handle: *mut uv_prepare_t) {
         unsafe {
           let loop_ = (*handle).loop_;
-          let order = &mut *((*loop_).data as *mut Vec<&str>);
+          let order =
+            &mut *((*loop_).data as *mut Vec<&str>);
           order.push("prepare");
           uv_prepare_stop(handle);
         }
@@ -2213,7 +1973,8 @@ mod tests {
       unsafe extern "C" fn check_cb(handle: *mut uv_check_t) {
         unsafe {
           let loop_ = (*handle).loop_;
-          let order = &mut *((*loop_).data as *mut Vec<&str>);
+          let order =
+            &mut *((*loop_).data as *mut Vec<&str>);
           order.push("check");
           uv_check_stop(handle);
         }
@@ -2246,16 +2007,16 @@ mod tests {
 
       CLOSE_CALLED.store(false, Ordering::Relaxed);
 
-      // Start and immediately close
       unsafe extern "C" fn noop_cb(_handle: *mut uv_timer_t) {}
       uv_timer_start(timer_ptr, noop_cb, 1000, 0);
       uv_close(timer_ptr as *mut uv_handle_t, Some(close_cb));
 
-      assert_eq!((*timer_ptr).flags & UV_HANDLE_CLOSING, UV_HANDLE_CLOSING);
-      // Close callback should not have been called yet
+      assert_eq!(
+        (*timer_ptr).flags & UV_HANDLE_CLOSING,
+        UV_HANDLE_CLOSING
+      );
       assert!(!CLOSE_CALLED.load(Ordering::Relaxed));
 
-      // Run once to process close callbacks
       uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
       assert!(CLOSE_CALLED.load(Ordering::Relaxed));
 
@@ -2275,13 +2036,11 @@ mod tests {
       unsafe extern "C" fn noop_cb(_handle: *mut uv_timer_t) {}
       uv_timer_start(timer_ptr, noop_cb, 60000, 0);
 
-      // Unref the timer — loop should exit immediately
       uv_unref(timer_ptr as *mut uv_handle_t);
 
       let result = uv_run(loop_, uv_run_mode::UV_RUN_NOWAIT);
       assert_eq!(result, 0); // 0 = no alive handles
 
-      // Clean up
       uv_timer_stop(timer_ptr);
       destroy_loop(loop_);
     }
@@ -2298,7 +2057,6 @@ mod tests {
 
       static STOP_COUNT: AtomicU32 = AtomicU32::new(0);
 
-      // Store loop pointer in handle data for the callback
       (*idle_ptr).data = loop_ as *mut c_void;
 
       unsafe extern "C" fn idle_stop_cb(handle: *mut uv_idle_t) {
@@ -2314,7 +2072,6 @@ mod tests {
 
       uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
 
-      // Should have stopped after 3 iterations
       assert_eq!(STOP_COUNT.load(Ordering::Relaxed), 3);
 
       uv_idle_stop(idle_ptr);
@@ -2331,8 +2088,7 @@ mod tests {
       let timer_ptr = timer.as_mut_ptr();
       uv_timer_init(loop_, timer_ptr);
 
-      // timer_again with repeat=0 should fail
-      assert_eq!(uv_timer_again(timer_ptr), UV_EINVAL);
+      assert_eq!(uv_timer_again(timer_ptr), -22);
 
       static AGAIN_FIRED: AtomicBool = AtomicBool::new(false);
       unsafe extern "C" fn timer_cb(handle: *mut uv_timer_t) {
@@ -2341,7 +2097,6 @@ mod tests {
       }
 
       AGAIN_FIRED.store(false, Ordering::Relaxed);
-      // Start timer first to set the callback, then use timer_again to restart
       uv_timer_start(timer_ptr, timer_cb, 1000, 10);
       uv_timer_stop(timer_ptr);
       uv_timer_again(timer_ptr);
@@ -2370,7 +2125,6 @@ mod tests {
     }
   }
 
-  /// Helper to create a sockaddr_in for 127.0.0.1:port
   unsafe fn make_sockaddr_in(port: u16) -> libc::sockaddr_in {
     let mut addr: libc::sockaddr_in = std::mem::zeroed();
     #[cfg(any(target_os = "macos", target_os = "freebsd"))]
@@ -2389,14 +2143,17 @@ mod tests {
     unsafe {
       let loop_ = make_loop();
 
-      // Setup server
       let mut server = MaybeUninit::<uv_tcp_t>::uninit();
       let server_ptr = server.as_mut_ptr();
       uv_tcp_init(loop_, server_ptr);
 
-      // Bind to ephemeral port
       let bind_addr = make_sockaddr_in(0);
-      uv_tcp_bind(server_ptr, &bind_addr as *const _ as *const c_void, 0, 0);
+      uv_tcp_bind(
+        server_ptr,
+        &bind_addr as *const _ as *const c_void,
+        0,
+        0,
+      );
 
       static CONN_CALLED: AtomicBool = AtomicBool::new(false);
 
@@ -2405,7 +2162,6 @@ mod tests {
         status: i32,
       ) {
         assert_eq!(status, 0);
-        // Accept the client
         let server_tcp = server as *mut uv_tcp_t;
         let loop_ = (*server_tcp).loop_;
         let client = Box::into_raw(Box::new(new_tcp()));
@@ -2414,22 +2170,23 @@ mod tests {
         assert_eq!(rc, 0);
         assert!((*client).internal_stream.is_some());
 
-        // Clean up client
         drop(Box::from_raw(client));
         CONN_CALLED.store(true, Ordering::Relaxed);
 
-        // Stop the loop
         uv_stop(loop_);
       }
 
       CONN_CALLED.store(false, Ordering::Relaxed);
-      let rc =
-        uv_listen(server_ptr as *mut uv_stream_t, 128, Some(on_connection));
+      let rc = uv_listen(
+        server_ptr as *mut uv_stream_t,
+        128,
+        Some(on_connection),
+      );
       assert_eq!(rc, 0);
 
-      // Get the actual port
       let mut name_buf: libc::sockaddr_in = std::mem::zeroed();
-      let mut namelen = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+      let mut namelen =
+        std::mem::size_of::<libc::sockaddr_in>() as c_int;
       uv_tcp_getsockname(
         server_ptr,
         &mut name_buf as *mut _ as *mut c_void,
@@ -2438,20 +2195,17 @@ mod tests {
       let port = u16::from_be(name_buf.sin_port);
       assert!(port > 0);
 
-      // Connect from another thread
       let port_copy = port;
       std::thread::spawn(move || {
-        // Give the loop a moment to start
         std::thread::sleep(Duration::from_millis(50));
-        let _ =
-          std::net::TcpStream::connect(format!("127.0.0.1:{}", port_copy));
+        let _ = std::net::TcpStream::connect(
+          format!("127.0.0.1:{}", port_copy),
+        );
       });
 
-      // Run loop - will exit when uv_stop is called in callback
       uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
       assert!(CONN_CALLED.load(Ordering::Relaxed));
 
-      // Clean up
       uv_close(server_ptr as *mut uv_handle_t, None);
       uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
       destroy_loop(loop_);
@@ -2464,11 +2218,10 @@ mod tests {
     unsafe {
       let loop_ = make_loop();
 
-      // Create a std listener on an ephemeral port
-      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+      let std_listener =
+        std::net::TcpListener::bind("127.0.0.1:0").unwrap();
       let port = std_listener.local_addr().unwrap().port();
 
-      // Spawn a thread to accept and read
       let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
       let received_clone = received.clone();
       std::thread::spawn(move || {
@@ -2477,15 +2230,12 @@ mod tests {
         loop {
           match std::io::Read::read(&mut stream, &mut buf) {
             Ok(0) => break,
-            Ok(n) => {
-              received_clone.lock().unwrap().extend_from_slice(&buf[..n])
-            }
+            Ok(n) => received_clone.lock().unwrap().extend_from_slice(&buf[..n]),
             Err(_) => break,
           }
         }
       });
 
-      // Create TCP handle and connect
       let mut tcp = MaybeUninit::<uv_tcp_t>::uninit();
       let tcp_ptr = tcp.as_mut_ptr();
       uv_tcp_init(loop_, tcp_ptr);
@@ -2497,11 +2247,13 @@ mod tests {
       static CONNECT_CALLED: AtomicBool = AtomicBool::new(false);
       static WRITE_CALLED: AtomicBool = AtomicBool::new(false);
 
-      unsafe extern "C" fn on_connect(req: *mut uv_connect_t, status: i32) {
+      unsafe extern "C" fn on_connect(
+        req: *mut uv_connect_t,
+        status: i32,
+      ) {
         assert_eq!(status, 0);
         CONNECT_CALLED.store(true, Ordering::Relaxed);
 
-        // Write data
         let stream = (*req).handle;
         let data = b"hello world";
         let buf = uv_buf_t {
@@ -2510,7 +2262,10 @@ mod tests {
         };
         let write_req = Box::into_raw(Box::new(new_write()));
 
-        unsafe extern "C" fn on_write(req: *mut uv_write_t, status: i32) {
+        unsafe extern "C" fn on_write(
+          req: *mut uv_write_t,
+          status: i32,
+        ) {
           assert_eq!(status, 0);
           WRITE_CALLED.store(true, Ordering::Relaxed);
           drop(Box::from_raw(req));
@@ -2518,7 +2273,6 @@ mod tests {
 
         uv_write(write_req, stream, &buf, 1, Some(on_write));
 
-        // Close after write
         let tcp = stream as *mut uv_tcp_t;
         let loop_ = (*tcp).loop_;
         uv_close(tcp as *mut uv_handle_t, None);
@@ -2536,13 +2290,11 @@ mod tests {
       );
 
       uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      // Process close callbacks
       uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
 
       assert!(CONNECT_CALLED.load(Ordering::Relaxed));
       assert!(WRITE_CALLED.load(Ordering::Relaxed));
 
-      // Give the receiver thread time to read
       std::thread::sleep(Duration::from_millis(50));
       let data = received.lock().unwrap();
       assert_eq!(&*data, b"hello world");
@@ -2557,20 +2309,17 @@ mod tests {
     unsafe {
       let loop_ = make_loop();
 
-      // Create a std listener
-      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+      let std_listener =
+        std::net::TcpListener::bind("127.0.0.1:0").unwrap();
       let port = std_listener.local_addr().unwrap().port();
 
-      // Spawn writer thread
       std::thread::spawn(move || {
         let (mut stream, _) = std_listener.accept().unwrap();
         std::thread::sleep(Duration::from_millis(50));
         std::io::Write::write_all(&mut stream, b"test data").unwrap();
-        // Keep the stream open briefly so read can see data
         std::thread::sleep(Duration::from_millis(100));
       });
 
-      // Connect
       let mut tcp = MaybeUninit::<uv_tcp_t>::uninit();
       let tcp_ptr = tcp.as_mut_ptr();
       uv_tcp_init(loop_, tcp_ptr);
@@ -2598,7 +2347,6 @@ mod tests {
       ) {
         if nread > 0 {
           READ_BYTES.fetch_add(nread as u32, Ordering::Relaxed);
-          // Stop reading after getting data
           uv_read_stop(stream);
           let tcp = stream as *mut uv_tcp_t;
           uv_close(tcp as *mut uv_handle_t, None);
@@ -2642,11 +2390,10 @@ mod tests {
     unsafe {
       let loop_ = make_loop();
 
-      // Create a std listener
-      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+      let std_listener =
+        std::net::TcpListener::bind("127.0.0.1:0").unwrap();
       let port = std_listener.local_addr().unwrap().port();
 
-      // Accept in background
       std::thread::spawn(move || {
         let _ = std_listener.accept();
         std::thread::sleep(Duration::from_millis(200));
@@ -2669,9 +2416,9 @@ mod tests {
         assert_eq!(status, 0);
         let tcp = (*req).handle as *mut uv_tcp_t;
 
-        // getpeername
         let mut peer_addr: libc::sockaddr_in = std::mem::zeroed();
-        let mut peer_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+        let mut peer_len =
+          std::mem::size_of::<libc::sockaddr_in>() as c_int;
         let rc = uv_tcp_getpeername(
           tcp,
           &mut peer_addr as *mut _ as *mut c_void,
@@ -2681,9 +2428,9 @@ mod tests {
         let peer_port = u16::from_be(peer_addr.sin_port);
         assert!(peer_port > 0);
 
-        // getsockname
         let mut local_addr: libc::sockaddr_in = std::mem::zeroed();
-        let mut local_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+        let mut local_len =
+          std::mem::size_of::<libc::sockaddr_in>() as c_int;
         let rc = uv_tcp_getsockname(
           tcp,
           &mut local_addr as *mut _ as *mut c_void,
@@ -2734,11 +2481,13 @@ mod tests {
 
       CLOSE_FIRED.store(false, Ordering::Relaxed);
 
-      // Set it active to test close behavior
       (*tcp_ptr).flags |= UV_HANDLE_ACTIVE;
 
       uv_close(tcp_ptr as *mut uv_handle_t, Some(close_cb));
-      assert_eq!((*tcp_ptr).flags & UV_HANDLE_CLOSING, UV_HANDLE_CLOSING);
+      assert_eq!(
+        (*tcp_ptr).flags & UV_HANDLE_CLOSING,
+        UV_HANDLE_CLOSING
+      );
 
       uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
       assert!(CLOSE_FIRED.load(Ordering::Relaxed));
@@ -2757,12 +2506,10 @@ mod tests {
       let tcp_ptr = tcp.as_mut_ptr();
       uv_tcp_init(loop_, tcp_ptr);
 
-      // Set nodelay before connection (should just store the flag)
       let rc = uv_tcp_nodelay(tcp_ptr, 1);
       assert_eq!(rc, 0);
       assert!((*tcp_ptr).internal_nodelay);
 
-      // Disable
       let rc = uv_tcp_nodelay(tcp_ptr, 0);
       assert_eq!(rc, 0);
       assert!(!(*tcp_ptr).internal_nodelay);
@@ -2770,4 +2517,5 @@ mod tests {
       destroy_loop(loop_);
     }
   }
+
 }

@@ -102,11 +102,23 @@ pub struct ContextState {
   pub(crate) ext_import_meta_proto: RefCell<Option<v8::Global<v8::Object>>>,
   /// Phase-specific state for the libuv-style event loop.
   pub(crate) event_loop_phases: RefCell<EventLoopPhases>,
-  /// Pointer to the UvLoopInner for the libuv compat layer.
-  /// Set when a `uv_loop_t` is initialized and associated with this context.
+  /// Pointer to the `UvLoopInner` for the libuv compat layer.
+  /// Set via [`JsRuntime::register_uv_loop`] when a `uv_loop_t` is
+  /// associated with this context.
+  ///
+  /// # Safety
+  /// The pointee is heap-allocated by `uv_loop_init` (boxed) and lives until
+  /// `uv_loop_close` destroys it. The caller of `register_uv_loop` must
+  /// guarantee the `uv_loop_t` outlives this `ContextState`. Both
+  /// `UvLoopInner` and `ContextState` are `!Send` -- all access is on the
+  /// event loop thread.
   pub(crate) uv_loop_inner: Cell<Option<*const UvLoopInner>>,
   /// Raw pointer to the `uv_loop_t` handle, used to set `loop_.data`
-  /// to the current v8::Context at the start of each event loop tick.
+  /// to the current `v8::Context` at the start of each event loop tick
+  /// so that libuv-style C callbacks can retrieve the context.
+  ///
+  /// # Safety
+  /// Same lifetime requirements as `uv_loop_inner` above.
   pub(crate) uv_loop_ptr: Cell<Option<*mut crate::uv_compat::uv_loop_t>>,
 }
 

@@ -1,5 +1,14 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+//! Reactor abstraction for timer and I/O primitives.
+//!
+//! Currently used by [`WebTimers`](crate::web_timeout::WebTimers) to abstract
+//! over the timer backend. The default implementation (`reactor-tokio` feature)
+//! delegates to tokio.
+//!
+//! Note: `uv_compat` does **not** use this trait -- it talks to tokio directly
+//! because it needs lower-level control (poll_accept, try_read, try_write).
+
 use std::future::Future;
 use std::ops::Add;
 use std::pin::Pin;

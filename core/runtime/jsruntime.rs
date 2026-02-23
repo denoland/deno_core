@@ -1427,8 +1427,12 @@ impl JsRuntime {
       let core_obj: v8::Local<v8::Object> =
         bindings::get(scope, deno_obj, CORE, "Deno.core");
 
-      let resolve_ops_cb: v8::Local<v8::Function> =
-        bindings::get(scope, core_obj, RESOLVE_OPS, "Deno.core.__resolveOps");
+      let resolve_ops_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        RESOLVE_OPS,
+        "Deno.core.__resolveOps",
+      );
       let drain_next_tick_and_macrotasks_cb: v8::Local<v8::Function> =
         bindings::get(
           scope,
@@ -1556,9 +1560,11 @@ impl JsRuntime {
     loop_ptr: *mut crate::uv_compat::uv_loop_t,
   ) {
     let context_state = &self.inner.main_realm.0.context_state;
-    let inner_ptr =
-      unsafe { crate::uv_compat::uv_loop_get_inner_ptr(loop_ptr) };
-    let uv_inner = inner_ptr as *const crate::uv_compat::UvLoopInner;
+    let inner_ptr = unsafe {
+      crate::uv_compat::uv_loop_get_inner_ptr(loop_ptr)
+    };
+    let uv_inner =
+      inner_ptr as *const crate::uv_compat::UvLoopInner;
     context_state.uv_loop_inner.set(Some(uv_inner));
     context_state.uv_loop_ptr.set(Some(loop_ptr));
   }
@@ -1978,16 +1984,17 @@ impl JsRuntime {
     self.poll_event_loop_inner(cx, &mut scope, poll_options)
   }
 
-  /// Phase-based event loop tick, matching libuv's architecture:
+  /// Phase-based event loop tick, loosely following libuv's architecture:
   ///
-  /// Phase 1: Timers - poll expired timer callbacks
-  /// Phase 2: Pending callbacks - completed async ops, promise rejections
-  /// Phase 3: Idle/Prepare - task spawner, module progress
-  /// Phase 4: Poll - drive async reactor I/O
-  /// Phase 5: Check - setImmediate callbacks
-  /// Phase 6: Close callbacks - resource cleanup
+  /// 1. Timers          -- fire expired libuv C timers + JS WebTimers
+  /// 2. Pending work     -- module progress, task spawner, async ops,
+  ///                        nextTick/macrotask drain, immediates, rejections
+  /// 3. I/O              -- drive TCP read/write/accept via UvLoopInner
+  /// 4. Idle / Prepare   -- libuv idle + prepare callbacks
+  /// 5. Check            -- libuv check callbacks
+  /// 6. Close            -- close callbacks (Rust + libuv)
   ///
-  /// Microtask checkpoints run between each phase.
+  /// Microtask checkpoints run between phases.
   fn poll_event_loop_inner(
     &self,
     cx: &mut Context,
@@ -2013,11 +2020,18 @@ impl JsRuntime {
     // can retrieve it via context_from_loop().
     if let Some(loop_ptr) = context_state.uv_loop_ptr.get() {
       let context = scope.get_current_context();
-      // SAFETY: We store the raw v8::Local pointer for the duration of this
-      // event loop tick. Callbacks reconstruct it via transmute in
-      // context_from_loop().
+      // SAFETY: `v8::Local<v8::Context>` is a thin pointer (one pointer
+      // wide). We store it as `*mut c_void` in `loop_.data` for the
+      // duration of this event loop tick. Callbacks reconstruct it via
+      // `std::mem::transmute` in `context_from_loop()`. The context is
+      // alive for the entire tick because `scope` holds it.
+      const _: () = assert!(
+        std::mem::size_of::<v8::Local<v8::Context>>()
+          == std::mem::size_of::<*mut std::ffi::c_void>()
+      );
       unsafe {
-        let ctx_ptr: *mut std::ffi::c_void = std::mem::transmute(context);
+        let ctx_ptr: *mut std::ffi::c_void =
+          std::mem::transmute(context);
         (*loop_ptr).data = ctx_ptr;
       }
     }
@@ -2029,7 +2043,7 @@ impl JsRuntime {
     let mut dispatched_ops = false;
     let mut did_work = false;
     let mut uv_did_io = false;
-    // ===== Phase 1 (Timers) =====
+    // ===== Phase 1: Timers =====
     // 1a. Fire expired libuv C timers
     if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
       unsafe { (*uv_inner_ptr).run_timers() };
@@ -2038,12 +2052,13 @@ impl JsRuntime {
     did_work |= Self::dispatch_timers(cx, scope, context_state)?;
     scope.perform_microtask_checkpoint();
 
-    // ===== Phase 2 (Pending callbacks) =====
+    // ===== Phase 2: Pending work =====
     // Module progress polling (before ops, matching original ordering)
     modules.poll_progress(cx, scope)?;
 
     // 2a. V8 task spawner tasks
-    dispatched_ops |= Self::dispatch_task_spawner(cx, scope, context_state);
+    dispatched_ops |=
+      Self::dispatch_task_spawner(cx, scope, context_state);
 
     // 2b. Poll and resolve completed async ops
     // NOTE: No microtask checkpoint between ops and nextTick/macrotask!
@@ -2051,7 +2066,8 @@ impl JsRuntime {
     // nextTick drains, and macrotasks run all within the same JS call
     // before any microtask checkpoint. Promise continuations (like await
     // resumption) run only after all three have completed.
-    dispatched_ops |= Self::dispatch_pending_ops(cx, scope, context_state)?;
+    dispatched_ops |=
+      Self::dispatch_pending_ops(cx, scope, context_state)?;
 
     // 2c. nextTick drain + macrotask drain (before microtask checkpoint)
     // Only drain if there's actual work (ops dispatched, tick scheduled, or timers fired).
@@ -2074,11 +2090,11 @@ impl JsRuntime {
     Self::dispatch_rejections(scope, context_state, exception_state)?;
     scope.perform_microtask_checkpoint();
 
-    // ===== Phase 2.5 (I/O) =====
+    // ===== Phase 3: I/O =====
     // Tight I/O loop: when run_io reads data and fires callbacks, the
     // resulting JS work (nextTick/macrotasks from HTTP2 frame processing)
     // may produce write calls. Drain those immediately and re-poll for
-    // more data, avoiding expensive event loop overhead between batches.
+    // more data, avoiding kqueue/kevent round-trip latency between batches.
     if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
       unsafe {
         (*uv_inner_ptr).set_waker(cx.waker());
@@ -2095,7 +2111,7 @@ impl JsRuntime {
       }
     }
 
-    // ===== Phase 3 (Idle/Prepare) =====
+    // ===== Phase 4: Idle / Prepare =====
     if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
       unsafe {
         (*uv_inner_ptr).run_idle();
@@ -2104,14 +2120,14 @@ impl JsRuntime {
     }
     scope.perform_microtask_checkpoint();
 
-    // ===== Phase 5 (Check) =====
-    // libuv check callbacks
+    // ===== Phase 5: Check =====
     if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
       unsafe { (*uv_inner_ptr).run_check() };
     }
     scope.perform_microtask_checkpoint();
 
-    // ===== Phase 6 (Close) =====
+
+    // ===== Phase 6: Close =====
     exception_state.check_exception_condition(scope)?;
     {
       let mut phases = context_state.event_loop_phases.borrow_mut();
@@ -2755,7 +2771,8 @@ impl JsRuntime {
 
       // Set timer depth via JS setter
       {
-        let set_timer_depth_cb = context_state.js_set_timer_depth_cb.borrow();
+        let set_timer_depth_cb =
+          context_state.js_set_timer_depth_cb.borrow();
         let set_timer_depth_fn =
           set_timer_depth_cb.as_ref().unwrap().open(scope);
         let depth_val = v8::Integer::new(scope, *depth as i32);
@@ -2802,8 +2819,10 @@ impl JsRuntime {
 
     // Reset timer depth to 0 after all timers
     {
-      let set_timer_depth_cb = context_state.js_set_timer_depth_cb.borrow();
-      let set_timer_depth_fn = set_timer_depth_cb.as_ref().unwrap().open(scope);
+      let set_timer_depth_cb =
+        context_state.js_set_timer_depth_cb.borrow();
+      let set_timer_depth_fn =
+        set_timer_depth_cb.as_ref().unwrap().open(scope);
       let zero = v8::Integer::new(scope, 0);
       set_timer_depth_fn.call(scope, undefined, &[zero.into()]);
     }
@@ -2956,7 +2975,8 @@ impl JsRuntime {
 
     v8::tc_scope!(let tc_scope, scope);
 
-    let handle_rejections_cb = context_state.js_handle_rejections_cb.borrow();
+    let handle_rejections_cb =
+      context_state.js_handle_rejections_cb.borrow();
     let handle_rejections_fn =
       handle_rejections_cb.as_ref().unwrap().open(tc_scope);
     handle_rejections_fn.call(tc_scope, undefined, args.as_slice());
@@ -2978,7 +2998,8 @@ impl JsRuntime {
 
     v8::tc_scope!(let tc_scope, scope);
 
-    let drain_cb = context_state.js_drain_next_tick_and_macrotasks_cb.borrow();
+    let drain_cb =
+      context_state.js_drain_next_tick_and_macrotasks_cb.borrow();
     let drain_fn = drain_cb.as_ref().unwrap().open(tc_scope);
     let has_tick_val = v8::Boolean::new(tc_scope, has_tick_scheduled);
     drain_fn.call(tc_scope, undefined, &[has_tick_val.into()]);
