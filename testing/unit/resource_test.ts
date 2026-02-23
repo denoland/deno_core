@@ -151,6 +151,7 @@ test(async function testDomPoint() {
   wrap.with_RENAME();
 
   assert(wrap.undefinedResult() === undefined);
+  assert(wrap.undefinedUnit() === undefined);
 
   wrap.withValidateInt(10);
 
