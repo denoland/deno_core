@@ -8,6 +8,41 @@
 // would call real libuv. The `#[repr(C)]` structs match the subset of the
 // libuv ABI that nghttp2 actually touches.
 
+// Windows socket compat: libc doesn't export socket structs on Windows.
+#[cfg(windows)]
+mod win_sock {
+  #[repr(C)]
+  pub struct in_addr {
+    pub s_addr: u32,
+  }
+  #[repr(C)]
+  pub struct sockaddr_in {
+    pub sin_family: u16,
+    pub sin_port: u16,
+    pub sin_addr: in_addr,
+    pub sin_zero: [u8; 8],
+  }
+  #[repr(C)]
+  pub struct in6_addr {
+    pub s6_addr: [u8; 16],
+  }
+  #[repr(C)]
+  pub struct sockaddr_in6 {
+    pub sin6_family: u16,
+    pub sin6_port: u16,
+    pub sin6_flowinfo: u32,
+    pub sin6_addr: in6_addr,
+    pub sin6_scope_id: u32,
+  }
+  pub const AF_INET: i32 = 2;
+  pub const AF_INET6: i32 = 23;
+  pub type sa_family_t = u16;
+  pub const SD_SEND: i32 = 1;
+  unsafe extern "system" {
+    pub fn shutdown(socket: usize, how: i32) -> i32;
+  }
+}
+
 use std::cell::Cell;
 use std::cell::RefCell;
 use std::collections::BTreeSet;
@@ -25,6 +60,27 @@ use std::task::Poll;
 use std::task::Waker;
 use std::time::Duration;
 use std::time::Instant;
+
+#[cfg(unix)]
+use AF_INET;
+#[cfg(unix)]
+use AF_INET6;
+#[cfg(unix)]
+use sockaddr_in;
+#[cfg(unix)]
+use sockaddr_in6;
+#[cfg(unix)]
+type sa_family_t = sa_family_t;
+#[cfg(windows)]
+use win_sock::AF_INET;
+#[cfg(windows)]
+use win_sock::AF_INET6;
+#[cfg(windows)]
+use win_sock::sockaddr_in;
+#[cfg(windows)]
+use win_sock::sockaddr_in6;
+#[cfg(windows)]
+type sa_family_t = win_sock::sa_family_t;
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1186,13 +1242,13 @@ pub unsafe extern "C" fn uv_run(
 unsafe fn sockaddr_to_std(addr: *const c_void) -> Option<SocketAddr> {
   let sa = addr as *const libc::sockaddr;
   let family = unsafe { (*sa).sa_family as i32 };
-  if family == libc::AF_INET {
-    let sin = unsafe { &*(addr as *const libc::sockaddr_in) };
+  if family == AF_INET {
+    let sin = unsafe { &*(addr as *const sockaddr_in) };
     let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
     let port = u16::from_be(sin.sin_port);
     Some(SocketAddr::from((ip, port)))
-  } else if family == libc::AF_INET6 {
-    let sin6 = unsafe { &*(addr as *const libc::sockaddr_in6) };
+  } else if family == AF_INET6 {
+    let sin6 = unsafe { &*(addr as *const sockaddr_in6) };
     let ip = std::net::Ipv6Addr::from(sin6.sin6_addr.s6_addr);
     let port = u16::from_be(sin6.sin6_port);
     Some(SocketAddr::from((ip, port)))
@@ -1204,32 +1260,32 @@ unsafe fn sockaddr_to_std(addr: *const c_void) -> Option<SocketAddr> {
 unsafe fn std_to_sockaddr(addr: SocketAddr, out: *mut c_void, len: *mut c_int) {
   match addr {
     SocketAddr::V4(v4) => {
-      let sin = out as *mut libc::sockaddr_in;
+      let sin = out as *mut sockaddr_in;
       unsafe {
         std::ptr::write_bytes(sin, 0, 1);
         #[cfg(any(target_os = "macos", target_os = "freebsd"))]
         {
-          (*sin).sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+          (*sin).sin_len = std::mem::size_of::<sockaddr_in>() as u8;
         }
-        (*sin).sin_family = libc::AF_INET as libc::sa_family_t;
+        (*sin).sin_family = AF_INET as sa_family_t;
         (*sin).sin_port = v4.port().to_be();
         (*sin).sin_addr.s_addr = u32::from(*v4.ip()).to_be();
-        *len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+        *len = std::mem::size_of::<sockaddr_in>() as c_int;
       }
     }
     SocketAddr::V6(v6) => {
-      let sin6 = out as *mut libc::sockaddr_in6;
+      let sin6 = out as *mut sockaddr_in6;
       unsafe {
         std::ptr::write_bytes(sin6, 0, 1);
         #[cfg(any(target_os = "macos", target_os = "freebsd"))]
         {
-          (*sin6).sin6_len = std::mem::size_of::<libc::sockaddr_in6>() as u8;
+          (*sin6).sin6_len = std::mem::size_of::<sockaddr_in6>() as u8;
         }
-        (*sin6).sin6_family = libc::AF_INET6 as libc::sa_family_t;
+        (*sin6).sin6_family = AF_INET6 as sa_family_t;
         (*sin6).sin6_port = v6.port().to_be();
         (*sin6).sin6_addr.s6_addr = v6.ip().octets();
         (*sin6).sin6_scope_id = v6.scope_id();
-        *len = std::mem::size_of::<libc::sockaddr_in6>() as c_int;
+        *len = std::mem::size_of::<sockaddr_in6>() as c_int;
       }
     }
   }
@@ -1425,7 +1481,7 @@ pub unsafe extern "C" fn uv_tcp_simultaneous_accepts(
 pub unsafe extern "C" fn uv_ip4_addr(
   ip: *const c_char,
   port: c_int,
-  addr: *mut libc::sockaddr_in,
+  addr: *mut sockaddr_in,
 ) -> c_int {
   unsafe {
     let c_str = std::ffi::CStr::from_ptr(ip);
@@ -1438,9 +1494,9 @@ pub unsafe extern "C" fn uv_ip4_addr(
     std::ptr::write_bytes(addr, 0, 1);
     #[cfg(any(target_os = "macos", target_os = "freebsd"))]
     {
-      (*addr).sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+      (*addr).sin_len = std::mem::size_of::<sockaddr_in>() as u8;
     }
-    (*addr).sin_family = libc::AF_INET as libc::sa_family_t;
+    (*addr).sin_family = AF_INET as sa_family_t;
     (*addr).sin_port = (port as u16).to_be();
     (*addr).sin_addr.s_addr = u32::from(ip_addr).to_be();
     0
@@ -1737,12 +1793,25 @@ pub unsafe fn uv_shutdown(
     (*req).handle = stream;
 
     let status = if let Some(ref stream) = (*tcp).internal_stream {
-      use std::os::unix::io::AsRawFd;
-      let fd = stream.as_raw_fd();
-      if libc::shutdown(fd, libc::SHUT_WR) == 0 {
-        0
-      } else {
-        UV_ENOTCONN
+      #[cfg(unix)]
+      {
+        use std::os::unix::io::AsRawFd;
+        let fd = stream.as_raw_fd();
+        if libc::shutdown(fd, libc::SHUT_WR) == 0 {
+          0
+        } else {
+          UV_ENOTCONN
+        }
+      }
+      #[cfg(windows)]
+      {
+        use std::os::windows::io::AsRawSocket;
+        let sock = stream.as_raw_socket();
+        if win_sock::shutdown(sock as usize, win_sock::SD_SEND) == 0 {
+          0
+        } else {
+          UV_ENOTCONN
+        }
       }
     } else {
       UV_ENOTCONN
@@ -2090,14 +2159,14 @@ mod tests {
     }
   }
 
-  unsafe fn make_sockaddr_in(port: u16) -> libc::sockaddr_in {
+  unsafe fn make_sockaddr_in(port: u16) -> sockaddr_in {
     unsafe {
-      let mut addr: libc::sockaddr_in = std::mem::zeroed();
+      let mut addr: sockaddr_in = std::mem::zeroed();
       #[cfg(any(target_os = "macos", target_os = "freebsd"))]
       {
-        addr.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+        addr.sin_len = std::mem::size_of::<sockaddr_in>() as u8;
       }
-      addr.sin_family = libc::AF_INET as libc::sa_family_t;
+      addr.sin_family = AF_INET as sa_family_t;
       addr.sin_port = port.to_be();
       addr.sin_addr.s_addr = u32::from(std::net::Ipv4Addr::LOCALHOST).to_be();
       addr
@@ -2145,8 +2214,8 @@ mod tests {
         uv_listen(server_ptr as *mut uv_stream_t, 128, Some(on_connection));
       assert_eq!(rc, 0);
 
-      let mut name_buf: libc::sockaddr_in = std::mem::zeroed();
-      let mut namelen = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+      let mut name_buf: sockaddr_in = std::mem::zeroed();
+      let mut namelen = std::mem::size_of::<sockaddr_in>() as c_int;
       uv_tcp_getsockname(
         server_ptr,
         &mut name_buf as *mut _ as *mut c_void,
@@ -2379,8 +2448,8 @@ mod tests {
           assert_eq!(status, 0);
           let tcp = (*req).handle as *mut uv_tcp_t;
 
-          let mut peer_addr: libc::sockaddr_in = std::mem::zeroed();
-          let mut peer_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+          let mut peer_addr: sockaddr_in = std::mem::zeroed();
+          let mut peer_len = std::mem::size_of::<sockaddr_in>() as c_int;
           let rc = uv_tcp_getpeername(
             tcp,
             &mut peer_addr as *mut _ as *mut c_void,
@@ -2390,8 +2459,8 @@ mod tests {
           let peer_port = u16::from_be(peer_addr.sin_port);
           assert!(peer_port > 0);
 
-          let mut local_addr: libc::sockaddr_in = std::mem::zeroed();
-          let mut local_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+          let mut local_addr: sockaddr_in = std::mem::zeroed();
+          let mut local_len = std::mem::size_of::<sockaddr_in>() as c_int;
           let rc = uv_tcp_getsockname(
             tcp,
             &mut local_addr as *mut _ as *mut c_void,
