@@ -2122,7 +2122,7 @@ mod tests {
       let timer_ptr = timer.as_mut_ptr();
       uv_timer_init(loop_, timer_ptr);
 
-      assert_eq!(uv_timer_again(timer_ptr), -22);
+      assert_eq!(uv_timer_again(timer_ptr), UV_EINVAL);
 
       static AGAIN_FIRED: AtomicBool = AtomicBool::new(false);
       unsafe extern "C" fn timer_cb(handle: *mut uv_timer_t) {
