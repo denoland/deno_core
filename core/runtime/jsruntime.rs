@@ -2971,6 +2971,7 @@ impl JsRuntime {
     for rejection in rejections.into_iter() {
       args.push(v8::Local::new(scope, rejection.0).into());
       args.push(v8::Local::new(scope, rejection.1));
+      args.push(v8::Local::new(scope, rejection.2));
     }
 
     v8::tc_scope!(let tc_scope, scope);

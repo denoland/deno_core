@@ -205,16 +205,25 @@
   }
 
   // Phase 2: Handle unhandled promise rejections.
-  // Called from Rust with a flat array: [promise, reason, promise, reason, ...]
+  // Called from Rust with a flat array: [promise, reason, context, promise, reason, context, ...]
   function __handleRejections() {
-    for (let i = 0; i < arguments.length; i += 2) {
-      const handled = unhandledPromiseRejectionHandler(
-        arguments[i],
-        arguments[i + 1],
-      );
-      if (!handled) {
-        const err = arguments[i + 1];
-        op_dispatch_exception(err, true);
+    for (let i = 0; i < arguments.length; i += 3) {
+      // Restore the async context that was active when the promise was
+      // rejected, so that AsyncLocalStorage.getStore() works correctly
+      // inside unhandledrejection handlers (matching Node.js behavior).
+      const prevContext = getAsyncContext();
+      setAsyncContext(arguments[i + 2]);
+      try {
+        const handled = unhandledPromiseRejectionHandler(
+          arguments[i],
+          arguments[i + 1],
+        );
+        if (!handled) {
+          const err = arguments[i + 1];
+          op_dispatch_exception(err, true);
+        }
+      } finally {
+        setAsyncContext(prevContext);
       }
     }
   }
