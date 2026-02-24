@@ -2751,6 +2751,7 @@ impl JsRuntime {
 
     let traces_enabled = context_state.activity_traces.is_enabled();
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
+    let global_this = scope.get_current_context().global(scope).into();
 
     for (timer_id, timer_type) in &expired {
       // Extract the timer data; if it was cancelled during this dispatch
@@ -2780,7 +2781,7 @@ impl JsRuntime {
       {
         v8::tc_scope!(let tc_scope, scope);
         let cb = callback.open(tc_scope);
-        cb.call(tc_scope, undefined, &[]);
+        cb.call(tc_scope, global_this, &[]);
 
         if let Some(exception) = tc_scope.exception() {
           // Report exception but don't abort the timer loop.
