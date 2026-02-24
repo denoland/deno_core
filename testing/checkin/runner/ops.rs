@@ -3,6 +3,8 @@
 use std::cell::RefCell;
 use std::rc::Rc;
 
+use deno_core::CppgcBase;
+use deno_core::CppgcInherits;
 use deno_core::GarbageCollected;
 use deno_core::OpState;
 use deno_core::op2;
@@ -132,6 +134,10 @@ impl TestObjectWrap {
   }
 
   #[fast]
+  #[undefined]
+  fn undefined_unit(&self) {}
+
+  #[fast]
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
 
@@ -161,7 +167,12 @@ impl TestObjectWrap {
   }
 }
 
-pub struct DOMPoint {}
+#[derive(CppgcInherits, CppgcBase)]
+#[cppgc_inherits_from(DOMPointReadOnly)]
+#[repr(C)]
+pub struct DOMPoint {
+  base: DOMPointReadOnly,
+}
 
 unsafe impl GarbageCollected for DOMPoint {
   fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
@@ -171,11 +182,11 @@ unsafe impl GarbageCollected for DOMPoint {
   }
 }
 
-impl DOMPointReadOnly {
+impl DOMPoint {
   fn from_point_inner(
     scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPointReadOnly, JsErrorBox> {
+  ) -> Result<DOMPoint, JsErrorBox> {
     fn get(
       scope: &mut v8::PinScope,
       other: v8::Local<v8::Object>,
@@ -187,15 +198,19 @@ impl DOMPointReadOnly {
         .map(|x| x.to_number(scope).unwrap().value())
     }
 
-    Ok(DOMPointReadOnly {
-      x: GcCell::new(get(scope, other, "x").unwrap_or(0.0)),
-      y: GcCell::new(get(scope, other, "y").unwrap_or(0.0)),
-      z: GcCell::new(get(scope, other, "z").unwrap_or(0.0)),
-      w: GcCell::new(get(scope, other, "w").unwrap_or(0.0)),
+    Ok(DOMPoint {
+      base: DOMPointReadOnly {
+        x: GcCell::new(get(scope, other, "x").unwrap_or(0.0)),
+        y: GcCell::new(get(scope, other, "y").unwrap_or(0.0)),
+        z: GcCell::new(get(scope, other, "z").unwrap_or(0.0)),
+        w: GcCell::new(get(scope, other, "w").unwrap_or(0.0)),
+      },
     })
   }
 }
 
+#[derive(CppgcBase)]
+#[repr(C)]
 pub struct DOMPointReadOnly {
   x: GcCell<f64>,
   y: GcCell<f64>,
@@ -234,7 +249,7 @@ impl DOMPointReadOnly {
   }
 }
 
-#[op2(inherit = DOMPointReadOnly)]
+#[op2(base, inherit = DOMPointReadOnly)]
 impl DOMPoint {
   #[constructor]
   #[cppgc]
@@ -243,15 +258,15 @@ impl DOMPoint {
     y: Option<f64>,
     z: Option<f64>,
     w: Option<f64>,
-  ) -> (DOMPointReadOnly, DOMPoint) {
-    let ro = DOMPointReadOnly {
-      x: GcCell::new(x.unwrap_or(0.0)),
-      y: GcCell::new(y.unwrap_or(0.0)),
-      z: GcCell::new(z.unwrap_or(0.0)),
-      w: GcCell::new(w.unwrap_or(0.0)),
-    };
-
-    (ro, DOMPoint {})
+  ) -> DOMPoint {
+    DOMPoint {
+      base: DOMPointReadOnly {
+        x: GcCell::new(x.unwrap_or(0.0)),
+        y: GcCell::new(y.unwrap_or(0.0)),
+        z: GcCell::new(z.unwrap_or(0.0)),
+        w: GcCell::new(w.unwrap_or(0.0)),
+      },
+    }
   }
 
   #[required(1)]
@@ -260,8 +275,8 @@ impl DOMPoint {
   fn from_point(
     scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPointReadOnly, JsErrorBox> {
-    DOMPointReadOnly::from_point_inner(scope, other)
+  ) -> Result<DOMPoint, JsErrorBox> {
+    DOMPoint::from_point_inner(scope, other)
   }
 
   #[required(1)]
@@ -270,68 +285,48 @@ impl DOMPoint {
     &self,
     scope: &mut v8::PinScope,
     other: v8::Local<v8::Object>,
-  ) -> Result<DOMPointReadOnly, JsErrorBox> {
-    DOMPointReadOnly::from_point_inner(scope, other)
+  ) -> Result<DOMPoint, JsErrorBox> {
+    DOMPoint::from_point_inner(scope, other)
   }
 
   #[setter]
-  fn x(
-    &self,
-    isolate: &mut v8::Isolate,
-    x: f64,
-    #[proto] ro: &DOMPointReadOnly,
-  ) {
-    ro.x.set(isolate, x);
+  fn x(&self, isolate: &mut v8::Isolate, x: f64) {
+    self.base.x.set(isolate, x);
   }
 
   #[getter]
-  fn x(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    *ro.x.get(isolate)
+  fn x(&self, isolate: &v8::Isolate) -> f64 {
+    *self.base.x.get(isolate)
   }
 
   #[setter]
-  fn y(
-    &self,
-    isolate: &mut v8::Isolate,
-    y: f64,
-    #[proto] ro: &DOMPointReadOnly,
-  ) {
-    ro.y.set(isolate, y);
+  fn y(&self, isolate: &mut v8::Isolate, y: f64) {
+    self.base.y.set(isolate, y);
   }
 
   #[getter]
-  fn y(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    *ro.y.get(isolate)
+  fn y(&self, isolate: &v8::Isolate) -> f64 {
+    *self.base.y.get(isolate)
   }
 
   #[setter]
-  fn z(
-    &self,
-    isolate: &mut v8::Isolate,
-    z: f64,
-    #[proto] ro: &DOMPointReadOnly,
-  ) {
-    ro.z.set(isolate, z);
+  fn z(&self, isolate: &mut v8::Isolate, z: f64) {
+    self.base.z.set(isolate, z);
   }
 
   #[getter]
-  fn z(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    *ro.z.get(isolate)
+  fn z(&self, isolate: &v8::Isolate) -> f64 {
+    *self.base.z.get(isolate)
   }
 
   #[setter]
-  fn w(
-    &self,
-    isolate: &mut v8::Isolate,
-    w: f64,
-    #[proto] ro: &DOMPointReadOnly,
-  ) {
-    ro.w.set(isolate, w);
+  fn w(&self, isolate: &mut v8::Isolate, w: f64) {
+    self.base.w.set(isolate, w);
   }
 
   #[getter]
-  fn w(&self, isolate: &v8::Isolate, #[proto] ro: &DOMPointReadOnly) -> f64 {
-    *ro.w.get(isolate)
+  fn w(&self, isolate: &v8::Isolate) -> f64 {
+    *self.base.w.get(isolate)
   }
 
   #[fast]
@@ -350,6 +345,44 @@ impl DOMPoint {
   #[fast]
   #[rename("impl")]
   fn impl_method(&self) {}
+}
+
+#[derive(CppgcInherits)]
+#[cppgc_inherits_from(DOMPoint)]
+#[repr(C)]
+pub struct DOMPoint3D {
+  base: DOMPoint,
+}
+
+unsafe impl GarbageCollected for DOMPoint3D {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"DOMPoint3D"
+  }
+}
+
+#[op2(inherit = DOMPoint)]
+impl DOMPoint3D {
+  #[constructor]
+  #[cppgc]
+  fn new(x: Option<f64>, y: Option<f64>, z: Option<f64>) -> DOMPoint3D {
+    DOMPoint3D {
+      base: DOMPoint {
+        base: DOMPointReadOnly {
+          x: GcCell::new(x.unwrap_or(0.0)),
+          y: GcCell::new(y.unwrap_or(0.0)),
+          z: GcCell::new(z.unwrap_or(0.0)),
+          w: GcCell::new(1.0),
+        },
+      },
+    }
+  }
+
+  #[fast]
+  fn description(&self) -> u32 {
+    42
+  }
 }
 
 #[repr(u8)]

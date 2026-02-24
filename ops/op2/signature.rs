@@ -710,12 +710,16 @@ impl ParsedTypeContainer {
   }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct ParsedSignature {
   // The parsed arguments
   pub args: Vec<(Arg, Attributes)>,
+  // Spans for each argument (for error reporting)
+  pub arg_spans: Vec<Span>,
   // The parsed return value
   pub ret_val: RetVal,
+  // Span of the return type (for error reporting)
+  pub ret_span: Span,
   // Lifetimes
   pub lifetimes: Vec<Ident>,
   // Generic bounds: each generic must have one and only simple trait bound
@@ -723,6 +727,18 @@ pub struct ParsedSignature {
   // Metadata keys and values
   pub metadata: BTreeMap<Ident, syn::Lit>,
 }
+
+impl PartialEq for ParsedSignature {
+  fn eq(&self, other: &Self) -> bool {
+    self.args == other.args
+      && self.ret_val == other.ret_val
+      && self.lifetimes == other.lifetimes
+      && self.generic_bounds == other.generic_bounds
+      && self.metadata == other.metadata
+  }
+}
+
+impl Eq for ParsedSignature {}
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum StringMode {
@@ -833,7 +849,7 @@ pub enum SignatureError {
   #[error(
     "All generics must appear only once in the generics parameter list or where clause"
   )]
-  DuplicateGeneric(String),
+  DuplicateGeneric(Span, String),
   #[error("Generic lifetime may not have bounds (eg: <'a: 'b>)")]
   LifetimesMayNotHaveBounds(Span),
   #[error(
@@ -841,7 +857,7 @@ pub enum SignatureError {
   )]
   InvalidWherePredicate(Span),
   #[error("JsRuntimeState may only be used in one parameter")]
-  InvalidMultipleJsRuntimeState,
+  InvalidMultipleJsRuntimeState(Span),
   #[error("Invalid metadata attribute")]
   InvalidMetaAttribute(#[source] syn::Error),
 }
@@ -854,10 +870,10 @@ impl From<SignatureError> for syn::Error {
       SignatureError::RetError(e) => return combine_err(e.into(), msg),
       SignatureError::GenericBoundCardinality(span) => span,
       SignatureError::WherePredicateMustAppearInGenerics(span) => span,
-      SignatureError::DuplicateGeneric(_) => Span::call_site(),
+      SignatureError::DuplicateGeneric(span, _) => span,
       SignatureError::LifetimesMayNotHaveBounds(span) => span,
       SignatureError::InvalidWherePredicate(span) => span,
-      SignatureError::InvalidMultipleJsRuntimeState => Span::call_site(),
+      SignatureError::InvalidMultipleJsRuntimeState(span) => span,
       SignatureError::InvalidMetaAttribute(e) => return combine_err(e, msg),
     };
 
@@ -926,8 +942,8 @@ pub enum ArgError {
   ExpectedCppGcReference(Span, String),
   #[error("Invalid #[cppgc] type")]
   InvalidCppGcType(Span),
-  #[error("#[{0}] is only valid in {1} position")]
-  InvalidAttributePosition(&'static str, &'static str),
+  #[error("#[{1}] is only valid in {2} position")]
+  InvalidAttributePosition(Span, &'static str, &'static str),
 }
 
 impl From<ArgError> for syn::Error {
@@ -951,7 +967,7 @@ impl From<ArgError> for syn::Error {
       ArgError::InvalidDenoCorePrefix(span, _, _) => span,
       ArgError::ExpectedCppGcReference(span, _) => span,
       ArgError::InvalidCppGcType(span) => span,
-      ArgError::InvalidAttributePosition(_, _) => Span::call_site(),
+      ArgError::InvalidAttributePosition(span, _, _) => span,
     };
 
     syn::Error::new(span, msg)
@@ -978,7 +994,7 @@ impl From<RetError> for syn::Error {
 
 #[derive(Clone, Default, Debug, Eq, PartialEq)]
 pub(crate) struct Attributes {
-  primary: Option<AttributeModifier>,
+  pub(crate) primary: Option<AttributeModifier>,
   pub(crate) rest: Vec<AttributeModifier>,
 }
 
@@ -1077,6 +1093,7 @@ pub fn parse_signature(
   signature: Signature,
 ) -> Result<ParsedSignature, SignatureError> {
   let mut args = vec![];
+  let mut arg_spans = vec![];
   for input in signature.inputs {
     match &input {
       FnArg::Receiver(_) => continue,
@@ -1086,12 +1103,14 @@ pub fn parse_signature(
           _ => "(complex)".to_owned(),
         };
 
+        let span = arg.ty.span();
         let attrs = parse_attributes(&arg.attrs)
           .map_err(|err| SignatureError::ArgError(name.clone(), err.into()))?;
         let ty = parse_type(Position::Arg, attrs.clone(), &arg.ty)
           .map_err(|err| SignatureError::ArgError(name, err))?;
 
         args.push((ty, attrs));
+        arg_spans.push(span);
       }
     }
   }
@@ -1106,14 +1125,17 @@ pub fn parse_signature(
   let generic_bounds = parse_generics(&signature.generics)?;
 
   let mut jsruntimestate_count = 0;
+  let mut jsruntimestate_dup_span = Span::call_site();
 
-  for (arg, _) in &args {
+  for (idx, (arg, _)) in args.iter().enumerate() {
     match arg {
-      Arg::Ref(_, Special::JsRuntimeState) => {
+      Arg::Ref(_, Special::JsRuntimeState)
+      | Arg::RcRefCell(Special::JsRuntimeState) => {
         jsruntimestate_count += 1;
-      }
-      Arg::RcRefCell(Special::JsRuntimeState) => {
-        jsruntimestate_count += 1;
+        if jsruntimestate_count > 1 {
+          jsruntimestate_dup_span =
+            arg_spans.get(idx).copied().unwrap_or_else(Span::call_site);
+        }
       }
       _ => {}
     }
@@ -1121,14 +1143,20 @@ pub fn parse_signature(
 
   // Ensure that there is at most one JsRuntimeState
   if jsruntimestate_count > 1 {
-    return Err(SignatureError::InvalidMultipleJsRuntimeState);
+    return Err(SignatureError::InvalidMultipleJsRuntimeState(
+      jsruntimestate_dup_span,
+    ));
   }
 
   let metadata = parse_metadata(&attributes)?;
 
+  let ret_span = signature.output.span();
+
   Ok(ParsedSignature {
     args,
+    arg_spans,
     ret_val,
+    ret_span,
     lifetimes,
     generic_bounds,
     metadata,
@@ -1205,7 +1233,10 @@ fn parse_generics(
         let bound = parse_bound(&ty.bounds)?;
 
         if where_clauses.insert(ident.clone(), bound).is_some() {
-          return Err(SignatureError::DuplicateGeneric(ident.to_string()));
+          return Err(SignatureError::DuplicateGeneric(
+            ident.span(),
+            ident.to_string(),
+          ));
         }
       } else {
         return Err(SignatureError::InvalidWherePredicate(predicate.span()));
@@ -1231,7 +1262,10 @@ fn parse_generics(
       };
 
       if res.contains_key(name) {
-        return Err(SignatureError::DuplicateGeneric(name.to_string()));
+        return Err(SignatureError::DuplicateGeneric(
+          name.span(),
+          name.to_string(),
+        ));
       }
       res.insert(name.clone(), bound);
     }
@@ -1670,6 +1704,7 @@ pub(crate) fn parse_type(
       AttributeModifier::Undefined => {
         if position == Position::Arg {
           return Err(ArgError::InvalidAttributePosition(
+            ty.span(),
             primary.name(),
             "return value",
           ));
@@ -1679,6 +1714,7 @@ pub(crate) fn parse_type(
       AttributeModifier::VarArgs => {
         if position == Position::RetVal {
           return Err(ArgError::InvalidAttributePosition(
+            ty.span(),
             primary.name(),
             "argument",
           ));
@@ -1760,6 +1796,7 @@ pub(crate) fn parse_type(
       AttributeModifier::This => {
         if position == Position::RetVal {
           return Err(ArgError::InvalidAttributePosition(
+            ty.span(),
             primary.name(),
             "argument",
           ));
@@ -2269,7 +2306,7 @@ mod tests {
   );
   expect_fail!(
     op_duplicate_js_runtime_state,
-    InvalidMultipleJsRuntimeState,
+    InvalidMultipleJsRuntimeState(Span::call_site()),
     fn f(s1: &JsRuntimeState, s2: &mut JsRuntimeState) {}
   );
   expect_fail!(

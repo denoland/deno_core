@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_core"
-version = "0.385.0"
+version = "0.386.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -42,6 +42,7 @@ deno_path_util.workspace = true
 deno_unsync.workspace = true
 futures.workspace = true
 indexmap.workspace = true
+inventory = "0.3.21"
 libc.workspace = true
 parking_lot.workspace = true
 percent-encoding.workspace = true

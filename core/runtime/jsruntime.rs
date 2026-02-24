@@ -2967,7 +2967,7 @@ impl JsRuntime {
     drop(pending_rejections);
 
     let mut args: SmallVec<[v8::Local<v8::Value>; 16]> =
-      SmallVec::with_capacity(rejections.len() * 2);
+      SmallVec::with_capacity(rejections.len() * 3);
     for rejection in rejections.into_iter() {
       args.push(v8::Local::new(scope, rejection.0).into());
       args.push(v8::Local::new(scope, rejection.1));

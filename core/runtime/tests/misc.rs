@@ -998,6 +998,48 @@ async fn test_promise_rejection_handler(
   test_promise_rejection_handler_generic(module, case, error).await
 }
 
+// Verify that the async context (continuation-preserved embedder data) that
+// was active at the time of a promise rejection is restored when the
+// unhandled promise rejection handler is called. This is required for
+// AsyncLocalStorage to work correctly inside unhandledRejection handlers
+// (matching Node.js behavior). See https://github.com/denoland/deno/issues/30135
+#[tokio::test]
+async fn test_promise_rejection_handler_preserves_async_context() {
+  let mut runtime = JsRuntime::new(Default::default());
+
+  let script = r#"
+    const v = new Deno.core.AsyncVariable();
+    let capturedValue = undefined;
+
+    Deno.core.setUnhandledPromiseRejectionHandler((promise, rejection) => {
+      capturedValue = v.get();
+      return true;
+    });
+
+    // Enter an async context with a known value, then reject a promise
+    const prev = v.enter("my_context_data");
+    Promise.reject(new Error("fail"));
+    Deno.core.setAsyncContext(prev);
+
+    // capturedValue will be checked after the event loop tick
+  "#;
+
+  runtime.execute_script("", script).unwrap();
+  runtime
+    .run_event_loop(Default::default())
+    .await
+    .expect("Event loop should complete without error");
+
+  // Verify the handler saw the correct async context
+  let result = runtime
+    .execute_script(
+      "",
+      "if (capturedValue !== 'my_context_data') { throw new Error('expected my_context_data but got ' + capturedValue); }",
+    )
+    .unwrap();
+  drop(result);
+}
+
 // Make sure that stalled top-level awaits (that is, top-level awaits that
 // aren't tied to the progress of some op) are correctly reported, even in a
 // realm other than the main one.
