@@ -62,15 +62,15 @@ use std::time::Duration;
 use std::time::Instant;
 
 #[cfg(unix)]
-use AF_INET;
+use libc::AF_INET;
 #[cfg(unix)]
-use AF_INET6;
+use libc::AF_INET6;
 #[cfg(unix)]
-use sockaddr_in;
+use libc::sockaddr_in;
 #[cfg(unix)]
-use sockaddr_in6;
+use libc::sockaddr_in6;
 #[cfg(unix)]
-type sa_family_t = sa_family_t;
+type sa_family_t = libc::sa_family_t;
 #[cfg(windows)]
 use win_sock::AF_INET;
 #[cfg(windows)]
