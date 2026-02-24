@@ -20,17 +20,10 @@ pub(crate) struct CloseCallback {
 ///
 /// Currently only tracks close callbacks. Other phase hooks (idle, prepare,
 /// check) are handled by `UvLoopInner` for the libuv compat path.
+#[derive(Default)]
 pub(crate) struct EventLoopPhases {
   /// Phase 6: Close callbacks.
   pub close_callbacks: VecDeque<CloseCallback>,
-}
-
-impl Default for EventLoopPhases {
-  fn default() -> Self {
-    Self {
-      close_callbacks: VecDeque::new(),
-    }
-  }
 }
 
 impl EventLoopPhases {

@@ -1982,7 +1982,7 @@ impl JsRuntime {
   ///
   /// 1. Timers          -- fire expired libuv C timers + JS WebTimers
   /// 2. Pending work     -- module progress, task spawner, async ops,
-  ///                        nextTick/macrotask drain, immediates, rejections
+  ///    nextTick/macrotask drain, immediates, rejections
   /// 3. I/O              -- drive TCP read/write/accept via UvLoopInner
   /// 4. Idle / Prepare   -- libuv idle + prepare callbacks
   /// 5. Check            -- libuv check callbacks
@@ -2042,7 +2042,7 @@ impl JsRuntime {
       unsafe { (*uv_inner_ptr).run_timers() };
     }
     // 1b. Fire expired JS timers (direct v8::Function::call per timer)
-    did_work |= Self::dispatch_timers(cx, scope, context_state)?;
+    did_work |= Self::dispatch_timers(cx, scope, context_state);
     scope.perform_microtask_checkpoint();
 
     // ===== Phase 2: Pending work =====
@@ -2739,14 +2739,14 @@ impl JsRuntime {
     cx: &mut Context,
     scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
-  ) -> Result<bool, Box<JsError>> {
+  ) -> bool {
     let timers = match context_state.timers.poll_timers(cx) {
       Poll::Ready(timers) => timers,
-      _ => return Ok(false),
+      _ => return false,
     };
 
     if timers.is_empty() {
-      return Ok(false);
+      return false;
     }
 
     let traces_enabled = context_state.activity_traces.is_enabled();
@@ -2814,7 +2814,7 @@ impl JsRuntime {
       set_timer_depth_fn.call(scope, undefined, &[zero.into()]);
     }
 
-    Ok(true)
+    true
   }
 
   /// Phase 2a: Poll and dispatch V8 task spawner tasks.

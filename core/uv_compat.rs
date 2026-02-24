@@ -432,10 +432,10 @@ impl UvLoopInner {
       };
       i += 1;
       let handle = unsafe { &*handle_ptr };
-      if handle.flags & UV_HANDLE_ACTIVE != 0 {
-        if let Some(cb) = handle.cb {
-          unsafe { cb(handle_ptr) };
-        }
+      if handle.flags & UV_HANDLE_ACTIVE != 0
+        && let Some(cb) = handle.cb
+      {
+        unsafe { cb(handle_ptr) };
       }
     }
   }
@@ -452,10 +452,10 @@ impl UvLoopInner {
       };
       i += 1;
       let handle = unsafe { &*handle_ptr };
-      if handle.flags & UV_HANDLE_ACTIVE != 0 {
-        if let Some(cb) = handle.cb {
-          unsafe { cb(handle_ptr) };
-        }
+      if handle.flags & UV_HANDLE_ACTIVE != 0
+        && let Some(cb) = handle.cb
+      {
+        unsafe { cb(handle_ptr) };
       }
     }
   }
@@ -472,10 +472,10 @@ impl UvLoopInner {
       };
       i += 1;
       let handle = unsafe { &*handle_ptr };
-      if handle.flags & UV_HANDLE_ACTIVE != 0 {
-        if let Some(cb) = handle.cb {
-          unsafe { cb(handle_ptr) };
-        }
+      if handle.flags & UV_HANDLE_ACTIVE != 0
+        && let Some(cb) = handle.cb
+      {
+        unsafe { cb(handle_ptr) };
       }
     }
   }
@@ -506,7 +506,7 @@ impl UvLoopInner {
   pub(crate) unsafe fn run_io(&self) -> bool {
     let noop = Waker::noop();
     let waker_ref = self.waker.borrow();
-    let waker = waker_ref.as_ref().unwrap_or(&noop);
+    let waker = waker_ref.as_ref().unwrap_or(noop);
     let mut cx = Context::from_waker(waker);
 
     let mut did_any_work = false;
@@ -530,51 +530,47 @@ impl UvLoopInner {
         }
 
         // 1. Poll pending connect
-        if let Some(ref mut pending) = tcp.internal_connect {
-          if let Poll::Ready(result) = pending.future.as_mut().poll(&mut cx) {
-            let req = pending.req;
-            let cb = pending.cb;
-            let status = match result {
-              Ok(stream) => {
-                if tcp.internal_nodelay {
-                  stream.set_nodelay(true).ok();
-                }
-                tcp.internal_stream = Some(stream);
-                0
+        if let Some(ref mut pending) = tcp.internal_connect
+          && let Poll::Ready(result) = pending.future.as_mut().poll(&mut cx)
+        {
+          let req = pending.req;
+          let cb = pending.cb;
+          let status = match result {
+            Ok(stream) => {
+              if tcp.internal_nodelay {
+                stream.set_nodelay(true).ok();
               }
-              Err(_) => UV_ECONNREFUSED,
-            };
-            tcp.internal_connect = None;
-            unsafe {
-              (*req).handle = tcp_ptr as *mut uv_stream_t;
+              tcp.internal_stream = Some(stream);
+              0
             }
-            if let Some(cb) = cb {
-              unsafe { cb(req, status) };
-            }
+            Err(_) => UV_ECONNREFUSED,
+          };
+          tcp.internal_connect = None;
+          unsafe {
+            (*req).handle = tcp_ptr as *mut uv_stream_t;
+          }
+          if let Some(cb) = cb {
+            unsafe { cb(req, status) };
           }
         }
 
         // 2. Poll listener for new connections
-        if let Some(ref listener) = tcp.internal_listener {
-          if tcp.internal_connection_cb.is_some() {
-            loop {
-              match listener.poll_accept(&mut cx) {
-                Poll::Ready(Ok((stream, _))) => {
-                  tcp.internal_backlog.push_back(stream);
-                  any_work = true;
-                }
-                _ => break,
-              }
+        if let Some(ref listener) = tcp.internal_listener
+          && tcp.internal_connection_cb.is_some()
+        {
+          while let Poll::Ready(Ok((stream, _))) = listener.poll_accept(&mut cx)
+          {
+            tcp.internal_backlog.push_back(stream);
+            any_work = true;
+          }
+          while !tcp.internal_backlog.is_empty() {
+            if let Some(cb) = tcp.internal_connection_cb {
+              unsafe { cb(tcp_ptr as *mut uv_stream_t, 0) };
             }
-            while !tcp.internal_backlog.is_empty() {
-              if let Some(cb) = tcp.internal_connection_cb {
-                unsafe { cb(tcp_ptr as *mut uv_stream_t, 0) };
-              }
-              // If uv_accept wasn't called in the callback, stop
-              // to avoid an infinite loop.
-              if !tcp.internal_backlog.is_empty() {
-                break;
-              }
+            // If uv_accept wasn't called in the callback, stop
+            // to avoid an infinite loop.
+            if !tcp.internal_backlog.is_empty() {
+              break;
             }
           }
         }
@@ -645,11 +641,7 @@ impl UvLoopInner {
           let stream = tcp.internal_stream.as_ref().unwrap();
           let _ = stream.poll_write_ready(&mut cx);
 
-          loop {
-            let pw = match tcp.internal_write_queue.front_mut() {
-              Some(pw) => pw,
-              None => break,
-            };
+          while let Some(pw) = tcp.internal_write_queue.front_mut() {
             let mut done = false;
             let mut error = false;
             loop {
@@ -1338,10 +1330,10 @@ pub unsafe fn uv_tcp_nodelay(tcp: *mut uv_tcp_t, enable: c_int) -> c_int {
   unsafe {
     let enabled = enable != 0;
     (*tcp).internal_nodelay = enabled;
-    if let Some(ref stream) = (*tcp).internal_stream {
-      if stream.set_nodelay(enabled).is_err() {
-        return UV_EINVAL;
-      }
+    if let Some(ref stream) = (*tcp).internal_stream
+      && stream.set_nodelay(enabled).is_err()
+    {
+      return UV_EINVAL;
     }
   }
   0
@@ -2084,15 +2076,17 @@ mod tests {
   }
 
   unsafe fn make_sockaddr_in(port: u16) -> libc::sockaddr_in {
-    let mut addr: libc::sockaddr_in = std::mem::zeroed();
-    #[cfg(any(target_os = "macos", target_os = "freebsd"))]
-    {
-      addr.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+    unsafe {
+      let mut addr: libc::sockaddr_in = std::mem::zeroed();
+      #[cfg(any(target_os = "macos", target_os = "freebsd"))]
+      {
+        addr.sin_len = std::mem::size_of::<libc::sockaddr_in>() as u8;
+      }
+      addr.sin_family = libc::AF_INET as libc::sa_family_t;
+      addr.sin_port = port.to_be();
+      addr.sin_addr.s_addr = u32::from(std::net::Ipv4Addr::LOCALHOST).to_be();
+      addr
     }
-    addr.sin_family = libc::AF_INET as libc::sa_family_t;
-    addr.sin_port = port.to_be();
-    addr.sin_addr.s_addr = u32::from(std::net::Ipv4Addr::LOCALHOST).to_be();
-    addr
   }
 
   // 11. TCP listen and accept
@@ -2114,19 +2108,21 @@ mod tests {
         server: *mut uv_stream_t,
         status: i32,
       ) {
-        assert_eq!(status, 0);
-        let server_tcp = server as *mut uv_tcp_t;
-        let loop_ = (*server_tcp).loop_;
-        let client = Box::into_raw(Box::new(new_tcp()));
-        uv_tcp_init(loop_, client);
-        let rc = uv_accept(server, client as *mut uv_stream_t);
-        assert_eq!(rc, 0);
-        assert!((*client).internal_stream.is_some());
+        unsafe {
+          assert_eq!(status, 0);
+          let server_tcp = server as *mut uv_tcp_t;
+          let loop_ = (*server_tcp).loop_;
+          let client = Box::into_raw(Box::new(new_tcp()));
+          uv_tcp_init(loop_, client);
+          let rc = uv_accept(server, client as *mut uv_stream_t);
+          assert_eq!(rc, 0);
+          assert!((*client).internal_stream.is_some());
 
-        drop(Box::from_raw(client));
-        CONN_CALLED.store(true, Ordering::Relaxed);
+          drop(Box::from_raw(client));
+          CONN_CALLED.store(true, Ordering::Relaxed);
 
-        uv_stop(loop_);
+          uv_stop(loop_);
+        }
       }
 
       CONN_CALLED.store(false, Ordering::Relaxed);
@@ -2197,29 +2193,33 @@ mod tests {
       static WRITE_CALLED: AtomicBool = AtomicBool::new(false);
 
       unsafe extern "C" fn on_connect(req: *mut uv_connect_t, status: i32) {
-        assert_eq!(status, 0);
-        CONNECT_CALLED.store(true, Ordering::Relaxed);
-
-        let stream = (*req).handle;
-        let data = b"hello world";
-        let buf = uv_buf_t {
-          base: data.as_ptr() as *mut c_char,
-          len: data.len(),
-        };
-        let write_req = Box::into_raw(Box::new(new_write()));
-
-        unsafe extern "C" fn on_write(req: *mut uv_write_t, status: i32) {
+        unsafe {
           assert_eq!(status, 0);
-          WRITE_CALLED.store(true, Ordering::Relaxed);
-          drop(Box::from_raw(req));
+          CONNECT_CALLED.store(true, Ordering::Relaxed);
+
+          let stream = (*req).handle;
+          let data = b"hello world";
+          let buf = uv_buf_t {
+            base: data.as_ptr() as *mut c_char,
+            len: data.len(),
+          };
+          let write_req = Box::into_raw(Box::new(new_write()));
+
+          unsafe extern "C" fn on_write(req: *mut uv_write_t, status: i32) {
+            unsafe {
+              assert_eq!(status, 0);
+              WRITE_CALLED.store(true, Ordering::Relaxed);
+              drop(Box::from_raw(req));
+            }
+          }
+
+          uv_write(write_req, stream, &buf, 1, Some(on_write));
+
+          let tcp = stream as *mut uv_tcp_t;
+          let loop_ = (*tcp).loop_;
+          uv_close(tcp as *mut uv_handle_t, None);
+          uv_stop(loop_);
         }
-
-        uv_write(write_req, stream, &buf, 1, Some(on_write));
-
-        let tcp = stream as *mut uv_tcp_t;
-        let loop_ = (*tcp).loop_;
-        uv_close(tcp as *mut uv_handle_t, None);
-        uv_stop(loop_);
       }
 
       CONNECT_CALLED.store(false, Ordering::Relaxed);
@@ -2277,9 +2277,11 @@ mod tests {
         suggested_size: usize,
         buf: *mut uv_buf_t,
       ) {
-        let ptr = libc::malloc(suggested_size) as *mut c_char;
-        (*buf).base = ptr;
-        (*buf).len = suggested_size;
+        unsafe {
+          let ptr = libc::malloc(suggested_size) as *mut c_char;
+          (*buf).base = ptr;
+          (*buf).len = suggested_size;
+        }
       }
 
       unsafe extern "C" fn read_cb(
@@ -2287,15 +2289,17 @@ mod tests {
         nread: isize,
         buf: *const uv_buf_t,
       ) {
-        if nread > 0 {
-          READ_BYTES.fetch_add(nread as u32, Ordering::Relaxed);
-          uv_read_stop(stream);
-          let tcp = stream as *mut uv_tcp_t;
-          uv_close(tcp as *mut uv_handle_t, None);
-          uv_stop((*tcp).loop_);
-        }
-        if !(*buf).base.is_null() {
-          libc::free((*buf).base as *mut c_void);
+        unsafe {
+          if nread > 0 {
+            READ_BYTES.fetch_add(nread as u32, Ordering::Relaxed);
+            uv_read_stop(stream);
+            let tcp = stream as *mut uv_tcp_t;
+            uv_close(tcp as *mut uv_handle_t, None);
+            uv_stop((*tcp).loop_);
+          }
+          if !(*buf).base.is_null() {
+            libc::free((*buf).base as *mut c_void);
+          }
         }
       }
 
@@ -2303,9 +2307,11 @@ mod tests {
         req: *mut uv_connect_t,
         status: i32,
       ) {
-        assert_eq!(status, 0);
-        let stream = (*req).handle;
-        uv_read_start(stream, Some(alloc_cb), Some(read_cb));
+        unsafe {
+          assert_eq!(status, 0);
+          let stream = (*req).handle;
+          uv_read_start(stream, Some(alloc_cb), Some(read_cb));
+        }
       }
 
       READ_BYTES.store(0, Ordering::Relaxed);
@@ -2354,35 +2360,37 @@ mod tests {
         req: *mut uv_connect_t,
         status: i32,
       ) {
-        assert_eq!(status, 0);
-        let tcp = (*req).handle as *mut uv_tcp_t;
+        unsafe {
+          assert_eq!(status, 0);
+          let tcp = (*req).handle as *mut uv_tcp_t;
 
-        let mut peer_addr: libc::sockaddr_in = std::mem::zeroed();
-        let mut peer_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
-        let rc = uv_tcp_getpeername(
-          tcp,
-          &mut peer_addr as *mut _ as *mut c_void,
-          &mut peer_len,
-        );
-        assert_eq!(rc, 0);
-        let peer_port = u16::from_be(peer_addr.sin_port);
-        assert!(peer_port > 0);
+          let mut peer_addr: libc::sockaddr_in = std::mem::zeroed();
+          let mut peer_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+          let rc = uv_tcp_getpeername(
+            tcp,
+            &mut peer_addr as *mut _ as *mut c_void,
+            &mut peer_len,
+          );
+          assert_eq!(rc, 0);
+          let peer_port = u16::from_be(peer_addr.sin_port);
+          assert!(peer_port > 0);
 
-        let mut local_addr: libc::sockaddr_in = std::mem::zeroed();
-        let mut local_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
-        let rc = uv_tcp_getsockname(
-          tcp,
-          &mut local_addr as *mut _ as *mut c_void,
-          &mut local_len,
-        );
-        assert_eq!(rc, 0);
-        let local_port = u16::from_be(local_addr.sin_port);
-        assert!(local_port > 0);
+          let mut local_addr: libc::sockaddr_in = std::mem::zeroed();
+          let mut local_len = std::mem::size_of::<libc::sockaddr_in>() as c_int;
+          let rc = uv_tcp_getsockname(
+            tcp,
+            &mut local_addr as *mut _ as *mut c_void,
+            &mut local_len,
+          );
+          assert_eq!(rc, 0);
+          let local_port = u16::from_be(local_addr.sin_port);
+          assert!(local_port > 0);
 
-        NAMES_OK.store(true, Ordering::Relaxed);
+          NAMES_OK.store(true, Ordering::Relaxed);
 
-        uv_close(tcp as *mut uv_handle_t, None);
-        uv_stop((*tcp).loop_);
+          uv_close(tcp as *mut uv_handle_t, None);
+          uv_stop((*tcp).loop_);
+        }
       }
 
       NAMES_OK.store(false, Ordering::Relaxed);
