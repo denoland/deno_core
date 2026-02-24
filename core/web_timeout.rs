@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use std::collections::btree_set;
 use std::mem::MaybeUninit;
 use std::num::NonZeroU64;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
@@ -84,9 +85,9 @@ pub(crate) struct WebTimers<T, R: Reactor> {
   data_map: RefCell<BTreeMap<WebTimerId, TimerData<T>>>,
   /// How many unref'd timers exist?
   unrefd_count: Cell<usize>,
-  /// A boxed MutableSleep that will allow us to change the timer timeout as needed.
-  /// Because this is boxed, we can "safely" unsafely poll it.
-  sleep: Box<MutableSleep<R::Timer>>,
+  /// A heap-allocated MutableSleep. Stored as a raw pointer (not Box) to avoid
+  /// Box's Unique retag conflicting with the self-referential waker pointer.
+  sleep: OwnedPtr<MutableSleep<R::Timer>>,
   /// The high-res timer lock. No-op on platforms other than Windows.
   high_res_timer_lock: HighResTimerLock,
 }
@@ -152,6 +153,42 @@ impl<T, I: ReactorInstant> Iterator for WebTimersIteratorImpl<'_, T, I> {
   }
 }
 
+/// Like a Box<T> but without Uniqueness semantics, which
+/// cause issues with self-referential waker pointers under Stacked Borrows.
+#[repr(transparent)]
+struct OwnedPtr<T> {
+  ptr: *mut T,
+}
+
+impl<T> OwnedPtr<T> {
+  fn from_box(b: Box<T>) -> Self {
+    Self {
+      ptr: Box::into_raw(b),
+    }
+  }
+}
+
+impl<T> Deref for OwnedPtr<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    unsafe { &*self.ptr }
+  }
+}
+
+impl<T> std::ops::DerefMut for OwnedPtr<T> {
+  fn deref_mut(&mut self) -> &mut T {
+    unsafe { &mut *self.ptr }
+  }
+}
+
+impl<T> Drop for OwnedPtr<T> {
+  fn drop(&mut self) {
+    unsafe {
+      let _ = Box::from_raw(self.ptr);
+    }
+  }
+}
+
 struct MutableSleep<Tmr: ReactorTimer> {
   sleep: UnsafeCell<Option<Tmr>>,
   ready: Cell<bool>,
@@ -159,24 +196,22 @@ struct MutableSleep<Tmr: ReactorTimer> {
   internal_waker: Waker,
 }
 
-#[allow(clippy::borrowed_box)]
 impl<Tmr: ReactorTimer + 'static> MutableSleep<Tmr> {
-  fn new() -> Box<Self> {
-    let mut new = Box::new(MaybeUninit::<Self>::uninit());
-
-    new.write(MutableSleep {
-      sleep: Default::default(),
-      ready: Cell::default(),
-      external_waker: UnsafeCell::default(),
-      internal_waker: MutableSleepWaker::<Tmr> {
-        inner: new.as_ptr(),
-      }
-      .into_waker(),
-    });
-    unsafe { std::mem::transmute(new) }
+  fn new() -> OwnedPtr<Self> {
+    unsafe {
+      let mut ptr = OwnedPtr::from_box(Box::new(MaybeUninit::<Self>::uninit()));
+      let raw = ptr.as_ptr();
+      ptr.write(MutableSleep {
+        sleep: Default::default(),
+        ready: Default::default(),
+        external_waker: Default::default(),
+        internal_waker: MutableSleepWaker::<Tmr> { inner: raw }.into_waker(),
+      });
+      std::mem::transmute(ptr)
+    }
   }
 
-  fn poll_ready(self: &Box<Self>, cx: &mut Context) -> Poll<()> {
+  fn poll_ready(&self, cx: &mut Context) -> Poll<()> {
     if self.ready.take() {
       Poll::Ready(())
     } else {
@@ -209,14 +244,14 @@ impl<Tmr: ReactorTimer + 'static> MutableSleep<Tmr> {
     }
   }
 
-  fn clear(self: &Box<Self>) {
+  fn clear(&self) {
     unsafe {
       *self.sleep.get() = None;
     }
     self.ready.set(false);
   }
 
-  fn change(self: &Box<Self>, timer: Tmr) {
+  fn change(&self, timer: Tmr) {
     let pin = unsafe {
       // First replace the current timer
       *self.sleep.get() = Some(timer);
