@@ -28,8 +28,8 @@ pub(crate) type WebTimerId = u64;
 /// The minimum number of tombstones required to trigger compaction
 const COMPACTION_MINIMUM: usize = 16;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-enum TimerType {
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum TimerType {
   Repeat(NonZeroU64),
   Once,
 }
@@ -424,40 +424,39 @@ impl<T: Clone, R: Reactor> WebTimers<T, R> {
   }
 
   /// Poll for any timers that have completed.
-  pub fn poll_timers(&self, cx: &mut Context) -> Poll<Vec<(u64, T)>> {
+  ///
+  /// Returns the IDs and [`TimerType`]s of expired timers. The associated
+  /// data must be retrieved per-timer via
+  /// [`take_fired_timer`](Self::take_fired_timer), which allows
+  /// `cancel_timer` to prevent dispatch of timers that expired in the
+  /// same batch.
+  pub fn poll_timers(&self, cx: &mut Context) -> Poll<Vec<(u64, TimerType)>> {
     ready!(self.sleep.poll_ready(cx));
     let now = R::Instant::now();
     let mut timers = self.timers.borrow_mut();
-    let mut data = self.data_map.borrow_mut();
+    let data = self.data_map.borrow();
     let mut output = vec![];
+    let mut fired_once_count: usize = 0;
 
     let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once, false));
     std::mem::swap(&mut split, &mut timers);
     for TimerKey(_, id, timer_type, is_system_timer) in split {
-      if let TimerType::Repeat(interval) = timer_type {
-        if let Some(TimerData { data, .. }) = data.get(&id) {
-          output.push((id, data.clone()));
-          timers.insert(TimerKey(
-            now
-              .checked_add(Duration::from_millis(interval.into()))
-              .unwrap(),
-            id,
-            timer_type,
-            is_system_timer,
-          ));
-        }
-      } else if let Some(TimerData {
-        data,
-        unrefd,
-        high_res,
-      }) = data.remove(&id)
-      {
-        self.high_res_timer_lock.maybe_unlock(high_res);
-        if unrefd {
-          self.unrefd_count.set(self.unrefd_count.get() - 1);
-        }
-        output.push((id, data));
+      if !data.contains_key(&id) {
+        continue; // tombstone
       }
+      if let TimerType::Repeat(interval) = &timer_type {
+        timers.insert(TimerKey(
+          now
+            .checked_add(Duration::from_millis((*interval).into()))
+            .unwrap(),
+          id,
+          timer_type.clone(),
+          is_system_timer,
+        ));
+      } else {
+        fired_once_count += 1;
+      }
+      output.push((id, timer_type));
     }
 
     // In-effective poll, run a front-compaction and try again later
@@ -478,15 +477,19 @@ impl<T: Clone, R: Reactor> WebTimers<T, R> {
       return Poll::Pending;
     }
 
-    if data.is_empty() {
-      // When the # of running timers hits zero, clear the timer tree.
+    // Adjust for fired-once timers whose data is still in data_map
+    // (it will be removed by take_fired_timer).
+    let pending_data_count = data.len() - fired_once_count;
+
+    if pending_data_count == 0 {
+      // No more pending timers; clear the tree and sleep.
       if !timers.is_empty() {
         timers.clear();
       }
       self.sleep.clear();
     } else {
       // Run compaction when there are enough tombstones to justify cleanup.
-      let tombstone_count = timers.len() - data.len();
+      let tombstone_count = timers.len() - pending_data_count;
       if tombstone_count > COMPACTION_MINIMUM {
         timers.retain(|k| data.contains_key(&k.1));
       }
@@ -496,6 +499,37 @@ impl<T: Clone, R: Reactor> WebTimers<T, R> {
     }
 
     Poll::Ready(output)
+  }
+
+  /// Extracts the data for a previously-fired timer. Returns `None` if
+  /// the timer was cancelled between [`poll_timers`](Self::poll_timers)
+  /// and this call.
+  pub fn take_fired_timer(&self, id: u64, timer_type: &TimerType) -> Option<T> {
+    match timer_type {
+      TimerType::Repeat(_) => {
+        self.data_map.borrow().get(&id).map(|td| td.data.clone())
+      }
+      TimerType::Once => {
+        let mut data = self.data_map.borrow_mut();
+        let TimerData {
+          data: d,
+          unrefd,
+          high_res,
+        } = data.remove(&id)?;
+        if data.is_empty() {
+          self.high_res_timer_lock.clear();
+          self.unrefd_count.set(0);
+          self.timers.borrow_mut().clear();
+          self.sleep.clear();
+        } else {
+          self.high_res_timer_lock.maybe_unlock(high_res);
+          if unrefd {
+            self.unrefd_count.set(self.unrefd_count.get() - 1);
+          }
+        }
+        Some(d)
+      }
+    }
   }
 
   /// Is this set of timers empty?
@@ -647,17 +681,20 @@ mod tests {
     runtime.block_on(f)
   }
 
-  async fn poll_all(timers: &TestTimers) -> Vec<(u64, ())> {
+  async fn poll_all(timers: &TestTimers) -> Vec<u64> {
     timers.assert_consistent();
     let len = timers.len();
     let mut v = vec![];
     while !timers.is_empty() {
-      let mut batch = poll_fn(|cx| {
+      let batch = poll_fn(|cx| {
         timers.assert_consistent();
         timers.poll_timers(cx)
       })
       .await;
-      v.append(&mut batch);
+      for (id, timer_type) in &batch {
+        timers.take_fired_timer(*id, timer_type);
+      }
+      v.extend(batch.into_iter().map(|(id, _)| id));
       #[allow(clippy::print_stderr)]
       {
         eprintln!(
@@ -718,7 +755,10 @@ mod tests {
       );
 
       // Poll timers to trigger potential compaction
-      let _ = poll_fn(|cx| timers.poll_timers(cx)).await;
+      let fired = poll_fn(|cx| timers.poll_timers(cx)).await;
+      for (id, timer_type) in &fired {
+        timers.take_fired_timer(*id, timer_type);
+      }
 
       let remaining_tombstones = count_tombstones();
 

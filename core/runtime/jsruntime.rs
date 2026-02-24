@@ -2740,19 +2740,27 @@ impl JsRuntime {
     scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
   ) -> bool {
-    let timers = match context_state.timers.poll_timers(cx) {
-      Poll::Ready(timers) => timers,
+    let expired = match context_state.timers.poll_timers(cx) {
+      Poll::Ready(expired) => expired,
       _ => return false,
     };
 
-    if timers.is_empty() {
+    if expired.is_empty() {
       return false;
     }
 
     let traces_enabled = context_state.activity_traces.is_enabled();
     let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
 
-    for (timer_id, (callback, depth)) in &timers {
+    for (timer_id, timer_type) in &expired {
+      // Extract the timer data; if it was cancelled during this dispatch
+      // loop (e.g. clearTimeout called from an earlier callback), skip it.
+      let Some((callback, depth)) =
+        context_state.timers.take_fired_timer(*timer_id, timer_type)
+      else {
+        continue;
+      };
+
       if traces_enabled {
         context_state
           .activity_traces
@@ -2764,7 +2772,7 @@ impl JsRuntime {
         let set_timer_depth_cb = context_state.js_set_timer_depth_cb.borrow();
         let set_timer_depth_fn =
           set_timer_depth_cb.as_ref().unwrap().open(scope);
-        let depth_val = v8::Integer::new(scope, *depth as i32);
+        let depth_val = v8::Integer::new(scope, depth as i32);
         set_timer_depth_fn.call(scope, undefined, &[depth_val.into()]);
       }
 
