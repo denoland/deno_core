@@ -163,7 +163,7 @@
   // (promiseId, isOk, res, promiseId, isOk, res, ...)
   function __resolveOps() {
     for (let i = 0; i < arguments.length; i += 3) {
-			const promiseId = arguments[i];
+      const promiseId = arguments[i];
       const isOk = arguments[i + 1];
       const res = arguments[i + 2];
       __resolvePromise(promiseId, res, isOk);
