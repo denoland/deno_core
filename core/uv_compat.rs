@@ -606,9 +606,8 @@ impl UvLoopInner {
               if buf.base.is_null() || buf.len == 0 {
                 break;
               }
-              let slice = unsafe {
-                std::slice::from_raw_parts_mut(buf.base as *mut u8, buf.len)
-              };
+              let slice =
+                unsafe { std::slice::from_raw_parts_mut(buf.base, buf.len) };
               match tcp.internal_stream.as_ref().unwrap().try_read(slice) {
                 Ok(0) => {
                   unsafe {
