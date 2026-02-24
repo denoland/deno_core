@@ -2175,6 +2175,7 @@ mod tests {
 
   // 11. TCP listen and accept
   #[tokio::test(flavor = "multi_thread")]
+  #[cfg(not(miri))]
   async fn test_tcp_listen_accept() {
     unsafe {
       let loop_ = make_loop();
@@ -2242,6 +2243,7 @@ mod tests {
 
   // 12. TCP connect and write
   #[tokio::test(flavor = "multi_thread")]
+  #[cfg(not(miri))]
   async fn test_tcp_connect_and_write() {
     unsafe {
       let loop_ = make_loop();
@@ -2332,6 +2334,7 @@ mod tests {
 
   // 13. TCP read_start and read_stop
   #[tokio::test(flavor = "multi_thread")]
+  #[cfg(not(miri))]
   async fn test_tcp_read_start_stop() {
     unsafe {
       let loop_ = make_loop();
@@ -2418,6 +2421,7 @@ mod tests {
 
   // 14. TCP getpeername/getsockname
   #[tokio::test(flavor = "multi_thread")]
+  #[cfg(not(miri))]
   async fn test_tcp_getpeername_getsockname() {
     unsafe {
       let loop_ = make_loop();
@@ -2497,6 +2501,7 @@ mod tests {
 
   // 15. TCP close during active read
   #[tokio::test(flavor = "multi_thread")]
+  #[cfg(not(miri))]
   async fn test_tcp_close() {
     unsafe {
       let loop_ = make_loop();
@@ -2526,6 +2531,7 @@ mod tests {
 
   // 16. TCP nodelay
   #[tokio::test(flavor = "multi_thread")]
+  #[cfg(not(miri))]
   async fn test_tcp_nodelay() {
     unsafe {
       let loop_ = make_loop();
