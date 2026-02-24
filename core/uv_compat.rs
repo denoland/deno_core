@@ -139,7 +139,10 @@ pub struct uv_tcp_t {
   pub loop_: *mut uv_loop_t,
   pub data: *mut c_void,
   pub flags: u32,
-  internal_fd: Option<std::os::fd::RawFd>,
+  #[cfg(unix)]
+  internal_fd: Option<std::os::unix::io::RawFd>,
+  #[cfg(windows)]
+  internal_fd: Option<std::os::windows::io::RawSocket>,
   internal_bind_addr: Option<SocketAddr>,
   internal_stream: Option<tokio::net::TcpStream>,
   internal_listener: Option<tokio::net::TcpListener>,
@@ -1258,10 +1261,22 @@ pub unsafe fn uv_tcp_init(loop_: *mut uv_loop_t, tcp: *mut uv_tcp_t) -> c_int {
 
 pub unsafe fn uv_tcp_open(tcp: *mut uv_tcp_t, fd: c_int) -> c_int {
   unsafe {
-    use std::os::unix::io::FromRawFd;
-    let std_stream = std::net::TcpStream::from_raw_fd(fd);
+    #[cfg(unix)]
+    let std_stream = {
+      use std::os::unix::io::FromRawFd;
+      let s = std::net::TcpStream::from_raw_fd(fd);
+      (*tcp).internal_fd = Some(fd);
+      s
+    };
+    #[cfg(windows)]
+    let std_stream = {
+      use std::os::windows::io::FromRawSocket;
+      let sock = fd as std::os::windows::io::RawSocket;
+      let s = std::net::TcpStream::from_raw_socket(sock);
+      (*tcp).internal_fd = Some(sock);
+      s
+    };
     std_stream.set_nonblocking(true).ok();
-    (*tcp).internal_fd = Some(fd);
     match tokio::net::TcpStream::from_std(std_stream) {
       Ok(stream) => {
         if (*tcp).internal_nodelay {
