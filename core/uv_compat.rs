@@ -607,7 +607,7 @@ impl UvLoopInner {
                 break;
               }
               let slice =
-                unsafe { std::slice::from_raw_parts_mut(buf.base, buf.len) };
+                unsafe { std::slice::from_raw_parts_mut(buf.base.cast::<u8>(), buf.len) };
               match tcp.internal_stream.as_ref().unwrap().try_read(slice) {
                 Ok(0) => {
                   unsafe {
