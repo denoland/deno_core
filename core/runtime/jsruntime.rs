@@ -2063,6 +2063,15 @@ impl JsRuntime {
 
     Poll::Pending
   }
+
+  /// # SAFETY
+  /// try to acquire [`ModuleMap`] with HandleScope from a Isolate
+  /// that is not initialized with `deno_core::JsRuntime` will be undefined behavior
+  ///
+  /// manipulating internal module may cause problems
+  pub unsafe fn module_map_from(scope: &mut v8::PinScope) -> Rc<ModuleMap> {
+    JsRealm::module_map_from(scope)
+  }
 }
 
 fn find_and_report_stalled_level_await_in_any_realm(
