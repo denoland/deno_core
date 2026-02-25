@@ -623,7 +623,20 @@ fn wrap_module<'s, 'i>(
 
   wrapper_module.instantiate_module(scope, resolve_callback)?;
 
-  wrapper_module.evaluate(scope)?;
+  let result = wrapper_module.evaluate(scope)?;
+  if let Ok(promise) = result.try_cast::<v8::Promise>() {
+    promise.mark_as_handled();
+    if promise.state() == v8::PromiseState::Rejected {
+      let exception_state = JsRealm::exception_state_from_scope(scope);
+      // TODO: remove after crrev.com/c/7595271
+      exception_state.track_promise_rejection(
+        scope,
+        promise,
+        v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject,
+        None,
+      );
+    }
+  }
 
   Some(wrapper_module)
 }

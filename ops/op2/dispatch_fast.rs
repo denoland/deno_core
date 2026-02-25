@@ -250,11 +250,11 @@ impl V8FastCallType {
       V8FastCallType::Bool => quote!(CType::Bool.as_info()),
       V8FastCallType::U32 => quote!(v8::fast_api::CTypeInfo::new(
         CType::Uint32,
-        v8::fast_api::Flags::Clamp
+        v8::fast_api::Flags::empty(),
       )),
       V8FastCallType::I32 => quote!(v8::fast_api::CTypeInfo::new(
         CType::Int32,
-        v8::fast_api::Flags::Clamp
+        v8::fast_api::Flags::empty(),
       )),
       V8FastCallType::U64 => quote!(CType::Uint64.as_info()),
       V8FastCallType::I64 => quote!(CType::Int64.as_info()),
