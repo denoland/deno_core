@@ -1991,8 +1991,7 @@ impl ModuleMap {
                 // For defer phase imports, the module is instantiated but NOT evaluated.
                 // V8 will handle creating the deferred namespace object that triggers
                 // evaluation on first property access.
-                // NOTE: Full support for defer imports requires V8 runtime support
-                // (flag --js-defer-import-eval) which may not be complete in all versions.
+                // Requires V8 flag --js-defer-import-eval (enabled in runtime/setup.rs).
                 let module_id =
                   load.root_module_id.expect("Root module should be loaded");
                 let result = self.instantiate_module(scope, module_id);

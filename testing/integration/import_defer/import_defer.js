@@ -7,10 +7,6 @@
 // executing it. The module is executed synchronously when any property
 // on the namespace is first accessed.
 //
-// NOTE: This test requires full V8 runtime support for import defer.
-// As of V8 14.5 (rusty_v8 145), only parser support is available.
-// The test is disabled until V8 runtime support is complete.
-
 console.log("before import defer");
 
 // Static import defer syntax - module is loaded but not executed
