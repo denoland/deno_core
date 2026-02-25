@@ -11,6 +11,7 @@ use super::dispatch_slow::throw_exception;
 use super::dispatch_slow::with_fn_args;
 use super::dispatch_slow::with_opctx;
 use super::dispatch_slow::with_opstate;
+use super::dispatch_slow::with_required_check;
 use super::dispatch_slow::with_retval;
 use super::dispatch_slow::with_scope;
 use super::dispatch_slow::with_self;
@@ -18,7 +19,7 @@ use super::dispatch_slow::with_stack_trace;
 use super::generator_state::GeneratorState;
 use super::generator_state::gs_quote;
 use super::signature::ParsedSignature;
-use super::signature::RetVal;
+use super::signature_retval::RetVal;
 use proc_macro2::TokenStream;
 use quote::quote;
 
@@ -27,23 +28,29 @@ pub(crate) fn map_async_return_type(
   ret_val: &RetVal,
 ) -> Result<(TokenStream, TokenStream, TokenStream), V8MappingError> {
   let return_value = return_value_v8_value(generator_state, ret_val.arg())?;
-  let (mapper, return_value_immediate) = match ret_val {
-    RetVal::Infallible(r, true)
-    | RetVal::Future(r)
-    | RetVal::ResultFuture(r) => (
-      quote!(map_async_op_infallible),
-      return_value_infallible(generator_state, r)?,
-    ),
-    RetVal::Result(r, true)
-    | RetVal::FutureResult(r)
-    | RetVal::ResultFutureResult(r) => (
-      quote!(map_async_op_fallible),
-      return_value_result(generator_state, r)?,
-    ),
-    RetVal::Infallible(_, false) | RetVal::Result(_, false) => {
-      return Err("an async return");
-    }
+
+  let fut = if generator_state.is_fake_async {
+    Some(ret_val)
+  } else {
+    ret_val.get_future()
   };
+
+  let (mapper, return_value_immediate) = if let Some(ret_val) = fut {
+    if let Some(res_ret_val) = ret_val.unwrap_result() {
+      (
+        quote!(map_async_op_fallible),
+        return_value_result(generator_state, res_ret_val.arg())?,
+      )
+    } else {
+      (
+        quote!(map_async_op_infallible),
+        return_value_infallible(generator_state, ret_val.arg())?,
+      )
+    }
+  } else {
+    return Err("an async return");
+  };
+
   Ok((return_value, mapper, return_value_immediate))
 }
 
@@ -76,6 +83,7 @@ pub(crate) fn generate_dispatch_async(
     map_async_return_type(generator_state, &signature.ret_val).map_err(
       |s| {
         V8SignatureMappingError::NoRetValMapping(
+          signature.ret_span,
           s,
           Box::new(signature.ret_val.clone()),
         )
@@ -89,7 +97,9 @@ pub(crate) fn generate_dispatch_async(
   }));
 
   // TODO(mmastrac): we should save this unwrapped result
-  if signature.ret_val.unwrap_result().is_some() {
+  if signature.ret_val.unwrap_result().is_some()
+    && !generator_state.is_fake_async
+  {
     let exception = throw_exception(generator_state);
     output.extend(gs_quote!(generator_state(result) => {
       let #result = match #result {
@@ -152,6 +162,15 @@ pub(crate) fn generate_dispatch_async(
     quote!()
   };
 
+  let with_required_check = if generator_state.needs_args
+    && let Some(required) = config.required
+    && required > 0
+  {
+    with_required_check(generator_state, required, true)
+  } else {
+    quote!()
+  };
+
   let with_scope =
     if generator_state.needs_scope | generator_state.needs_stack_trace {
       with_scope(generator_state)
@@ -174,6 +193,7 @@ pub(crate) fn generate_dispatch_async(
         #with_scope
         #with_retval
         #with_args
+        #with_required_check
         #with_opctx
         #with_opstate
         #with_self

@@ -10,6 +10,8 @@ pub struct GeneratorState {
   pub args: Vec<Ident>,
   /// The result of the `call` function
   pub result: Ident,
+  /// Whether the op should wrap the result in a [`std::future::ready`]
+  pub is_fake_async: bool,
 
   /// The `v8::CallbackScope` used if necessary for the function.
   pub scope: Ident,
@@ -55,7 +57,6 @@ pub struct GeneratorState {
   pub needs_self: bool,
   /// Wrap the `this` with cppgc object
   pub use_this_cppgc: bool,
-  pub use_proto_cppgc: bool,
   pub try_unwrap_cppgc: Ident,
 }
 

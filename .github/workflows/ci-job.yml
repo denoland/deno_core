@@ -54,7 +54,7 @@ jobs:
         uses: cargo-bins/cargo-binstall@main
 
       - name: Install nextest
-        run: cargo binstall cargo-nextest --secure
+        run: cargo binstall cargo-nextest --secure --locked
 
       - name: Install Deno
         # TODO(littledivy): Remove this when Deno has Windows on ARM builds

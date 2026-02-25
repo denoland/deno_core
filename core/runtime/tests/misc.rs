@@ -87,7 +87,7 @@ impl WakeRef for LoggingWaker {
 async fn test_wakers_for_async_ops() {
   static STATE: AtomicI8 = AtomicI8::new(0);
 
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() -> Result<(), JsErrorBox> {
     STATE.store(1, Ordering::SeqCst);
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -711,7 +711,7 @@ fn test_is_proxy() {
 
 #[tokio::test]
 async fn test_set_macrotask_callback_set_next_tick_callback() {
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() -> Result<(), JsErrorBox> {
     // Future must be Poll::Pending on first call
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
@@ -998,6 +998,48 @@ async fn test_promise_rejection_handler(
   test_promise_rejection_handler_generic(module, case, error).await
 }
 
+// Verify that the async context (continuation-preserved embedder data) that
+// was active at the time of a promise rejection is restored when the
+// unhandled promise rejection handler is called. This is required for
+// AsyncLocalStorage to work correctly inside unhandledRejection handlers
+// (matching Node.js behavior). See https://github.com/denoland/deno/issues/30135
+#[tokio::test]
+async fn test_promise_rejection_handler_preserves_async_context() {
+  let mut runtime = JsRuntime::new(Default::default());
+
+  let script = r#"
+    const v = new Deno.core.AsyncVariable();
+    let capturedValue = undefined;
+
+    Deno.core.setUnhandledPromiseRejectionHandler((promise, rejection) => {
+      capturedValue = v.get();
+      return true;
+    });
+
+    // Enter an async context with a known value, then reject a promise
+    const prev = v.enter("my_context_data");
+    Promise.reject(new Error("fail"));
+    Deno.core.setAsyncContext(prev);
+
+    // capturedValue will be checked after the event loop tick
+  "#;
+
+  runtime.execute_script("", script).unwrap();
+  runtime
+    .run_event_loop(Default::default())
+    .await
+    .expect("Event loop should complete without error");
+
+  // Verify the handler saw the correct async context
+  let result = runtime
+    .execute_script(
+      "",
+      "if (capturedValue !== 'my_context_data') { throw new Error('expected my_context_data but got ' + capturedValue); }",
+    )
+    .unwrap();
+  drop(result);
+}
+
 // Make sure that stalled top-level awaits (that is, top-level awaits that
 // aren't tied to the progress of some op) are correctly reported, even in a
 // realm other than the main one.
@@ -1041,7 +1083,7 @@ async fn test_stalled_tla() {
 // Regression test for https://github.com/denoland/deno/issues/20034.
 #[tokio::test]
 async fn test_dynamic_import_module_error_stack() {
-  #[op2(async)]
+  #[op2]
   async fn op_async_error() -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(1)).await;
     Err(deno_error::JsErrorBox::type_error("foo"))
@@ -1089,7 +1131,7 @@ async fn test_dynamic_import_module_error_stack() {
   expected = "Failed to initialize a JsRuntime: Top-level await is not allowed in synchronous evaluation"
 )]
 async fn tla_in_esm_extensions_panics() {
-  #[op2(async)]
+  #[op2]
   async fn op_wait(#[number] ms: usize) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
@@ -1195,7 +1237,7 @@ async fn generic_in_extension_middleware() {
     at mod:error:3:9"#
 )]
 async fn esm_extensions_throws() {
-  #[op2(async)]
+  #[op2]
   async fn op_wait(#[number] ms: usize) {
     tokio::time::sleep(Duration::from_millis(ms as u64)).await
   }
@@ -1333,7 +1375,7 @@ async fn task_spawner_cross_thread_blocking() {
 
 #[tokio::test]
 async fn terminate_execution_run_event_loop_js() {
-  #[op2(async)]
+  #[op2]
   async fn op_async_sleep() -> Result<(), JsErrorBox> {
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     Ok(())
@@ -1393,7 +1435,7 @@ async fn global_template_middleware() {
   ) -> v8::Intercepted {
     CALLS.lock().push("descriptor".to_string());
 
-    v8::Intercepted::No
+    v8::Intercepted::kNo
   }
 
   pub fn setter<'s>(
@@ -1404,7 +1446,7 @@ async fn global_template_middleware() {
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
     CALLS.lock().push("setter".to_string());
-    v8::Intercepted::No
+    v8::Intercepted::kNo
   }
 
   fn definer<'s>(
@@ -1415,7 +1457,7 @@ async fn global_template_middleware() {
     _rv: v8::ReturnValue<()>,
   ) -> v8::Intercepted {
     CALLS.lock().push("definer".to_string());
-    v8::Intercepted::No
+    v8::Intercepted::kNo
   }
 
   pub fn gt_middleware<'s>(

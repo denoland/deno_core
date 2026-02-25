@@ -23,7 +23,8 @@ function returns `Err`, an exception is thrown.
 
 ## `async` calls
 
-Asynchronous calls are supported in two forms:
+Asynchronous calls are fully inferred from the function definition. Asynchronous
+calls are supported in two forms:
 
 ```rust,ignore
 async fn op_xyz(/* ... */) -> X {}
@@ -45,7 +46,7 @@ op system.
 fn op_xyz(promise_id: i32 /* ... */) -> Option<X> {}
 ```
 
-### Eager `async` calls: `async`
+### Eager `async` calls
 
 By default, `async` functions are eagerly polled, which reduces the latency of
 the call dramatically if the async function is ready to return a value
@@ -90,6 +91,284 @@ v8 optimized the slow function to a fastcall, it will switch the implementation
 over if the parameters are compatible. This is useful for a function that takes
 any buffer type in the slow path and wishes to use the very fast typed `u8`
 buffer for the fast path.
+
+## Argument conversion
+
+Arguments in non-fast ops use the `deno_core::convert::FromV8Scopeless` trait by
+default. This trait does not require a v8 scope for conversion, making it more
+efficient for many types.
+
+To use the `FromV8` trait instead (which provides access to a v8 scope during
+conversion), add the `#[scoped]` attribute to the argument:
+
+```rust,ignore
+fn op_xyz(#[scoped] arg: MyFromV8Type) -> X {}
+```
+
+## Return value conversion
+
+Return types use the `ToV8` trait by default in non-fast ops. Any type that
+implements `deno_core::convert::ToV8` can be returned directly without any
+attribute.
+
+# CppGC Objects
+
+`op2` supports defining native JavaScript classes backed by Rust types using
+V8's CppGC (C++ garbage collector). These objects live on the V8 heap and are
+automatically garbage collected.
+
+## Basic usage
+
+Define a struct that implements `GarbageCollected`, then use `#[op2]` on an
+`impl` block to define its JavaScript API:
+
+```rust,ignore
+use deno_core::GarbageCollected;
+use deno_core::v8::cppgc::GcCell;
+
+#[repr(C)]
+pub struct MyObject {
+  value: GcCell<f64>,
+}
+
+unsafe impl GarbageCollected for MyObject {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"MyObject"
+  }
+}
+
+#[op2]
+impl MyObject {
+  #[constructor]
+  #[cppgc]
+  fn new(value: f64) -> MyObject {
+    MyObject {
+      value: GcCell::new(value),
+    }
+  }
+
+  #[getter]
+  fn value(&self, isolate: &v8::Isolate) -> f64 {
+    *self.value.get(isolate)
+  }
+
+  #[setter]
+  fn value(&self, isolate: &mut v8::Isolate, value: f64) {
+    self.value.set(isolate, value);
+  }
+
+  #[fast]
+  fn double_value(&self, isolate: &v8::Isolate) -> f64 {
+    *self.value.get(isolate) * 2.0
+  }
+
+  #[static_method]
+  #[cppgc]
+  fn create(value: f64) -> MyObject {
+    MyObject {
+      value: GcCell::new(value),
+    }
+  }
+}
+```
+
+Register the object in your extension:
+
+```rust,ignore
+deno_core::extension!(
+  my_ext,
+  objects = [MyObject],
+  // ...
+);
+```
+
+The object is then available in JavaScript:
+
+```js
+import { MyObject } from "ext:core/ops";
+
+const obj = new MyObject(42);
+console.log(obj.value); // 42
+console.log(obj.doubleValue()); // 84
+obj.value = 10;
+```
+
+### Supported member types
+
+- `#[constructor]` — The JS constructor. Must return the struct type (optionally
+  wrapped in `Result`). Mark with `#[cppgc]` to indicate the return is a CppGC
+  object.
+- `#[getter]` / `#[setter]` — Property accessors. Getter and setter for the same
+  property should share the same function name.
+- `#[static_method]` — A static method on the class (e.g., `MyObject.create()`).
+- `#[fast]` — Regular methods. Use `&self` as the first parameter to receive the
+  native object.
+
+## Inheritance
+
+CppGC objects support a prototype-based inheritance model that mirrors
+JavaScript's class inheritance. This allows you to define a base class in Rust
+and have derived classes inherit its methods and properties, just like
+`class Child extends Parent` in JavaScript.
+
+### Defining a base class
+
+Mark the struct with `#[derive(CppgcBase)]` and its `impl` block with
+`#[op2(base)]`:
+
+```rust,ignore
+use deno_core::CppgcBase;
+
+#[derive(CppgcBase)]
+#[repr(C)]
+pub struct Shape {
+  sides: GcCell<u32>,
+}
+
+unsafe impl GarbageCollected for Shape {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"Shape"
+  }
+}
+
+#[op2(base)]
+impl Shape {
+  #[constructor]
+  #[cppgc]
+  fn new(sides: u32) -> Shape {
+    Shape {
+      sides: GcCell::new(sides),
+    }
+  }
+
+  #[getter]
+  fn sides(&self, isolate: &v8::Isolate) -> u32 {
+    *self.sides.get(isolate)
+  }
+}
+```
+
+The `base` attribute tells `op2` to use a polymorphic unwrap when accessing
+`&self`, so that methods on `Shape` can be called on any type that inherits from
+it.
+
+### Defining a derived class
+
+Mark the struct with `#[derive(CppgcInherits)]`, put the base type as the first
+field, and use `#[op2(inherit = BaseType)]` on the `impl` block:
+
+```rust,ignore
+use deno_core::CppgcInherits;
+
+#[derive(CppgcInherits)]
+#[cppgc_inherits_from(Shape)]
+#[repr(C)]
+pub struct Rectangle {
+  base: Shape, // must be the first field
+  width: GcCell<f64>,
+  height: GcCell<f64>,
+}
+
+unsafe impl GarbageCollected for Rectangle {
+  fn trace(&self, _visitor: &mut v8::cppgc::Visitor) {}
+  fn get_name(&self) -> &'static std::ffi::CStr {
+    c"Rectangle"
+  }
+}
+
+#[op2(inherit = Shape)]
+impl Rectangle {
+  #[constructor]
+  #[cppgc]
+  fn new(width: f64, height: f64) -> Rectangle {
+    Rectangle {
+      base: Shape {
+        sides: GcCell::new(4),
+      },
+      width: GcCell::new(width),
+      height: GcCell::new(height),
+    }
+  }
+
+  #[fast]
+  fn area(&self, isolate: &v8::Isolate) -> f64 {
+    *self.width.get(isolate) * *self.height.get(isolate)
+  }
+}
+```
+
+In JavaScript, `Rectangle` inherits from `Shape`:
+
+```js
+const rect = new Rectangle(3, 4);
+console.log(rect.sides); // 4 (inherited from Shape)
+console.log(rect.area()); // 12
+console.log(rect instanceof Rectangle); // true
+console.log(rect instanceof Shape); // true
+```
+
+JavaScript classes can also extend these native classes:
+
+```js
+class Square extends Rectangle {
+  constructor(size) {
+    super(size, size);
+  }
+}
+const sq = new Square(5);
+console.log(sq.area()); // 25
+console.log(sq.sides); // 4
+```
+
+### Multi-level inheritance
+
+If a derived class will itself be inherited from, it must also be a base class.
+Derive both `CppgcInherits` and `CppgcBase`, and use
+`#[op2(base, inherit = ParentType)]`:
+
+```rust,ignore
+// Rectangle is both a child of Shape AND a base for further derivation.
+#[derive(CppgcInherits, CppgcBase)]
+#[cppgc_inherits_from(Shape)]
+#[repr(C)]
+pub struct Rectangle {
+  base: Shape,
+  width: GcCell<f64>,
+  height: GcCell<f64>,
+}
+
+#[op2(base, inherit = Shape)]
+impl Rectangle {
+  // ... methods ...
+}
+
+// Square inherits from Rectangle
+#[derive(CppgcInherits)]
+#[cppgc_inherits_from(Rectangle)]
+#[repr(C)]
+pub struct Square {
+  base: Rectangle,
+}
+
+#[op2(inherit = Rectangle)]
+impl Square {
+  // ... methods ...
+}
+```
+
+### Requirements
+
+- All types in the inheritance chain must use `#[repr(C)]`.
+- The base type must be the **first field** of the derived struct, and it must
+  be at offset 0.
+- Leaf types (not inherited from) only need `#[derive(CppgcInherits)]`.
+- Root base types only need `#[derive(CppgcBase)]`.
+- Types in the middle of the chain need both
+  `#[derive(CppgcInherits, CppgcBase)]`.
+- All types must be registered in the extension's `objects = [...]` list, with
+  base types listed **before** their derived types.
 
 # Parameters
 
@@ -491,7 +770,7 @@ v8::Local<v8::...>
 <td>
 
 ```text
-#[global] v8::Global<v8::Value>
+FromV8Scopeless
 ```
 
 </td><td>
@@ -499,63 +778,35 @@ v8::Local<v8::...>
 </td><td>
 any
 </td><td>
-⚠️ Slower than `v8::Local`.
+Any type that implements `deno_core::covert::FromV8Scopeless`.
 </td></tr>
 <tr>
 <td>
 
 ```text
-#[global] v8::Global<v8::String>
+#[scoped] FromV8Type
 ```
 
 </td><td>
 
 </td><td>
-String
+any
 </td><td>
-⚠️ Slower than `v8::Local`.
+Any type that implements `deno_core::covert::FromV8`. ⚠️ May be slow.
 </td></tr>
 <tr>
 <td>
 
 ```text
-#[global] v8::Global<v8::Object>
+#[scoped] (Tuple, Tuple)
 ```
 
 </td><td>
 
 </td><td>
-Object
+any
 </td><td>
-⚠️ Slower than `v8::Local`.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[global] v8::Global<v8::Function>
-```
-
-</td><td>
-
-</td><td>
-Function
-</td><td>
-⚠️ Slower than `v8::Local`.
-</td></tr>
-<tr>
-<td>
-
-```text
-#[global] v8::Global<v8::...>
-```
-
-</td><td>
-
-</td><td>
-...
-</td><td>
-⚠️ Slower than `v8::Local`.
+Any type that implements `deno_core::covert::FromV8`. ⚠️ May be slow.
 </td></tr>
 <tr>
 <td>
@@ -569,7 +820,7 @@ Function
 </td><td>
 any
 </td><td>
-⚠️ May be slow.
+⚠️ May be slow. Legacy & not recommended, use `FromV8` trait and macros instead.
 </td></tr>
 <tr>
 <td>
@@ -583,7 +834,7 @@ any
 </td><td>
 any
 </td><td>
-⚠️ May be slow.
+⚠️ May be slow. Legacy & not recommended, use `FromV8` trait and macros instead.
 </td></tr>
 <tr>
 <td>
@@ -1499,7 +1750,7 @@ v8::Local<v8::...>
 <td>
 
 ```text
-#[global] v8::Global<v8::Value>
+ToV8Type
 ```
 
 </td><td>
@@ -1507,7 +1758,7 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-
+Any type that implements `deno_core::covert::ToV8`.
 </td><td>
 
 </td></tr>
@@ -1515,7 +1766,7 @@ v8::Local<v8::...>
 <td>
 
 ```text
-#[global] v8::Global<v8::String>
+(ToV8Type, ToV8Type)
 ```
 
 </td><td>
@@ -1523,55 +1774,7 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```text
-#[global] v8::Global<v8::Object>
-```
-
-</td><td>
-
-</td><td>
-
-</td><td>
-
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```text
-#[global] v8::Global<v8::Function>
-```
-
-</td><td>
-
-</td><td>
-
-</td><td>
-
-</td><td>
-
-</td></tr>
-<tr>
-<td>
-
-```text
-#[global] v8::Global<v8::...>
-```
-
-</td><td>
-
-</td><td>
-
-</td><td>
-
+Any type that implements `deno_core::covert::ToV8`.
 </td><td>
 
 </td></tr>
@@ -1587,7 +1790,7 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-
+⚠️ Legacy & not recommended, use `ToV8` trait and macros instead.
 </td><td>
 
 </td></tr>
@@ -1595,7 +1798,7 @@ v8::Local<v8::...>
 <td>
 
 ```text
-#[serde] (Tuple, Tuple)
+#[serde] (SerdeType, SerdeType)
 ```
 
 </td><td>
@@ -1603,7 +1806,7 @@ v8::Local<v8::...>
 </td><td>
 
 </td><td>
-
+⚠️ Legacy & not recommended, use `ToV8` trait and macros instead.
 </td><td>
 
 </td></tr>

@@ -154,7 +154,6 @@ pub fn op_panic(#[string] message: String) {
 /// Return map of resources with id as key
 /// and string representation as value.
 #[op2]
-#[serde]
 pub fn op_resources(state: &mut OpState) -> Vec<(ResourceId, String)> {
   state
     .resource_table
@@ -169,7 +168,7 @@ fn op_add(a: i32, b: i32) -> i32 {
 }
 
 #[allow(clippy::unused_async)]
-#[op2(async)]
+#[op2]
 pub async fn op_add_async(a: i32, b: i32) -> i32 {
   a + b
 }
@@ -178,11 +177,11 @@ pub async fn op_add_async(a: i32, b: i32) -> i32 {
 pub fn op_void_sync() {}
 
 #[allow(clippy::unused_async)]
-#[op2(async)]
+#[op2]
 pub async fn op_void_async() {}
 
 #[allow(clippy::unused_async)]
-#[op2(async)]
+#[op2]
 pub async fn op_error_async() -> Result<(), JsErrorBox> {
   Err(JsErrorBox::generic("error"))
 }
@@ -233,7 +232,7 @@ pub fn op_print(
   Ok(())
 }
 
-pub struct WasmStreamingResource(pub(crate) RefCell<v8::WasmStreaming>);
+pub struct WasmStreamingResource(pub(crate) RefCell<v8::WasmStreaming<false>>);
 
 impl Resource for WasmStreamingResource {
   fn close(self: Rc<Self>) {
@@ -282,7 +281,7 @@ pub fn op_wasm_streaming_set_url(
   Ok(())
 }
 
-#[op2(async)]
+#[op2]
 async fn op_wasm_streaming_stream_feed(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -342,7 +341,7 @@ fn get_resource(
   Ok(resource)
 }
 
-#[op2(async, promise_id)]
+#[op2(promise_id)]
 async fn op_read(
   state: Rc<RefCell<OpState>>,
   #[smi] promise_id: i32,
@@ -355,7 +354,7 @@ async fn op_read(
   resource.read_byob(view).await.map(|(n, _)| n as u32)
 }
 
-#[op2(async, promise_id)]
+#[op2(promise_id)]
 #[buffer]
 async fn op_read_all(
   state: Rc<RefCell<OpState>>,
@@ -391,7 +390,7 @@ async fn op_read_all(
   Ok(buf.maybe_unwrap_bytes().unwrap())
 }
 
-#[op2(async, promise_id)]
+#[op2(promise_id)]
 async fn op_write(
   state: Rc<RefCell<OpState>>,
   #[smi] promise_id: i32,
@@ -434,7 +433,7 @@ fn op_write_sync(
   Ok(nwritten as u32)
 }
 
-#[op2(async)]
+#[op2]
 async fn op_write_all(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -450,7 +449,7 @@ async fn op_write_all(
   Ok(())
 }
 
-#[op2(async)]
+#[op2]
 async fn op_write_type_error(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -465,7 +464,7 @@ async fn op_write_type_error(
   Ok(())
 }
 
-#[op2(async)]
+#[op2]
 async fn op_shutdown(
   state: Rc<RefCell<OpState>>,
   #[smi] rid: ResourceId,
@@ -517,16 +516,11 @@ async fn do_load_job<'s, 'i>(
   specifier: &str,
   code: Option<String>,
 ) -> Result<ModuleId, CoreError> {
-  if let Some(code) = code {
-    module_map_rc
-      .new_es_module(scope, false, specifier.to_owned(), code, false, None)
-      .map_err(|e| e.into_error(scope, false, false))?;
-  }
-
   let mut load = ModuleMap::load_side(
     module_map_rc.clone(),
-    specifier,
+    specifier.to_string(),
     crate::modules::SideModuleKind::Sync,
+    code,
   )
   .await?;
 
@@ -629,7 +623,20 @@ fn wrap_module<'s, 'i>(
 
   wrapper_module.instantiate_module(scope, resolve_callback)?;
 
-  wrapper_module.evaluate(scope)?;
+  let result = wrapper_module.evaluate(scope)?;
+  if let Ok(promise) = result.try_cast::<v8::Promise>() {
+    promise.mark_as_handled();
+    if promise.state() == v8::PromiseState::Rejected {
+      let exception_state = JsRealm::exception_state_from_scope(scope);
+      // TODO: remove after crrev.com/c/7595271
+      exception_state.track_promise_rejection(
+        scope,
+        promise,
+        v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject,
+        None,
+      );
+    }
+  }
 
   Some(wrapper_module)
 }

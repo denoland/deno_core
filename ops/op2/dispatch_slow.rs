@@ -6,7 +6,6 @@ use super::V8MappingError;
 use super::V8SignatureMappingError;
 use super::config::MacroConfig;
 use super::dispatch_shared::v8_intermediate_to_arg;
-use super::dispatch_shared::v8_intermediate_to_global_arg;
 use super::dispatch_shared::v8_to_arg;
 use super::dispatch_shared::v8slice_to_buffer;
 use super::generator_state::GeneratorState;
@@ -24,11 +23,12 @@ use super::signature::NumericArg;
 use super::signature::NumericFlag;
 use super::signature::ParsedSignature;
 use super::signature::RefType;
-use super::signature::RetVal;
 use super::signature::Special;
 use super::signature::Strings;
 use super::signature::WebIDLPair;
+use super::signature_retval::RetVal;
 use proc_macro2::Ident;
+use proc_macro2::Span;
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use quote::format_ident;
@@ -46,9 +46,18 @@ pub(crate) fn generate_dispatch_slow_call(
   let mut deferred = TokenStream::new();
 
   for (index, (arg, attrs)) in signature.args.iter().enumerate() {
+    let arg_span = signature
+      .arg_spans
+      .get(index)
+      .copied()
+      .unwrap_or_else(Span::call_site);
     let arg_mapped = from_arg(generator_state, index, arg, &signature.ret_val)
       .map_err(|s| {
-        V8SignatureMappingError::NoArgMapping(s, Box::new(arg.clone()))
+        V8SignatureMappingError::NoArgMapping(
+          arg_span,
+          s,
+          Box::new(arg.clone()),
+        )
       })?;
     if arg.is_virtual() {
       deferred.extend(arg_mapped);
@@ -80,6 +89,7 @@ pub(crate) fn generate_dispatch_slow(
     output.extend(return_value(generator_state, &signature.ret_val).map_err(
       |s| {
         V8SignatureMappingError::NoRetValMapping(
+          signature.ret_span,
           s,
           Box::new(signature.ret_val.clone()),
         )
@@ -149,7 +159,7 @@ pub(crate) fn generate_dispatch_slow(
     && let Some(required) = config.required
     && required > 0
   {
-    with_required_check(generator_state, required)
+    with_required_check(generator_state, required, false)
   } else {
     quote!()
   };
@@ -281,6 +291,7 @@ pub(crate) fn get_prefix(generator_state: &mut GeneratorState) -> String {
 pub(crate) fn with_required_check(
   generator_state: &mut GeneratorState,
   required: u8,
+  is_async: bool,
 ) -> TokenStream {
   generator_state.needs_scope = true;
   let arguments_lit = if required > 1 {
@@ -291,14 +302,16 @@ pub(crate) fn with_required_check(
 
   let prefix = get_prefix(generator_state);
 
+  let async_offset = if is_async { 1 } else { 0 };
+
   gs_quote!(generator_state(fn_args, scope) =>
-    (if #fn_args.length() < #required as i32 {
+    (if #fn_args.length() < (#required as i32) + #async_offset {
       let msg = format!(
         "{}: {} {} required, but only {} present",
         #prefix,
         #required,
         #arguments_lit,
-        #fn_args.length()
+        #fn_args.length() - #async_offset
       );
       let msg = deno_core::v8::String::new(&mut #scope, &msg).unwrap();
       let exception = deno_core::v8::Exception::type_error(&mut #scope, msg.into());
@@ -346,7 +359,7 @@ pub(crate) fn with_self(
     generator_state,
     format!("expected {}", &generator_state.self_ty),
   );
-  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_)) {
+  if ret_val.is_async() {
     let tokens = gs_quote!(generator_state(self_ty, fn_args, scope, try_unwrap_cppgc) => {
       let Some(mut self_) = deno_core::_ops::#try_unwrap_cppgc::<#self_ty>(&mut #scope, #fn_args.this().into()) else {
         #throw_exception;
@@ -643,20 +656,6 @@ pub fn from_arg(
       let extract_intermediate = v8_intermediate_to_arg(&arg_ident, arg);
       v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
     }
-    Arg::V8Global(v8) | Arg::OptionV8Global(v8) => {
-      // Only requires isolate, not a full scope
-      *needs_isolate = true;
-      let scope = scope.clone();
-      let throw_type_error = || {
-        Ok(throw_type_error(
-          generator_state,
-          format!("expected {v8:?}"),
-        ))
-      };
-      let extract_intermediate =
-        v8_intermediate_to_global_arg(&scope, &arg_ident, arg);
-      v8_to_arg(v8, &arg_ident, arg, throw_type_error, extract_intermediate)?
-    }
     Arg::SerdeV8(_class) => {
       *needs_scope = true;
       let scope = scope.clone();
@@ -671,15 +670,34 @@ pub fn from_arg(
         };
       }
     }
-    Arg::FromV8(ty) => {
+    Arg::FromV8(ty, true) => {
       *needs_scope = true;
-      let ty =
-        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+      let ty = syn::parse_str::<syn::Type>(ty)
+        .map_err(|_| "failed to reparse type")?;
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
       quote! {
-        let #arg_ident = match <#ty as deno_core::FromV8>::from_v8(&mut #scope, #arg_ident) {
+        let #arg_ident = {
+          use deno_core::FromV8;
+          use deno_core::FromV8Scopeless;
+
+          match <#ty>::from_v8(&mut #scope, #arg_ident) {
+            Ok(t) => t,
+            Err(#err) => {
+              #throw_exception;
+            }
+          }
+        };
+      }
+    }
+    Arg::FromV8(ty, false) => {
+      let ty = syn::parse_str::<syn::Type>(ty)
+        .map_err(|_| "failed to reparse type")?;
+      let err = format_ident!("{}_err", arg_ident);
+      let throw_exception = throw_type_error_string(generator_state, &err);
+      quote! {
+        let #arg_ident = match <#ty as deno_core::FromV8Scopeless>::from_v8(#arg_ident) {
           Ok(t) => t,
           Err(#err) => {
             #throw_exception;
@@ -689,8 +707,8 @@ pub fn from_arg(
     }
     Arg::WebIDL(ty, options, default) => {
       *needs_scope = true;
-      let ty =
-        syn::parse_str::<syn::Type>(ty).expect("Failed to reparse state type");
+      let ty = syn::parse_str::<syn::Type>(ty)
+        .map_err(|_| "failed to reparse type")?;
       let scope = scope.clone();
       let err = format_ident!("{}_err", arg_ident);
       let throw_exception = throw_type_error_string(generator_state, &err);
@@ -791,15 +809,9 @@ pub fn from_arg(
 
       let scope = &generator_state.scope;
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
-      let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
-      if matches!(
-        ret_val,
-        RetVal::Future(_)
-          | RetVal::FutureResult(_)
-          | RetVal::Infallible(.., true)
-          | RetVal::Result(.., true)
-      ) {
+      let ty = syn::parse_str::<syn::Path>(ty)
+        .map_err(|_| "failed to reparse type")?;
+      if ret_val.is_async() {
         let tokens = quote! {
           let Some(mut #arg_ident) = deno_core::_ops::#try_unwrap_cppgc::<#ty>(&mut #scope, #from_ident) else {
             #throw_exception;
@@ -823,17 +835,11 @@ pub fn from_arg(
       *needs_scope = true;
       let throw_exception =
         throw_type_error(generator_state, format!("expected {}", &ty));
-      let ty =
-        syn::parse_str::<syn::Path>(ty).expect("Failed to reparse state type");
+      let ty = syn::parse_str::<syn::Path>(ty)
+        .map_err(|_| "failed to reparse type")?;
       let scope = &generator_state.scope;
       let try_unwrap_cppgc = &generator_state.try_unwrap_cppgc;
-      if matches!(
-        ret_val,
-        RetVal::Future(_)
-          | RetVal::FutureResult(_)
-          | RetVal::Infallible(.., true)
-          | RetVal::Result(.., true)
-      ) {
+      if ret_val.is_async() {
         let tokens = quote! {
           let #arg_ident = if #arg_ident.is_null_or_undefined() {
             None
@@ -1042,21 +1048,16 @@ pub fn call(
 
   let call = quote!(#call_ ( #tokens ));
 
-  if matches!(ret_val, RetVal::Future(_) | RetVal::FutureResult(_))
-    && !generator_state.moves.is_empty()
-  {
+  if ret_val.is_async() && !generator_state.moves.is_empty() {
     let mut moves = TokenStream::new();
     for m in &generator_state.moves {
-      moves.extend(quote!(#m));
+      moves.extend(m.clone());
     }
     quote!(async move {
       #moves
       #call.await
     })
-  } else if matches!(
-    ret_val,
-    RetVal::Infallible(.., true) | RetVal::Result(.., true)
-  ) {
+  } else if generator_state.is_fake_async {
     quote!(std::future::ready(#call))
   } else {
     call
@@ -1068,11 +1069,11 @@ pub fn return_value(
   ret_type: &RetVal,
 ) -> Result<TokenStream, V8MappingError> {
   match ret_type {
-    RetVal::Infallible(ret_type, ..) => {
+    RetVal::Value(ret_type, ..) => {
       return_value_infallible(generator_state, ret_type)
     }
-    RetVal::Result(ret_type, ..) => {
-      return_value_result(generator_state, ret_type)
+    RetVal::Result(ret_type) => {
+      return_value_result(generator_state, ret_type.arg())
     }
     _ => todo!(),
   }
@@ -1100,30 +1101,10 @@ pub fn return_value_infallible(
     }
     ArgMarker::Cppgc if generator_state.use_this_cppgc => {
       generator_state.needs_isolate = true;
-      let wrap_object = match ret_type {
-        Arg::CppGcProtochain(chain) => {
-          let wrap_object = format_ident!("wrap_object{}", chain.len());
-          quote!(#wrap_object)
-        }
-        _ => {
-          if generator_state.use_proto_cppgc {
-            quote!(wrap_object1)
-          } else {
-            quote!(wrap_object)
-          }
-        }
-      };
-      gs_quote!(generator_state(result, scope) => (
-           Some(deno_core::cppgc::#wrap_object(&mut #scope, args.this(), #result))
+      generator_state.needs_args = true;
+      gs_quote!(generator_state(result, scope, fn_args) => (
+        Some(deno_core::cppgc::wrap_object(&mut #scope, #fn_args.this(), #result))
       ))
-    }
-    ArgMarker::Cppgc if generator_state.use_proto_cppgc => {
-      let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcProtoMarker, _>::from);
-      if ret_type.is_option() {
-        gs_quote!(generator_state(result) => (#result.map(#marker)))
-      } else {
-        gs_quote!(generator_state(result) => (#marker(#result)))
-      }
     }
     ArgMarker::Cppgc => {
       let marker = quote!(deno_core::_ops::RustToV8Marker::<deno_core::_ops::CppGcMarker, _>::from);

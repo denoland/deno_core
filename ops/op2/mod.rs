@@ -24,10 +24,10 @@ use self::dispatch_fast::generate_dispatch_fast;
 use self::dispatch_slow::generate_dispatch_slow;
 use self::generator_state::GeneratorState;
 use self::signature::Arg;
-use self::signature::RetVal;
 use self::signature::SignatureError;
 use self::signature::is_attribute_special;
 use self::signature::parse_signature;
+use self::signature_retval::RetVal;
 
 pub mod config;
 pub mod dispatch_async;
@@ -40,13 +40,61 @@ pub mod signature;
 pub mod signature_retval;
 
 #[derive(Debug, Error)]
-pub enum Op2Error {
+#[error("{kind}")]
+pub struct Op2Error {
+  span: Option<Span>,
+  kind: Op2ErrorKind,
+}
+
+impl Op2Error {
+  pub fn new(kind: Op2ErrorKind) -> Self {
+    Self { span: None, kind }
+  }
+
+  pub fn with_span(span: Span, kind: Op2ErrorKind) -> Self {
+    Self {
+      span: Some(span),
+      kind,
+    }
+  }
+
+  /// Set the span if one isn't already present.
+  pub fn with_default_span(mut self, span: Span) -> Self {
+    if self.span.is_none() {
+      self.span = Some(span);
+    }
+    self
+  }
+}
+
+impl From<Op2ErrorKind> for Op2Error {
+  fn from(kind: Op2ErrorKind) -> Self {
+    Self::new(kind)
+  }
+}
+
+impl From<syn::Error> for Op2Error {
+  fn from(err: syn::Error) -> Self {
+    Op2Error::with_span(err.span(), Op2ErrorKind::ParseError(err))
+  }
+}
+
+impl From<V8SignatureMappingError> for Op2Error {
+  fn from(err: V8SignatureMappingError) -> Self {
+    Op2Error::new(Op2ErrorKind::V8SignatureMappingError(err))
+  }
+}
+
+impl From<SignatureError> for Op2Error {
+  fn from(err: SignatureError) -> Self {
+    Op2Error::new(Op2ErrorKind::SignatureError(err))
+  }
+}
+
+#[derive(Debug, Error)]
+pub enum Op2ErrorKind {
   #[error("Failed to parse syntax tree")]
-  ParseError(
-    #[from]
-    #[source]
-    syn::Error,
-  ),
+  ParseError(#[source] syn::Error),
   #[error("Failed to map signature to V8")]
   V8SignatureMappingError(#[from] V8SignatureMappingError),
   #[error("Failed to parse signature")]
@@ -57,21 +105,60 @@ pub enum Op2Error {
   ShouldBeFast,
   #[error("This op is not fast-compatible and should not be marked as ({0})")]
   ShouldNotBeFast(&'static str),
-  #[error("This op is async and should be marked as (async)")]
-  ShouldBeAsync,
-  #[error("This op is not async and should not be marked as (async)")]
-  ShouldNotBeAsync,
   #[error("Only one constructor is allowed per object")]
   MultipleConstructors,
+  #[error("Only identifiers are supported in impl blocks")]
+  NonIdentifierImplBlock,
+}
+
+impl From<syn::Error> for Op2ErrorKind {
+  fn from(err: syn::Error) -> Self {
+    Op2ErrorKind::ParseError(err)
+  }
+}
+
+impl From<Op2Error> for syn::Error {
+  fn from(value: Op2Error) -> Self {
+    match value.kind {
+      Op2ErrorKind::ParseError(syn_err) => {
+        // Pass through the original syn::Error with its span chain intact
+        syn_err
+      }
+      Op2ErrorKind::SignatureError(sig_err) => {
+        // Use SignatureError's own From<SignatureError> for syn::Error which preserves spans
+        sig_err.into()
+      }
+      Op2ErrorKind::V8SignatureMappingError(v8_err) => {
+        // Use V8SignatureMappingError's own From impl which preserves spans
+        v8_err.into()
+      }
+      kind => {
+        let span = value.span.unwrap_or(Span::call_site());
+        syn::Error::new(span, kind.to_string())
+      }
+    }
+  }
 }
 
 #[derive(Debug, Error)]
 #[allow(clippy::enum_variant_names)]
 pub enum V8SignatureMappingError {
-  #[error("Unable to map return value {1:?} to {0}")]
-  NoRetValMapping(V8MappingError, Box<RetVal>),
-  #[error("Unable to map argument {1:?} to {0}")]
-  NoArgMapping(V8MappingError, Box<Arg>),
+  #[error("Unable to map return value {2:?} to {1}")]
+  NoRetValMapping(Span, V8MappingError, Box<RetVal>),
+  #[error("Unable to map argument {2:?} to {1}")]
+  NoArgMapping(Span, V8MappingError, Box<Arg>),
+}
+
+impl From<V8SignatureMappingError> for syn::Error {
+  fn from(value: V8SignatureMappingError) -> Self {
+    let msg = value.to_string();
+    let span = match &value {
+      V8SignatureMappingError::NoRetValMapping(span, _, _) => *span,
+      V8SignatureMappingError::NoArgMapping(span, _, _) => *span,
+    };
+
+    syn::Error::new(span, msg)
+  }
 }
 
 pub type V8MappingError = &'static str;
@@ -81,9 +168,22 @@ pub(crate) fn op2(
   attr: TokenStream,
   item: TokenStream,
 ) -> Result<TokenStream, Op2Error> {
-  let Ok(func) = parse2::<ItemFn>(item.clone()) else {
-    let impl_block = parse2::<syn::ItemImpl>(item)?;
-    return object_wrap::generate_impl_ops(attr, impl_block);
+  let func = match parse2::<ItemFn>(item.clone()) {
+    Ok(func) => func,
+    Err(fn_err) => match parse2::<syn::ItemImpl>(item) {
+      Ok(impl_block) => {
+        return object_wrap::generate_impl_ops(attr, impl_block);
+      }
+      Err(impl_err) => {
+        let mut err = syn::Error::new(
+          fn_err.span(),
+          "Expected a function or impl block for #[op2]",
+        );
+        err.combine(fn_err);
+        err.combine(impl_err);
+        return Err(err.into());
+      }
+    },
   };
 
   let span = attr.span();
@@ -131,14 +231,14 @@ pub(crate) fn generate_op2(
   } else if config.static_member {
     func.sig.ident = format_ident!("__static_{}", func.sig.ident);
   }
-  let signature =
-    parse_signature(config.fake_async, func.attrs, func.sig.clone())?;
+  let sig_span = func.sig.span();
+  let signature = parse_signature(func.attrs, func.sig.clone())
+    .map_err(|e| Op2Error::from(e).with_default_span(sig_span))?;
   for ident in &signature.lifetimes {
-    let ident = format_ident!("{ident}");
     op_fn.sig.generics.params.push(syn::GenericParam::Lifetime(
       LifetimeParam::new(Lifetime {
         apostrophe: op_fn.span(),
-        ident,
+        ident: ident.clone(),
       }),
     ));
   }
@@ -172,7 +272,7 @@ pub(crate) fn generate_op2(
   let fast_api_callback_options =
     Ident::new("fast_api_callback_options", Span::call_site());
   let self_ty = if let Some(ref ty) = config.self_name {
-    format_ident!("{ty}")
+    ty.clone()
   } else {
     Ident::new("UNINIT", Span::call_site())
   };
@@ -208,12 +308,12 @@ pub(crate) fn generate_op2(
     needs_fast_api_callback_options: false,
     needs_self: config.method.is_some(),
     use_this_cppgc: config.constructor,
-    use_proto_cppgc: config.use_proto_cppgc,
-    try_unwrap_cppgc: if config.use_proto_cppgc {
-      format_ident!("try_unwrap_cppgc_proto_object")
+    try_unwrap_cppgc: if config.use_cppgc_base {
+      format_ident!("try_unwrap_cppgc_base_object")
     } else {
       format_ident!("try_unwrap_cppgc_object")
     },
+    is_fake_async: config.fake_async,
   };
 
   let mut slow_generator_state = base_generator_state.clone();
@@ -224,39 +324,37 @@ pub(crate) fn generate_op2(
     .as_deref()
     .unwrap_or(&orig_name.to_string())
     .to_string();
-  let name = format_ident!("{}", name);
+  let name = Ident::new(&name, orig_name.span());
 
-  let slow_fn = if signature.ret_val.is_async() {
-    generate_dispatch_async(&config, &mut slow_generator_state, &signature)?
+  let slow_fn = if signature.ret_val.is_async() || config.fake_async {
+    generate_dispatch_async(&config, &mut slow_generator_state, &signature)
+      .map_err(|e| Op2Error::from(e).with_default_span(sig_span))?
   } else {
-    generate_dispatch_slow(&config, &mut slow_generator_state, &signature)?
+    generate_dispatch_slow(&config, &mut slow_generator_state, &signature)
+      .map_err(|e| Op2Error::from(e).with_default_span(sig_span))?
   };
-  let is_async = signature.ret_val.is_async();
+  let is_async = signature.ret_val.is_async() || config.fake_async;
   let is_reentrant = config.reentrant;
   let no_side_effect = config.no_side_effects;
-
-  match (is_async, config.r#async || config.fake_async) {
-    (true, false) => return Err(Op2Error::ShouldBeAsync),
-    (false, true) => return Err(Op2Error::ShouldNotBeAsync),
-    _ => {}
-  }
 
   let mut fast_generator_state = base_generator_state.clone();
 
   let (fast_definition, fast_definition_metrics, fast_fn) =
-    match generate_dispatch_fast(
-      &config,
-      &mut fast_generator_state,
-      &signature,
-    )? {
+    match generate_dispatch_fast(&config, &mut fast_generator_state, &signature)
+      .map_err(|e| Op2Error::from(e).with_default_span(sig_span))?
+    {
       Some((fast_definition, fast_metrics_definition, fast_fn)) => {
         if !config.fast
           && !config.nofast
           && config.fast_alternative.is_none()
           && !config.getter
           && !config.setter
+          && !config.fake_async
         {
-          return Err(Op2Error::ShouldBeFast);
+          return Err(Op2Error::with_span(
+            op_fn.sig.span(),
+            Op2ErrorKind::ShouldBeFast,
+          ));
         }
         // nofast requires the function to be valid for fast
         if config.nofast || config.getter || config.setter {
@@ -271,17 +369,23 @@ pub(crate) fn generate_op2(
       }
       None => {
         if config.fast {
-          return Err(Op2Error::ShouldNotBeFast("fast"));
+          return Err(Op2Error::with_span(
+            op_fn.sig.span(),
+            Op2ErrorKind::ShouldNotBeFast("fast"),
+          ));
         }
         if config.nofast {
-          return Err(Op2Error::ShouldNotBeFast("nofast"));
+          return Err(Op2Error::with_span(
+            op_fn.sig.span(),
+            Op2ErrorKind::ShouldNotBeFast("nofast"),
+          ));
         }
         (quote!(None), quote!(None), quote!())
       }
     };
 
   let arg_count: usize = if let Some(required) = config.required {
-    required as usize
+    required as usize + is_async as usize
   } else {
     args.len() + is_async as usize
   };
@@ -294,8 +398,8 @@ pub(crate) fn generate_op2(
   let bound = signature
     .generic_bounds
     .values()
-    .map(|p| parse_str::<Type>(p).expect("Failed to reparse type bounds"))
-    .collect::<Vec<_>>();
+    .map(|p| parse_str::<Type>(p))
+    .collect::<Result<Vec<_>, _>>()?;
 
   let meta_key = signature.metadata.keys().collect::<Vec<_>>();
   let meta_value = signature.metadata.values().collect::<Vec<_>>();
@@ -378,6 +482,12 @@ pub(crate) fn generate_op2(
       <#rust_name <#(#generic),*>  as ::deno_core::_ops::Op>::DECL
     }
   })
+}
+
+fn combine_err(e: syn::Error, msg: String) -> syn::Error {
+  let mut outer = syn::Error::new(e.span(), msg);
+  outer.combine(e);
+  outer
 }
 
 mod kw {
@@ -519,7 +629,7 @@ mod tests {
         let function = format!("fn op_test({} x: {}) {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig = parse_signature(false, vec![], function.sig.clone())
+        let sig = parse_signature(vec![], function.sig.clone())
           .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
@@ -585,9 +695,8 @@ mod tests {
         let function = format!("{} fn op_test() -> {} {{}}", attr, ty);
         let function =
           syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-        let sig =
-          parse_signature(false, function.attrs.clone(), function.sig.clone())
-            .expect("Failed to parse signature");
+        let sig = parse_signature(function.attrs.clone(), function.sig.clone())
+          .expect("Failed to parse signature");
         println!("Parsed signature: {sig:?}");
         generate_op2(
           MacroConfig {
@@ -602,16 +711,12 @@ mod tests {
           let function = format!("{} async fn op_test() -> {} {{}}", attr, ty);
           let function =
             syn::parse_str::<ItemFn>(&function).expect("Failed to parse type");
-          let sig = parse_signature(
-            false,
-            function.attrs.clone(),
-            function.sig.clone(),
-          )
-          .expect("Failed to parse signature");
+          let sig =
+            parse_signature(function.attrs.clone(), function.sig.clone())
+              .expect("Failed to parse signature");
           println!("Parsed signature: {sig:?}");
           generate_op2(
             MacroConfig {
-              r#async: true,
               ..Default::default()
             },
             function,

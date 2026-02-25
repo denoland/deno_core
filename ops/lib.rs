@@ -4,11 +4,21 @@
 #![deny(clippy::unnecessary_wraps)]
 
 use proc_macro::TokenStream;
-use std::error::Error;
 
 mod conversion;
+mod cppgc;
 mod op2;
 mod webidl;
+
+#[proc_macro_derive(CppgcInherits, attributes(cppgc_inherits_from))]
+pub fn cppgc_inherits(item: TokenStream) -> TokenStream {
+  cppgc::derives_inherits(item)
+}
+
+#[proc_macro_derive(CppgcBase)]
+pub fn cppgc_inherits_from(item: TokenStream) -> TokenStream {
+  cppgc::derives_base(item)
+}
 
 /// A macro designed to provide an extremely fast V8->Rust interface layer.
 #[doc = include_str!("op2/README.md")]
@@ -20,19 +30,7 @@ pub fn op2(attr: TokenStream, item: TokenStream) -> TokenStream {
 fn op2_macro(attr: TokenStream, item: TokenStream) -> TokenStream {
   match op2::op2(attr.into(), item.into()) {
     Ok(output) => output.into(),
-    Err(err) => {
-      let mut err: &dyn Error = &err;
-      let mut output = "Failed to parse #[op2]:\n".to_owned();
-      loop {
-        output += &format!(" - {err}\n");
-        if let Some(source) = err.source() {
-          err = source;
-        } else {
-          break;
-        }
-      }
-      panic!("{output}");
-    }
+    Err(err) => syn::Error::from(err).into_compile_error().into(),
   }
 }
 

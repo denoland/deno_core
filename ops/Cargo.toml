@@ -2,7 +2,7 @@
 
 [package]
 name = "deno_ops"
-version = "0.256.0"
+version = "0.262.0"
 authors.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -22,7 +22,7 @@ stringcase = "0.4.0"
 strum.workspace = true
 strum_macros.workspace = true
 syn.workspace = true
-syn-match = "0.3.0"
+syn-match = "0.3.1"
 thiserror.workspace = true
 
 [dev-dependencies]

@@ -34,6 +34,8 @@ pub mod webidl;
 
 // Re-exports
 pub use anyhow;
+pub use deno_ops::CppgcBase;
+pub use deno_ops::CppgcInherits;
 pub use deno_ops::FromV8;
 pub use deno_ops::ToV8;
 pub use deno_ops::WebIDL;
@@ -69,6 +71,7 @@ pub use crate::async_cell::AsyncRefFuture;
 pub use crate::async_cell::RcLike;
 pub use crate::async_cell::RcRef;
 pub use crate::convert::FromV8;
+pub use crate::convert::FromV8Scopeless;
 pub use crate::convert::ToV8;
 pub use crate::cppgc::GarbageCollected;
 pub use crate::extensions::AccessorType;
@@ -155,8 +158,6 @@ pub use crate::runtime::CompiledWasmModuleStore;
 pub use crate::runtime::ContextState;
 pub use crate::runtime::CreateRealmOptions;
 pub use crate::runtime::CrossIsolateStore;
-pub use crate::runtime::ImportAssertionsSupport;
-pub use crate::runtime::ImportAssertionsSupportCustomCallbackArgs;
 pub use crate::runtime::JsRuntime;
 pub use crate::runtime::JsRuntimeForSnapshot;
 pub use crate::runtime::MODULE_MAP_SLOT_INDEX;
@@ -183,8 +184,10 @@ extern crate self as deno_core;
 pub mod _ops {
   pub use super::cppgc::make_cppgc_object;
   pub use super::cppgc::make_cppgc_proto_object;
+  pub use super::cppgc::try_unwrap_cppgc_base_object;
+  pub use super::cppgc::try_unwrap_cppgc_base_persistent_object;
   pub use super::cppgc::try_unwrap_cppgc_object;
-  pub use super::cppgc::try_unwrap_cppgc_proto_object;
+  pub use super::cppgc::try_unwrap_cppgc_persistent_object;
   pub use super::error::throw_error_js_error_class;
   pub use super::error::throw_error_one_byte;
   pub use super::error::throw_error_one_byte_info;
@@ -202,6 +205,7 @@ pub mod _ops {
   pub use super::runtime::V8_WRAPPER_TYPE_INDEX;
   pub use super::runtime::ops::*;
   pub use super::runtime::ops_rust_to_v8::*;
+  pub use inventory;
 }
 
 pub mod snapshot {

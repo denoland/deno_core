@@ -3,5 +3,5 @@
 #![deny(warnings)]
 deno_ops_compile_test_runner::prelude!();
 
-#[op2(async)]
+#[op2]
 pub async fn op_async() {}
