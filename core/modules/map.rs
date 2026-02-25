@@ -1543,10 +1543,22 @@ impl ModuleMap {
     let promise = v8::Local::<v8::Promise>::try_from(value)
       .expect("Expected to get promise as module evaluation result");
 
+    promise.mark_as_handled();
+
     match promise.state() {
       PromiseState::Fulfilled => Ok(()),
       PromiseState::Rejected => {
         let err = promise.result(tc_scope);
+
+        let exception_state = JsRealm::exception_state_from_scope(tc_scope);
+        // TODO: remove after crrev.com/c/7595271
+        exception_state.track_promise_rejection(
+          tc_scope,
+          promise,
+          v8::PromiseRejectEvent::PromiseHandlerAddedAfterReject,
+          None,
+        );
+
         Err(
           CoreErrorKind::Js(JsError::from_v8_exception(tc_scope, err))
             .into_box(),

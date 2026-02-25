@@ -27,7 +27,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                             CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Int32,
-                                v8::fast_api::Flags::Clamp,
+                                v8::fast_api::Flags::empty(),
                             ),
                             CType::CallbackOptions.as_info(),
                         ],
@@ -46,7 +46,7 @@ pub const fn op_async_lazy() -> ::deno_core::_ops::OpDecl {
                             CType::V8Value.as_info(),
                             v8::fast_api::CTypeInfo::new(
                                 CType::Int32,
-                                v8::fast_api::Flags::Clamp,
+                                v8::fast_api::Flags::empty(),
                             ),
                             CType::CallbackOptions.as_info(),
                         ],
