@@ -90,6 +90,7 @@ integration_test!(
   user_breaks_promise_constructor,
   user_breaks_promise_species,
   wasm_imports,
+  wasm_stack_trace,
   worker_spawn,
   worker_terminate,
   worker_terminate_op,

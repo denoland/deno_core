@@ -149,7 +149,13 @@ impl RetVal {
     }
 
     let res = match rt {
-      ReturnType::Default => RetVal::Value(Arg::Void),
+      ReturnType::Default => {
+        RetVal::Value(if attrs.primary == Some(AttributeModifier::Undefined) {
+          Arg::VoidUndefined
+        } else {
+          Arg::Void
+        })
+      }
       ReturnType::Type(_, rt) => handle_type(rt, attrs)?,
     };
 

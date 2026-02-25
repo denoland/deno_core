@@ -2680,13 +2680,16 @@ impl JsRuntime {
       std::mem::swap(&mut *pending_rejections, &mut rejections);
       drop(pending_rejections);
 
-      let arr = v8::Array::new(scope, (rejections.len() * 2) as i32);
+      let arr = v8::Array::new(scope, (rejections.len() * 3) as i32);
       let mut index = 0;
       for rejection in rejections.into_iter() {
         let value = v8::Local::new(scope, rejection.0);
         arr.set_index(scope, index, value.into());
         index += 1;
         let value = v8::Local::new(scope, rejection.1);
+        arr.set_index(scope, index, value);
+        index += 1;
+        let value = v8::Local::new(scope, rejection.2);
         arr.set_index(scope, index, value);
         index += 1;
       }

@@ -134,6 +134,10 @@ impl TestObjectWrap {
   }
 
   #[fast]
+  #[undefined]
+  fn undefined_unit(&self) {}
+
+  #[fast]
   #[rename("with_RENAME")]
   fn with_rename(&self) {}
 
