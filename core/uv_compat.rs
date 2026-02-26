@@ -821,7 +821,7 @@ pub unsafe fn uv_loop_get_inner_ptr(
 
 /// ### Safety
 /// `loop_` must be a valid, non-null pointer to an uninitialized `uv_loop_t`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_loop_init(loop_: *mut uv_loop_t) -> c_int {
   let inner = Box::new(UvLoopInner::new());
   // SAFETY: Caller guarantees loop_ is a valid, writable pointer.
@@ -835,7 +835,7 @@ pub unsafe extern "C" fn uv_loop_init(loop_: *mut uv_loop_t) -> c_int {
 
 /// ### Safety
 /// `loop_` must be a valid pointer to a `uv_loop_t` initialized by `uv_loop_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_loop_close(loop_: *mut uv_loop_t) -> c_int {
   // SAFETY: Caller guarantees loop_ was initialized by uv_loop_init.
   unsafe {
@@ -850,7 +850,7 @@ pub unsafe extern "C" fn uv_loop_close(loop_: *mut uv_loop_t) -> c_int {
 
 /// ### Safety
 /// `loop_` must be a valid pointer to a `uv_loop_t` initialized by `uv_loop_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_now(loop_: *mut uv_loop_t) -> u64 {
   // SAFETY: Caller guarantees loop_ was initialized by uv_loop_init.
   let inner = unsafe { get_inner(loop_) };
@@ -859,12 +859,12 @@ pub unsafe extern "C" fn uv_now(loop_: *mut uv_loop_t) -> u64 {
 
 /// ### Safety
 /// `_loop_` must be a valid pointer to a `uv_loop_t` initialized by `uv_loop_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_update_time(_loop_: *mut uv_loop_t) {}
 
 /// ### Safety
 /// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_timer_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_timer_t,
@@ -886,7 +886,7 @@ pub unsafe extern "C" fn uv_timer_init(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_timer_start(
   handle: *mut uv_timer_t,
   cb: uv_timer_cb,
@@ -924,7 +924,7 @@ pub unsafe extern "C" fn uv_timer_start(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_timer_stop(handle: *mut uv_timer_t) -> c_int {
   // SAFETY: Caller guarantees handle was initialized by uv_timer_init.
   unsafe {
@@ -941,7 +941,7 @@ pub unsafe extern "C" fn uv_timer_stop(handle: *mut uv_timer_t) -> c_int {
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
   // SAFETY: Caller guarantees handle was initialized by uv_timer_init.
   unsafe {
@@ -973,7 +973,7 @@ pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_timer_get_repeat(handle: *const uv_timer_t) -> u64 {
   // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe { (*handle).repeat }
@@ -981,7 +981,7 @@ pub unsafe extern "C" fn uv_timer_get_repeat(handle: *const uv_timer_t) -> u64 {
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_timer_set_repeat(
   handle: *mut uv_timer_t,
   repeat: u64,
@@ -994,7 +994,7 @@ pub unsafe extern "C" fn uv_timer_set_repeat(
 
 /// ### Safety
 /// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_idle_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_idle_t,
@@ -1012,7 +1012,7 @@ pub unsafe extern "C" fn uv_idle_init(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_idle_t` initialized by `uv_idle_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_idle_start(
   handle: *mut uv_idle_t,
   cb: uv_idle_cb,
@@ -1035,7 +1035,7 @@ pub unsafe extern "C" fn uv_idle_start(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_idle_t` initialized by `uv_idle_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_idle_stop(handle: *mut uv_idle_t) -> c_int {
   // SAFETY: Caller guarantees handle was initialized by uv_idle_init.
   unsafe {
@@ -1052,7 +1052,7 @@ pub unsafe extern "C" fn uv_idle_stop(handle: *mut uv_idle_t) -> c_int {
 
 /// ### Safety
 /// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_prepare_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_prepare_t,
@@ -1070,7 +1070,7 @@ pub unsafe extern "C" fn uv_prepare_init(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_prepare_t` initialized by `uv_prepare_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_prepare_start(
   handle: *mut uv_prepare_t,
   cb: uv_prepare_cb,
@@ -1093,7 +1093,7 @@ pub unsafe extern "C" fn uv_prepare_start(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_prepare_t` initialized by `uv_prepare_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_prepare_stop(handle: *mut uv_prepare_t) -> c_int {
   // SAFETY: Caller guarantees handle was initialized by uv_prepare_init.
   unsafe {
@@ -1110,7 +1110,7 @@ pub unsafe extern "C" fn uv_prepare_stop(handle: *mut uv_prepare_t) -> c_int {
 
 /// ### Safety
 /// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_check_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_check_t,
@@ -1128,7 +1128,7 @@ pub unsafe extern "C" fn uv_check_init(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_check_t` initialized by `uv_check_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_check_start(
   handle: *mut uv_check_t,
   cb: uv_check_cb,
@@ -1151,7 +1151,7 @@ pub unsafe extern "C" fn uv_check_start(
 
 /// ### Safety
 /// `handle` must be a valid pointer to a `uv_check_t` initialized by `uv_check_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_check_stop(handle: *mut uv_check_t) -> c_int {
   // SAFETY: Caller guarantees handle was initialized by uv_check_init.
   unsafe {
@@ -1169,7 +1169,7 @@ pub unsafe extern "C" fn uv_check_stop(handle: *mut uv_check_t) -> c_int {
 /// ### Safety
 /// `handle` must be a valid pointer to any uv handle type (timer, idle, tcp, etc.) initialized
 /// by the corresponding `uv_*_init` function. Must not be called twice on the same handle.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_close(
   handle: *mut uv_handle_t,
   close_cb: Option<uv_close_cb>,
@@ -1210,7 +1210,7 @@ pub unsafe extern "C" fn uv_close(
 
 /// ### Safety
 /// `handle` must be a valid pointer to an initialized uv handle.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_ref(handle: *mut uv_handle_t) {
   // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
@@ -1220,7 +1220,7 @@ pub unsafe extern "C" fn uv_ref(handle: *mut uv_handle_t) {
 
 /// ### Safety
 /// `handle` must be a valid pointer to an initialized uv handle.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_unref(handle: *mut uv_handle_t) {
   // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
@@ -1230,7 +1230,7 @@ pub unsafe extern "C" fn uv_unref(handle: *mut uv_handle_t) {
 
 /// ### Safety
 /// `handle` must be a valid pointer to an initialized uv handle.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_is_active(handle: *const uv_handle_t) -> c_int {
   // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
@@ -1244,7 +1244,7 @@ pub unsafe extern "C" fn uv_is_active(handle: *const uv_handle_t) -> c_int {
 
 /// ### Safety
 /// `handle` must be a valid pointer to an initialized uv handle.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_is_closing(handle: *const uv_handle_t) -> c_int {
   // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
@@ -1515,7 +1515,7 @@ pub unsafe fn uv_tcp_getsockname(
 
 /// ### Safety
 /// `_tcp` must be a valid pointer to a `uv_tcp_t` initialized by `uv_tcp_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_tcp_keepalive(
   _tcp: *mut uv_tcp_t,
   _enable: c_int,
@@ -1529,7 +1529,7 @@ pub unsafe extern "C" fn uv_tcp_keepalive(
 
 /// ### Safety
 /// `_tcp` must be a valid pointer to a `uv_tcp_t` initialized by `uv_tcp_init`.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_tcp_simultaneous_accepts(
   _tcp: *mut uv_tcp_t,
   _enable: c_int,
@@ -1539,7 +1539,7 @@ pub unsafe extern "C" fn uv_tcp_simultaneous_accepts(
 
 /// ### Safety
 /// `ip` must be a valid, null-terminated C string. `addr` must be a valid, writable pointer.
-#[unsafe(no_mangle)]
+#[cfg_attr(feature = "uv_compat_export", unsafe(no_mangle))]
 pub unsafe extern "C" fn uv_ip4_addr(
   ip: *const c_char,
   port: c_int,
