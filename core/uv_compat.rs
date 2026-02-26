@@ -338,6 +338,7 @@ impl UvLoopInner {
 
   pub(crate) fn has_alive_handles(&self) -> bool {
     for (_, handle_ptr) in self.timer_handles.borrow().iter() {
+      // SAFETY: Handle pointers in timer_handles are kept valid by the C caller until uv_close.
       let handle = unsafe { &**handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && handle.flags & UV_HANDLE_REF != 0
@@ -346,6 +347,7 @@ impl UvLoopInner {
       }
     }
     for handle_ptr in self.idle_handles.borrow().iter() {
+      // SAFETY: Handle pointers in idle_handles are kept valid by the C caller until uv_close.
       let handle = unsafe { &**handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && handle.flags & UV_HANDLE_REF != 0
@@ -354,6 +356,7 @@ impl UvLoopInner {
       }
     }
     for handle_ptr in self.prepare_handles.borrow().iter() {
+      // SAFETY: Handle pointers in prepare_handles are kept valid by the C caller until uv_close.
       let handle = unsafe { &**handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && handle.flags & UV_HANDLE_REF != 0
@@ -362,6 +365,7 @@ impl UvLoopInner {
       }
     }
     for handle_ptr in self.check_handles.borrow().iter() {
+      // SAFETY: Handle pointers in check_handles are kept valid by the C caller until uv_close.
       let handle = unsafe { &**handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && handle.flags & UV_HANDLE_REF != 0
@@ -370,6 +374,7 @@ impl UvLoopInner {
       }
     }
     for handle_ptr in self.tcp_handles.borrow().iter() {
+      // SAFETY: Handle pointers in tcp_handles are kept valid by the C caller until uv_close.
       let handle = unsafe { &**handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && handle.flags & UV_HANDLE_REF != 0
@@ -383,6 +388,8 @@ impl UvLoopInner {
     false
   }
 
+  /// ### Safety
+  /// All timer handle pointers stored in `timer_handles` must be valid.
   pub(crate) unsafe fn run_timers(&self) {
     let now = self.now_ms();
     let mut expired = Vec::new();
@@ -402,6 +409,7 @@ impl UvLoopInner {
         Some(h) => h,
         None => continue,
       };
+      // SAFETY: handle_ptr comes from timer_handles; caller guarantees validity.
       let handle = unsafe { &mut *handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE == 0 {
         self.timer_handles.borrow_mut().remove(&key.id);
@@ -424,11 +432,14 @@ impl UvLoopInner {
       }
 
       if let Some(cb) = cb {
+        // SAFETY: handle_ptr is valid; cb was set by the C caller via uv_timer_start.
         unsafe { cb(handle_ptr) };
       }
     }
   }
 
+  /// ### Safety
+  /// All idle handle pointers stored in `idle_handles` must be valid.
   pub(crate) unsafe fn run_idle(&self) {
     let mut i = 0;
     loop {
@@ -440,15 +451,19 @@ impl UvLoopInner {
         handles[i]
       };
       i += 1;
+      // SAFETY: handle_ptr comes from idle_handles; caller guarantees validity.
       let handle = unsafe { &*handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && let Some(cb) = handle.cb
       {
+        // SAFETY: Callback set by C caller via uv_idle_start; handle_ptr is valid.
         unsafe { cb(handle_ptr) };
       }
     }
   }
 
+  /// ### Safety
+  /// All prepare handle pointers stored in `prepare_handles` must be valid.
   pub(crate) unsafe fn run_prepare(&self) {
     let mut i = 0;
     loop {
@@ -460,15 +475,19 @@ impl UvLoopInner {
         handles[i]
       };
       i += 1;
+      // SAFETY: handle_ptr comes from prepare_handles; caller guarantees validity.
       let handle = unsafe { &*handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && let Some(cb) = handle.cb
       {
+        // SAFETY: Callback set by C caller via uv_prepare_start; handle_ptr is valid.
         unsafe { cb(handle_ptr) };
       }
     }
   }
 
+  /// ### Safety
+  /// All check handle pointers stored in `check_handles` must be valid.
   pub(crate) unsafe fn run_check(&self) {
     let mut i = 0;
     loop {
@@ -480,21 +499,26 @@ impl UvLoopInner {
         handles[i]
       };
       i += 1;
+      // SAFETY: handle_ptr comes from check_handles; caller guarantees validity.
       let handle = unsafe { &*handle_ptr };
       if handle.flags & UV_HANDLE_ACTIVE != 0
         && let Some(cb) = handle.cb
       {
+        // SAFETY: Callback set by C caller via uv_check_start; handle_ptr is valid.
         unsafe { cb(handle_ptr) };
       }
     }
   }
 
+  /// ### Safety
+  /// All handle pointers in `closing_handles` must be valid.
   pub(crate) unsafe fn run_close(&self) {
     let mut closing = self.closing_handles.borrow_mut();
     let snapshot: Vec<_> = closing.drain(..).collect();
     drop(closing);
     for (handle_ptr, cb) in snapshot {
       if let Some(cb) = cb {
+        // SAFETY: handle_ptr is valid; cb was registered by C caller via uv_close.
         unsafe { cb(handle_ptr) };
       }
     }
@@ -533,6 +557,7 @@ impl UvLoopInner {
           handles[i]
         };
         i += 1;
+        // SAFETY: tcp_ptr comes from tcp_handles; caller guarantees validity.
         let tcp = unsafe { &mut *tcp_ptr };
         if tcp.flags & UV_HANDLE_ACTIVE == 0 {
           continue;
@@ -555,10 +580,12 @@ impl UvLoopInner {
             Err(_) => UV_ECONNREFUSED,
           };
           tcp.internal_connect = None;
+          // SAFETY: req pointer was provided by the C caller and remains valid until callback.
           unsafe {
             (*req).handle = tcp_ptr as *mut uv_stream_t;
           }
           if let Some(cb) = cb {
+            // SAFETY: Callback and req pointer validated above; set by C caller via uv_tcp_connect.
             unsafe { cb(req, status) };
           }
         }
@@ -574,6 +601,7 @@ impl UvLoopInner {
           }
           while !tcp.internal_backlog.is_empty() {
             if let Some(cb) = tcp.internal_connection_cb {
+              // SAFETY: tcp_ptr is valid; cb set by C caller via uv_listen.
               unsafe { cb(tcp_ptr as *mut uv_stream_t, 0) };
             }
             // If uv_accept wasn't called in the callback, stop
@@ -606,17 +634,20 @@ impl UvLoopInner {
                 base: std::ptr::null_mut(),
                 len: 0,
               };
+              // SAFETY: alloc_cb set by C caller via uv_read_start; tcp_ptr is valid.
               unsafe {
                 alloc_cb(tcp_ptr as *mut uv_handle_t, 65536, &mut buf);
               }
               if buf.base.is_null() || buf.len == 0 {
                 break;
               }
+              // SAFETY: alloc_cb guarantees buf.base is valid for buf.len bytes.
               let slice = unsafe {
                 std::slice::from_raw_parts_mut(buf.base.cast::<u8>(), buf.len)
               };
               match tcp.internal_stream.as_ref().unwrap().try_read(slice) {
                 Ok(0) => {
+                  // SAFETY: read_cb set by C caller via uv_read_start; tcp_ptr and buf are valid.
                   unsafe {
                     read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf)
                   };
@@ -625,6 +656,7 @@ impl UvLoopInner {
                 }
                 Ok(n) => {
                   any_work = true;
+                  // SAFETY: read_cb set by C caller via uv_read_start; tcp_ptr and buf are valid.
                   unsafe {
                     read_cb(tcp_ptr as *mut uv_stream_t, n as isize, &buf)
                   };
@@ -633,6 +665,7 @@ impl UvLoopInner {
                   break;
                 }
                 Err(_) => {
+                  // SAFETY: read_cb set by C caller via uv_read_start; tcp_ptr and buf are valid.
                   unsafe {
                     read_cb(tcp_ptr as *mut uv_stream_t, UV_EOF as isize, &buf)
                   };
@@ -672,11 +705,13 @@ impl UvLoopInner {
             if done {
               let pw = tcp.internal_write_queue.pop_front().unwrap();
               if let Some(cb) = pw.cb {
+                // SAFETY: Write cb and req set by C caller via uv_write; req is valid until callback.
                 unsafe { cb(pw.req, 0) };
               }
             } else if error {
               let pw = tcp.internal_write_queue.pop_front().unwrap();
               if let Some(cb) = pw.cb {
+                // SAFETY: Write cb and req set by C caller via uv_write; req is valid until callback.
                 unsafe { cb(pw.req, UV_EPIPE) };
               }
             } else {
@@ -695,7 +730,10 @@ impl UvLoopInner {
     did_any_work
   }
 
+  /// ### Safety
+  /// `handle` must be a valid pointer to an initialized `uv_timer_t`.
   unsafe fn stop_timer(&self, handle: *mut uv_timer_t) {
+    // SAFETY: Caller guarantees handle is valid and initialized.
     let handle_ref = unsafe { &mut *handle };
     let id = handle_ref.internal_id;
     if id != 0 {
@@ -714,6 +752,7 @@ impl UvLoopInner {
       .idle_handles
       .borrow_mut()
       .retain(|&h| !std::ptr::eq(h, handle));
+    // SAFETY: Caller guarantees handle is valid and initialized.
     unsafe {
       (*handle).flags &= !UV_HANDLE_ACTIVE;
     }
@@ -724,6 +763,7 @@ impl UvLoopInner {
       .prepare_handles
       .borrow_mut()
       .retain(|&h| !std::ptr::eq(h, handle));
+    // SAFETY: Caller guarantees handle is valid and initialized.
     unsafe {
       (*handle).flags &= !UV_HANDLE_ACTIVE;
     }
@@ -734,6 +774,7 @@ impl UvLoopInner {
       .check_handles
       .borrow_mut()
       .retain(|&h| !std::ptr::eq(h, handle));
+    // SAFETY: Caller guarantees handle is valid and initialized.
     unsafe {
       (*handle).flags &= !UV_HANDLE_ACTIVE;
     }
@@ -744,6 +785,7 @@ impl UvLoopInner {
       .tcp_handles
       .borrow_mut()
       .retain(|&h| !std::ptr::eq(h, handle));
+    // SAFETY: Caller guarantees handle is valid and initialized.
     unsafe {
       let tcp = &mut *handle;
       tcp.internal_reading = false;
@@ -760,20 +802,29 @@ impl UvLoopInner {
   }
 }
 
+/// ### Safety
+/// `loop_` must be a valid pointer to a `uv_loop_t` previously initialized by `uv_loop_init`.
 #[inline]
 unsafe fn get_inner(loop_: *mut uv_loop_t) -> &'static UvLoopInner {
+  // SAFETY: Caller guarantees loop_ is valid and was initialized by uv_loop_init.
   unsafe { &*((*loop_).internal as *const UvLoopInner) }
 }
 
+/// ### Safety
+/// `loop_` must be a valid pointer to a `uv_loop_t` previously initialized by `uv_loop_init`.
 pub unsafe fn uv_loop_get_inner_ptr(
   loop_: *const uv_loop_t,
 ) -> *const std::ffi::c_void {
+  // SAFETY: Caller guarantees loop_ is valid and was initialized by uv_loop_init.
   unsafe { (*loop_).internal as *const std::ffi::c_void }
 }
 
+/// ### Safety
+/// `loop_` must be a valid, non-null pointer to an uninitialized `uv_loop_t`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_loop_init(loop_: *mut uv_loop_t) -> c_int {
   let inner = Box::new(UvLoopInner::new());
+  // SAFETY: Caller guarantees loop_ is a valid, writable pointer.
   unsafe {
     (*loop_).internal = Box::into_raw(inner) as *mut c_void;
     (*loop_).data = std::ptr::null_mut();
@@ -782,8 +833,11 @@ pub unsafe extern "C" fn uv_loop_init(loop_: *mut uv_loop_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `loop_` must be a valid pointer to a `uv_loop_t` initialized by `uv_loop_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_loop_close(loop_: *mut uv_loop_t) -> c_int {
+  // SAFETY: Caller guarantees loop_ was initialized by uv_loop_init.
   unsafe {
     let internal = (*loop_).internal;
     if !internal.is_null() {
@@ -794,20 +848,28 @@ pub unsafe extern "C" fn uv_loop_close(loop_: *mut uv_loop_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `loop_` must be a valid pointer to a `uv_loop_t` initialized by `uv_loop_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_now(loop_: *mut uv_loop_t) -> u64 {
+  // SAFETY: Caller guarantees loop_ was initialized by uv_loop_init.
   let inner = unsafe { get_inner(loop_) };
   inner.now_ms()
 }
 
+/// ### Safety
+/// `_loop_` must be a valid pointer to a `uv_loop_t` initialized by `uv_loop_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_update_time(_loop_: *mut uv_loop_t) {}
 
+/// ### Safety
+/// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_timer_t,
 ) -> c_int {
+  // SAFETY: Caller guarantees both pointers are valid.
   unsafe {
     (*handle).r#type = uv_handle_type::UV_TIMER;
     (*handle).loop_ = loop_;
@@ -822,6 +884,8 @@ pub unsafe extern "C" fn uv_timer_init(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_start(
   handle: *mut uv_timer_t,
@@ -829,6 +893,7 @@ pub unsafe extern "C" fn uv_timer_start(
   timeout: u64,
   repeat: u64,
 ) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_timer_init.
   unsafe {
     let loop_ = (*handle).loop_;
     let inner = get_inner(loop_);
@@ -857,8 +922,11 @@ pub unsafe extern "C" fn uv_timer_start(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_stop(handle: *mut uv_timer_t) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_timer_init.
   unsafe {
     let loop_ = (*handle).loop_;
     if loop_.is_null() || (*loop_).internal.is_null() {
@@ -871,8 +939,11 @@ pub unsafe extern "C" fn uv_timer_stop(handle: *mut uv_timer_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_timer_init.
   unsafe {
     let repeat = (*handle).repeat;
     if repeat == 0 {
@@ -900,26 +971,35 @@ pub unsafe extern "C" fn uv_timer_again(handle: *mut uv_timer_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_get_repeat(handle: *const uv_timer_t) -> u64 {
+  // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe { (*handle).repeat }
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_timer_t` initialized by `uv_timer_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_timer_set_repeat(
   handle: *mut uv_timer_t,
   repeat: u64,
 ) {
+  // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
     (*handle).repeat = repeat;
   }
 }
 
+/// ### Safety
+/// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_idle_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_idle_t,
 ) -> c_int {
+  // SAFETY: Caller guarantees both pointers are valid.
   unsafe {
     (*handle).r#type = uv_handle_type::UV_IDLE;
     (*handle).loop_ = loop_;
@@ -930,11 +1010,14 @@ pub unsafe extern "C" fn uv_idle_init(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_idle_t` initialized by `uv_idle_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_idle_start(
   handle: *mut uv_idle_t,
   cb: uv_idle_cb,
 ) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_idle_init.
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE != 0 {
       (*handle).cb = Some(cb);
@@ -950,8 +1033,11 @@ pub unsafe extern "C" fn uv_idle_start(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_idle_t` initialized by `uv_idle_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_idle_stop(handle: *mut uv_idle_t) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_idle_init.
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE == 0 {
       return 0;
@@ -964,11 +1050,14 @@ pub unsafe extern "C" fn uv_idle_stop(handle: *mut uv_idle_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_prepare_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_prepare_t,
 ) -> c_int {
+  // SAFETY: Caller guarantees both pointers are valid.
   unsafe {
     (*handle).r#type = uv_handle_type::UV_PREPARE;
     (*handle).loop_ = loop_;
@@ -979,11 +1068,14 @@ pub unsafe extern "C" fn uv_prepare_init(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_prepare_t` initialized by `uv_prepare_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_prepare_start(
   handle: *mut uv_prepare_t,
   cb: uv_prepare_cb,
 ) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_prepare_init.
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE != 0 {
       (*handle).cb = Some(cb);
@@ -999,8 +1091,11 @@ pub unsafe extern "C" fn uv_prepare_start(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_prepare_t` initialized by `uv_prepare_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_prepare_stop(handle: *mut uv_prepare_t) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_prepare_init.
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE == 0 {
       return 0;
@@ -1013,11 +1108,14 @@ pub unsafe extern "C" fn uv_prepare_stop(handle: *mut uv_prepare_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `loop_` must be initialized by `uv_loop_init`. `handle` must be a valid, writable pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_check_init(
   loop_: *mut uv_loop_t,
   handle: *mut uv_check_t,
 ) -> c_int {
+  // SAFETY: Caller guarantees both pointers are valid.
   unsafe {
     (*handle).r#type = uv_handle_type::UV_CHECK;
     (*handle).loop_ = loop_;
@@ -1028,11 +1126,14 @@ pub unsafe extern "C" fn uv_check_init(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_check_t` initialized by `uv_check_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_check_start(
   handle: *mut uv_check_t,
   cb: uv_check_cb,
 ) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_check_init.
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE != 0 {
       (*handle).cb = Some(cb);
@@ -1048,8 +1149,11 @@ pub unsafe extern "C" fn uv_check_start(
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to a `uv_check_t` initialized by `uv_check_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_check_stop(handle: *mut uv_check_t) -> c_int {
+  // SAFETY: Caller guarantees handle was initialized by uv_check_init.
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE == 0 {
       return 0;
@@ -1062,11 +1166,15 @@ pub unsafe extern "C" fn uv_check_stop(handle: *mut uv_check_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to any uv handle type (timer, idle, tcp, etc.) initialized
+/// by the corresponding `uv_*_init` function. Must not be called twice on the same handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_close(
   handle: *mut uv_handle_t,
   close_cb: Option<uv_close_cb>,
 ) {
+  // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
     (*handle).flags |= UV_HANDLE_CLOSING;
     (*handle).flags &= !UV_HANDLE_ACTIVE;
@@ -1100,22 +1208,31 @@ pub unsafe extern "C" fn uv_close(
   }
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to an initialized uv handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_ref(handle: *mut uv_handle_t) {
+  // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
     (*handle).flags |= UV_HANDLE_REF;
   }
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to an initialized uv handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_unref(handle: *mut uv_handle_t) {
+  // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
     (*handle).flags &= !UV_HANDLE_REF;
   }
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to an initialized uv handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_is_active(handle: *const uv_handle_t) -> c_int {
+  // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
     if (*handle).flags & UV_HANDLE_ACTIVE != 0 {
       1
@@ -1125,8 +1242,11 @@ pub unsafe extern "C" fn uv_is_active(handle: *const uv_handle_t) -> c_int {
   }
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to an initialized uv handle.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_is_closing(handle: *const uv_handle_t) -> c_int {
+  // SAFETY: Caller guarantees handle is valid and initialized.
   unsafe {
     if (*handle).flags & UV_HANDLE_CLOSING != 0 {
       1
@@ -1136,15 +1256,20 @@ pub unsafe extern "C" fn uv_is_closing(handle: *const uv_handle_t) -> c_int {
   }
 }
 
+/// ### Safety
+/// `addr` must point to a valid `sockaddr_in` or `sockaddr_in6` with correct `sa_family`.
 unsafe fn sockaddr_to_std(addr: *const c_void) -> Option<SocketAddr> {
   let sa = addr as *const libc::sockaddr;
+  // SAFETY: Caller guarantees addr points to a valid sockaddr.
   let family = unsafe { (*sa).sa_family as i32 };
   if family == AF_INET {
+    // SAFETY: Family is AF_INET so addr is a valid sockaddr_in.
     let sin = unsafe { &*(addr as *const sockaddr_in) };
     let ip = std::net::Ipv4Addr::from(u32::from_be(sin.sin_addr.s_addr));
     let port = u16::from_be(sin.sin_port);
     Some(SocketAddr::from((ip, port)))
   } else if family == AF_INET6 {
+    // SAFETY: Family is AF_INET6 so addr is a valid sockaddr_in6.
     let sin6 = unsafe { &*(addr as *const sockaddr_in6) };
     let ip = std::net::Ipv6Addr::from(sin6.sin6_addr.s6_addr);
     let port = u16::from_be(sin6.sin6_port);
@@ -1154,10 +1279,14 @@ unsafe fn sockaddr_to_std(addr: *const c_void) -> Option<SocketAddr> {
   }
 }
 
+/// ### Safety
+/// `out` must be writable and large enough for `sockaddr_in` or `sockaddr_in6`.
+/// `len` must be a valid, writable pointer.
 unsafe fn std_to_sockaddr(addr: SocketAddr, out: *mut c_void, len: *mut c_int) {
   match addr {
     SocketAddr::V4(v4) => {
       let sin = out as *mut sockaddr_in;
+      // SAFETY: Caller guarantees out is large enough for sockaddr_in.
       unsafe {
         std::ptr::write_bytes(sin, 0, 1);
         #[cfg(any(target_os = "macos", target_os = "freebsd"))]
@@ -1172,6 +1301,7 @@ unsafe fn std_to_sockaddr(addr: SocketAddr, out: *mut c_void, len: *mut c_int) {
     }
     SocketAddr::V6(v6) => {
       let sin6 = out as *mut sockaddr_in6;
+      // SAFETY: Caller guarantees out is large enough for sockaddr_in6.
       unsafe {
         std::ptr::write_bytes(sin6, 0, 1);
         #[cfg(any(target_os = "macos", target_os = "freebsd"))]
@@ -1188,7 +1318,10 @@ unsafe fn std_to_sockaddr(addr: SocketAddr, out: *mut c_void, len: *mut c_int) {
   }
 }
 
+/// ### Safety
+/// `loop_` must be initialized by `uv_loop_init`. `tcp` must be a valid, writable pointer.
 pub unsafe fn uv_tcp_init(loop_: *mut uv_loop_t, tcp: *mut uv_tcp_t) -> c_int {
+  // SAFETY: Caller guarantees both pointers are valid.
   unsafe {
     use std::ptr::{addr_of_mut, write};
     write(addr_of_mut!((*tcp).r#type), uv_handle_type::UV_TCP);
@@ -1212,7 +1345,11 @@ pub unsafe fn uv_tcp_init(loop_: *mut uv_loop_t, tcp: *mut uv_tcp_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `tcp` must be a valid pointer to a `uv_tcp_t` initialized by `uv_tcp_init`.
+/// `fd` must be a valid, open file descriptor / socket.
 pub unsafe fn uv_tcp_open(tcp: *mut uv_tcp_t, fd: c_int) -> c_int {
+  // SAFETY: Caller guarantees tcp is initialized and fd is valid.
   unsafe {
     #[cfg(unix)]
     let std_stream = {
@@ -1243,15 +1380,19 @@ pub unsafe fn uv_tcp_open(tcp: *mut uv_tcp_t, fd: c_int) -> c_int {
   }
 }
 
+/// ### Safety
+/// `tcp` must be initialized by `uv_tcp_init`. `addr` must point to a valid sockaddr.
 pub unsafe fn uv_tcp_bind(
   tcp: *mut uv_tcp_t,
   addr: *const c_void,
   _addrlen: u32,
   _flags: u32,
 ) -> c_int {
+  // SAFETY: Caller guarantees addr points to a valid sockaddr.
   let sock_addr = unsafe { sockaddr_to_std(addr) };
   match sock_addr {
     Some(sa) => {
+      // SAFETY: Caller guarantees tcp is valid and initialized.
       unsafe { (*tcp).internal_bind_addr = Some(sa) };
       0
     }
@@ -1259,24 +1400,31 @@ pub unsafe fn uv_tcp_bind(
   }
 }
 
+/// ### Safety
+/// `req` must be a valid, writable pointer. `tcp` must be initialized by `uv_tcp_init`.
+/// `addr` must point to a valid sockaddr. `req` must remain valid until the connect callback fires.
 pub unsafe fn uv_tcp_connect(
   req: *mut uv_connect_t,
   tcp: *mut uv_tcp_t,
   addr: *const c_void,
   cb: Option<uv_connect_cb>,
 ) -> c_int {
+  // SAFETY: Caller guarantees addr points to a valid sockaddr.
   let sock_addr = unsafe { sockaddr_to_std(addr) };
   let sock_addr = match sock_addr {
     Some(sa) => sa,
     None => return UV_EINVAL,
   };
 
+  // SAFETY: Caller guarantees req and tcp are valid.
   unsafe {
     (*req).handle = tcp as *mut uv_stream_t;
   }
 
+  // SAFETY: tcp was initialized by uv_tcp_init which set loop_.
   let inner = unsafe { get_inner((*tcp).loop_) };
 
+  // SAFETY: Caller guarantees tcp is valid and initialized.
   unsafe {
     (*tcp).flags |= UV_HANDLE_ACTIVE;
     let mut handles = inner.tcp_handles.borrow_mut();
@@ -1294,7 +1442,10 @@ pub unsafe fn uv_tcp_connect(
   0
 }
 
+/// ### Safety
+/// `tcp` must be a valid pointer to a `uv_tcp_t` initialized by `uv_tcp_init`.
 pub unsafe fn uv_tcp_nodelay(tcp: *mut uv_tcp_t, enable: c_int) -> c_int {
+  // SAFETY: Caller guarantees tcp is valid and initialized.
   unsafe {
     let enabled = enable != 0;
     (*tcp).internal_nodelay = enabled;
@@ -1307,11 +1458,15 @@ pub unsafe fn uv_tcp_nodelay(tcp: *mut uv_tcp_t, enable: c_int) -> c_int {
   0
 }
 
+/// ### Safety
+/// `tcp` must be initialized by `uv_tcp_init`. `name` must be writable and large enough
+/// for a sockaddr. `namelen` must be a valid, writable pointer.
 pub unsafe fn uv_tcp_getpeername(
   tcp: *const uv_tcp_t,
   name: *mut c_void,
   namelen: *mut c_int,
 ) -> c_int {
+  // SAFETY: Caller guarantees all pointers are valid.
   unsafe {
     if let Some(ref stream) = (*tcp).internal_stream {
       match stream.peer_addr() {
@@ -1327,11 +1482,15 @@ pub unsafe fn uv_tcp_getpeername(
   }
 }
 
+/// ### Safety
+/// `tcp` must be initialized by `uv_tcp_init`. `name` must be writable and large enough
+/// for a sockaddr. `namelen` must be a valid, writable pointer.
 pub unsafe fn uv_tcp_getsockname(
   tcp: *const uv_tcp_t,
   name: *mut c_void,
   namelen: *mut c_int,
 ) -> c_int {
+  // SAFETY: Caller guarantees all pointers are valid.
   unsafe {
     if let Some(ref stream) = (*tcp).internal_stream {
       match stream.local_addr() {
@@ -1354,6 +1513,8 @@ pub unsafe fn uv_tcp_getsockname(
   }
 }
 
+/// ### Safety
+/// `_tcp` must be a valid pointer to a `uv_tcp_t` initialized by `uv_tcp_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_tcp_keepalive(
   _tcp: *mut uv_tcp_t,
@@ -1366,6 +1527,8 @@ pub unsafe extern "C" fn uv_tcp_keepalive(
   0
 }
 
+/// ### Safety
+/// `_tcp` must be a valid pointer to a `uv_tcp_t` initialized by `uv_tcp_init`.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_tcp_simultaneous_accepts(
   _tcp: *mut uv_tcp_t,
@@ -1374,12 +1537,15 @@ pub unsafe extern "C" fn uv_tcp_simultaneous_accepts(
   0 // no-op
 }
 
+/// ### Safety
+/// `ip` must be a valid, null-terminated C string. `addr` must be a valid, writable pointer.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_ip4_addr(
   ip: *const c_char,
   port: c_int,
   addr: *mut sockaddr_in,
 ) -> c_int {
+  // SAFETY: Caller guarantees ip is a valid C string and addr is writable.
   unsafe {
     let c_str = std::ffi::CStr::from_ptr(ip);
     let Ok(s) = c_str.to_str() else {
@@ -1400,11 +1566,15 @@ pub unsafe extern "C" fn uv_ip4_addr(
   }
 }
 
+/// ### Safety
+/// `stream` must be a valid pointer to a `uv_tcp_t` (cast as `uv_stream_t`) initialized
+/// by `uv_tcp_init`, with a bind address set via `uv_tcp_bind`.
 pub unsafe fn uv_listen(
   stream: *mut uv_stream_t,
   _backlog: c_int,
   cb: Option<uv_connection_cb>,
 ) -> c_int {
+  // SAFETY: Caller guarantees stream is a valid, initialized uv_tcp_t.
   unsafe {
     let tcp = stream as *mut uv_tcp_t;
     let tcp_ref = &mut *tcp;
@@ -1438,10 +1608,13 @@ pub unsafe fn uv_listen(
   0
 }
 
+/// ### Safety
+/// `server` must be a listening `uv_tcp_t`. `client` must be initialized by `uv_tcp_init`.
 pub unsafe fn uv_accept(
   server: *mut uv_stream_t,
   client: *mut uv_stream_t,
 ) -> c_int {
+  // SAFETY: Caller guarantees both pointers are valid, initialized uv_tcp_t handles.
   unsafe {
     let server_tcp = &mut *(server as *mut uv_tcp_t);
     let client_tcp = &mut *(client as *mut uv_tcp_t);
@@ -1459,11 +1632,14 @@ pub unsafe fn uv_accept(
   }
 }
 
+/// ### Safety
+/// `stream` must be a valid pointer to an initialized `uv_tcp_t` (cast as `uv_stream_t`).
 pub unsafe fn uv_read_start(
   stream: *mut uv_stream_t,
   alloc_cb: Option<uv_alloc_cb>,
   read_cb: Option<uv_read_cb>,
 ) -> c_int {
+  // SAFETY: Caller guarantees stream is a valid, initialized uv_tcp_t.
   unsafe {
     let tcp = stream as *mut uv_tcp_t;
     let tcp_ref = &mut *tcp;
@@ -1481,7 +1657,10 @@ pub unsafe fn uv_read_start(
   0
 }
 
+/// ### Safety
+/// `stream` must be a valid pointer to an initialized `uv_tcp_t` (cast as `uv_stream_t`).
 pub unsafe fn uv_read_stop(stream: *mut uv_stream_t) -> c_int {
+  // SAFETY: Caller guarantees stream is a valid, initialized uv_tcp_t.
   unsafe {
     let tcp = stream as *mut uv_tcp_t;
     let tcp_ref = &mut *tcp;
@@ -1498,7 +1677,10 @@ pub unsafe fn uv_read_stop(stream: *mut uv_stream_t) -> c_int {
   0
 }
 
+/// ### Safety
+/// `handle` must be a valid pointer to an initialized `uv_tcp_t` (cast as `uv_stream_t`).
 pub unsafe fn uv_try_write(handle: *mut uv_stream_t, data: &[u8]) -> i32 {
+  // SAFETY: Caller guarantees handle is a valid, initialized uv_tcp_t.
   let tcp_ref = unsafe { &mut *(handle as *mut uv_tcp_t) };
 
   if !tcp_ref.internal_write_queue.is_empty() {
@@ -1517,6 +1699,9 @@ pub unsafe fn uv_try_write(handle: *mut uv_stream_t, data: &[u8]) -> i32 {
   }
 }
 
+/// ### Safety
+/// `req` must be valid and remain so until the write callback fires. `handle` must be an
+/// initialized `uv_tcp_t`. `bufs` must point to `nbufs` valid `uv_buf_t` entries.
 pub unsafe fn uv_write(
   req: *mut uv_write_t,
   handle: *mut uv_stream_t,
@@ -1524,6 +1709,7 @@ pub unsafe fn uv_write(
   nbufs: u32,
   cb: Option<uv_write_cb>,
 ) -> c_int {
+  // SAFETY: Caller guarantees all pointers are valid.
   unsafe {
     let tcp = handle as *mut uv_tcp_t;
     let tcp_ref = &mut *tcp;
@@ -1657,7 +1843,10 @@ pub unsafe fn uv_write(
   0
 }
 
+/// ### Safety
+/// `bufs` must point to `nbufs` valid `uv_buf_t` entries with valid `base` pointers.
 unsafe fn collect_bufs(bufs: *const uv_buf_t, nbufs: u32) -> Vec<u8> {
+  // SAFETY: Caller guarantees bufs points to nbufs valid entries.
   unsafe {
     let mut total = 0usize;
     for i in 0..nbufs as usize {
@@ -1680,11 +1869,15 @@ unsafe fn collect_bufs(bufs: *const uv_buf_t, nbufs: u32) -> Vec<u8> {
   }
 }
 
+/// ### Safety
+/// `req` must be a valid, writable pointer. `stream` must be an initialized `uv_tcp_t`.
+/// `req` must remain valid until the shutdown callback fires.
 pub unsafe fn uv_shutdown(
   req: *mut uv_shutdown_t,
   stream: *mut uv_stream_t,
   cb: Option<uv_shutdown_cb>,
 ) -> c_int {
+  // SAFETY: Caller guarantees all pointers are valid.
   unsafe {
     let tcp = stream as *mut uv_tcp_t;
     (*req).handle = stream;
