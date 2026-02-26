@@ -1409,7 +1409,11 @@ impl JsRuntime {
   /// JsRuntime to operate properly.
   fn store_js_callbacks(&mut self, realm: &JsRealm, will_snapshot: bool) {
     let (
-      event_loop_tick_cb,
+      resolve_ops_cb,
+      drain_next_tick_and_macrotasks_cb,
+      handle_rejections_cb,
+      set_timer_depth_cb,
+      report_exception_cb,
       build_custom_error_cb,
       run_immediate_callbacks_cb,
       wasm_instance_fn,
@@ -1418,18 +1422,37 @@ impl JsRuntime {
       let context = realm.context();
       let context_local = v8::Local::new(scope, context);
       let global = context_local.global(scope);
-      // TODO(bartlomieju): these probably could be captured from main realm so we don't have to
-      // look up them again?
       let deno_obj: v8::Local<v8::Object> =
         bindings::get(scope, global, DENO, "Deno");
       let core_obj: v8::Local<v8::Object> =
         bindings::get(scope, deno_obj, CORE, "Deno.core");
 
-      let event_loop_tick_cb: v8::Local<v8::Function> = bindings::get(
+      let resolve_ops_cb: v8::Local<v8::Function> =
+        bindings::get(scope, core_obj, RESOLVE_OPS, "Deno.core.__resolveOps");
+      let drain_next_tick_and_macrotasks_cb: v8::Local<v8::Function> =
+        bindings::get(
+          scope,
+          core_obj,
+          DRAIN_NEXT_TICK_AND_MACROTASKS,
+          "Deno.core.__drainNextTickAndMacrotasks",
+        );
+      let handle_rejections_cb: v8::Local<v8::Function> = bindings::get(
         scope,
         core_obj,
-        EVENT_LOOP_TICK,
-        "Deno.core.eventLoopTick",
+        HANDLE_REJECTIONS,
+        "Deno.core.__handleRejections",
+      );
+      let set_timer_depth_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        SET_TIMER_DEPTH,
+        "Deno.core.__setTimerDepth",
+      );
+      let report_exception_cb: v8::Local<v8::Function> = bindings::get(
+        scope,
+        core_obj,
+        REPORT_EXCEPTION,
+        "Deno.core.__reportException",
       );
       let build_custom_error_cb: v8::Local<v8::Function> = bindings::get(
         scope,
@@ -1448,8 +1471,6 @@ impl JsRuntime {
       if !will_snapshot {
         let key = WEBASSEMBLY.v8_string(scope).unwrap();
         if let Some(web_assembly_obj_value) = global.get(scope, key.into()) {
-          // NOTE(bartlomieju): This is still fallible, because in some V8 modes
-          // WebAssembly namespace is not available (eg. `--jitless`).
           let maybe_web_assembly_object =
             TryInto::<v8::Local<v8::Object>>::try_into(web_assembly_obj_value);
           if let Ok(web_assembly_object) = maybe_web_assembly_object {
@@ -1464,7 +1485,11 @@ impl JsRuntime {
       }
 
       (
-        v8::Global::new(scope, event_loop_tick_cb),
+        v8::Global::new(scope, resolve_ops_cb),
+        v8::Global::new(scope, drain_next_tick_and_macrotasks_cb),
+        v8::Global::new(scope, handle_rejections_cb),
+        v8::Global::new(scope, set_timer_depth_cb),
+        v8::Global::new(scope, report_exception_cb),
         v8::Global::new(scope, build_custom_error_cb),
         v8::Global::new(scope, run_immediate_callbacks_cb),
         wasm_instance_fn.map(|f| v8::Global::new(scope, f)),
@@ -1474,9 +1499,25 @@ impl JsRuntime {
     // Put global handles in the realm's ContextState
     let state_rc = realm.0.state();
     state_rc
-      .js_event_loop_tick_cb
+      .js_resolve_ops_cb
       .borrow_mut()
-      .replace(event_loop_tick_cb);
+      .replace(resolve_ops_cb);
+    state_rc
+      .js_drain_next_tick_and_macrotasks_cb
+      .borrow_mut()
+      .replace(drain_next_tick_and_macrotasks_cb);
+    state_rc
+      .js_handle_rejections_cb
+      .borrow_mut()
+      .replace(handle_rejections_cb);
+    state_rc
+      .js_set_timer_depth_cb
+      .borrow_mut()
+      .replace(set_timer_depth_cb);
+    state_rc
+      .js_report_exception_cb
+      .borrow_mut()
+      .replace(report_exception_cb);
     state_rc
       .exception_state
       .js_build_custom_error_cb
@@ -1498,6 +1539,28 @@ impl JsRuntime {
   /// and access resources between op calls.
   pub fn op_state(&self) -> Rc<RefCell<OpState>> {
     self.inner.state.op_state.clone()
+  }
+
+  /// Register a `uv_loop_t` with the runtime so that its event loop phases
+  /// (timers, I/O, idle, prepare, check, close) are driven by
+  /// `poll_event_loop`.
+  ///
+  /// The v8::Context pointer is stored in `loop_.data` at the start of each
+  /// event loop tick so that libuv-style callbacks can retrieve it.
+  ///
+  /// # Safety
+  /// `loop_ptr` must be a valid, initialized `uv_loop_t` pointer that
+  /// outlives the runtime.
+  pub unsafe fn register_uv_loop(
+    &mut self,
+    loop_ptr: *mut crate::uv_compat::uv_loop_t,
+  ) {
+    let context_state = &self.inner.main_realm.0.context_state;
+    let inner_ptr =
+      unsafe { crate::uv_compat::uv_loop_get_inner_ptr(loop_ptr) };
+    let uv_inner = inner_ptr as *const crate::uv_compat::UvLoopInner;
+    context_state.uv_loop_inner.set(Some(uv_inner));
+    context_state.uv_loop_ptr.set(Some(loop_ptr));
   }
 
   /// Returns the runtime's op names, ordered by OpId.
@@ -1915,6 +1978,17 @@ impl JsRuntime {
     self.poll_event_loop_inner(cx, &mut scope, poll_options)
   }
 
+  /// Phase-based event loop tick, loosely following libuv's architecture:
+  ///
+  /// 1. Timers          -- fire expired libuv C timers + JS WebTimers
+  /// 2. Pending work     -- module progress, task spawner, async ops,
+  ///    nextTick/macrotask drain, immediates, rejections
+  /// 3. I/O              -- drive TCP read/write/accept via UvLoopInner
+  /// 4. Idle / Prepare   -- libuv idle + prepare callbacks
+  /// 5. Check            -- libuv check callbacks
+  /// 6. Close            -- close callbacks (Rust + libuv)
+  ///
+  /// Microtask checkpoints run between phases.
   fn poll_event_loop_inner(
     &self,
     cx: &mut Context,
@@ -1924,11 +1998,10 @@ impl JsRuntime {
     let has_inspector = self.inner.state.has_inspector.get();
     self.inner.state.waker.register(cx.waker());
 
+    // Pre-phase: Inspector + V8 message loop pump
     if has_inspector {
-      // We poll the inspector first.
       self.inspector().poll_sessions_from_event_loop(cx);
     }
-
     if poll_options.pump_v8_message_loop {
       self.pump_v8_message_loop(scope)?;
     }
@@ -1936,23 +2009,126 @@ impl JsRuntime {
     let realm = &self.inner.main_realm;
     let modules = &realm.0.module_map;
     let context_state = &realm.0.context_state;
+
+    // Set the v8::Context pointer in the uv_loop so libuv-style callbacks
+    // can retrieve it via context_from_loop().
+    if let Some(loop_ptr) = context_state.uv_loop_ptr.get() {
+      let context = scope.get_current_context();
+      // SAFETY: `v8::Local<v8::Context>` is a thin pointer (one pointer
+      // wide). We store it as `*mut c_void` in `loop_.data` for the
+      // duration of this event loop tick. Callbacks reconstruct it via
+      // `std::mem::transmute` in `context_from_loop()`. The context is
+      // alive for the entire tick because `scope` holds it.
+      const _: () = assert!(
+        std::mem::size_of::<v8::Local<v8::Context>>()
+          == std::mem::size_of::<*mut std::ffi::c_void>()
+      );
+      unsafe {
+        let ctx_ptr: *mut std::ffi::c_void = std::mem::transmute(context);
+        (*loop_ptr).data = ctx_ptr;
+      }
+    }
     let exception_state = &context_state.exception_state;
 
+    // Tight I/O loop: when run_io does work, re-run I/O phases immediately
+    // without returning to tokio. This avoids kqueue/kevent round-trip
+    // latency between batches.
+    let mut dispatched_ops = false;
+    let mut did_work = false;
+    let mut uv_did_io = false;
+    // ===== Phase 1: Timers =====
+    // 1a. Fire expired libuv C timers
+    if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
+      unsafe { (*uv_inner_ptr).run_timers() };
+    }
+    // 1b. Fire expired JS timers (direct v8::Function::call per timer)
+    did_work |= Self::dispatch_timers(cx, scope, context_state);
+    scope.perform_microtask_checkpoint();
+
+    // ===== Phase 2: Pending work =====
+    // Module progress polling (before ops, matching original ordering)
     modules.poll_progress(cx, scope)?;
 
-    // Resolve async ops, run all next tick callbacks and macrotasks callbacks
-    // and only then check for any promise exceptions (`unhandledrejection`
-    // handlers are run in macrotasks callbacks so we need to let them run
-    // first).
-    let (dispatched_ops, did_work) = Self::do_js_event_loop_tick_realm(
-      cx,
-      scope,
-      context_state,
-      exception_state,
-    )?;
-    exception_state.check_exception_condition(scope)?;
+    // 2a. V8 task spawner tasks
+    dispatched_ops |= Self::dispatch_task_spawner(cx, scope, context_state);
 
-    // Get the pending state from the main realm, or all realms
+    // 2b. Poll and resolve completed async ops
+    // NOTE: No microtask checkpoint between ops and nextTick/macrotask!
+    // This matches the old eventLoopTick behavior where ops resolve,
+    // nextTick drains, and macrotasks run all within the same JS call
+    // before any microtask checkpoint. Promise continuations (like await
+    // resumption) run only after all three have completed.
+    dispatched_ops |= Self::dispatch_pending_ops(cx, scope, context_state)?;
+
+    // 2c. nextTick drain + macrotask drain (before microtask checkpoint)
+    // Only drain if there's actual work (ops dispatched, tick scheduled, or timers fired).
+    // This prevents macrotask callbacks from running on empty iterations.
+    let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
+    dispatched_ops |= has_tick_scheduled;
+    if dispatched_ops || did_work || has_tick_scheduled {
+      Self::drain_next_tick_and_macrotasks(scope, context_state)?;
+    }
+
+    // 2d. Immediates (if ops or timers did work)
+    if (did_work || dispatched_ops)
+      && context_state.immediate_info.borrow().ref_count > 0
+    {
+      Self::do_js_run_immediate_callbacks(scope, context_state)?;
+    }
+
+    // 2e. Handle promise rejections (after nextTick/macrotask, since
+    // unhandledrejection handlers are run in macrotask callbacks)
+    Self::dispatch_rejections(scope, context_state, exception_state)?;
+    scope.perform_microtask_checkpoint();
+
+    // ===== Phase 3: I/O =====
+    // Tight I/O loop: when run_io reads data and fires callbacks, the
+    // resulting JS work (nextTick/macrotasks from HTTP2 frame processing)
+    // may produce write calls. Drain those immediately and re-poll for
+    // more data, avoiding kqueue/kevent round-trip latency between batches.
+    if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
+      unsafe {
+        (*uv_inner_ptr).set_waker(cx.waker());
+      }
+      for _io_spin in 0..8 {
+        let did_io = unsafe { (*uv_inner_ptr).run_io() };
+        if !did_io {
+          break;
+        }
+        uv_did_io = true;
+        scope.perform_microtask_checkpoint();
+        Self::drain_next_tick_and_macrotasks(scope, context_state)?;
+        scope.perform_microtask_checkpoint();
+      }
+    }
+
+    // ===== Phase 4: Idle / Prepare =====
+    if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
+      unsafe {
+        (*uv_inner_ptr).run_idle();
+        (*uv_inner_ptr).run_prepare();
+      };
+    }
+    scope.perform_microtask_checkpoint();
+
+    // ===== Phase 5: Check =====
+    if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
+      unsafe { (*uv_inner_ptr).run_check() };
+    }
+    scope.perform_microtask_checkpoint();
+
+    // ===== Phase 6: Close =====
+    exception_state.check_exception_condition(scope)?;
+    {
+      let mut phases = context_state.event_loop_phases.borrow_mut();
+      phases.run_close_callbacks();
+    }
+    if let Some(uv_inner_ptr) = context_state.uv_loop_inner.get() {
+      unsafe { (*uv_inner_ptr).run_close() };
+    }
+    scope.perform_microtask_checkpoint();
+
+    // Evaluate pending state
     let pending_state =
       EventLoopPendingState::new(scope, context_state, modules);
 
@@ -1978,25 +2154,13 @@ impl JsRuntime {
       return Poll::Ready(Ok(()));
     }
 
-    // eprintln!(
-    //   "did work {}, dispatched_ops {}, has timers {}, has_refed_immediates {}, has_outstanding_immediates {}",
-    //   did_work,
-    //   dispatched_ops,
-    //   context_state.timers.has_pending(),
-    //   pending_state.has_refed_immediates,
-    //   pending_state.has_outstanding_immediates
-    // );
-    if !did_work && pending_state.has_refed_immediates > 0 {
+    // Run immediates if not already run above and there are refed immediates pending
+    if !did_work && !dispatched_ops && pending_state.has_refed_immediates > 0 {
       Self::do_js_run_immediate_callbacks(scope, context_state)?;
+      scope.perform_microtask_checkpoint();
     }
 
-    // Check if more async ops have been dispatched
-    // during this turn of event loop.
-    // If there are any pending background tasks, we also wake the runtime to
-    // make sure we don't miss them.
-    // TODO(andreubotella) The event loop will spin as long as there are pending
-    // background tasks. We should look into having V8 notify us when a
-    // background task is done.
+    // Re-wake logic for next iteration
     #[allow(clippy::suspicious_else_formatting, clippy::if_same_then_else)]
     {
       if pending_state.has_pending_background_tasks
@@ -2004,6 +2168,7 @@ impl JsRuntime {
         || pending_state.has_outstanding_immediates
         || pending_state.has_refed_immediates > 0
         || pending_state.has_pending_promise_events
+        || uv_did_io
       {
         self.inner.state.waker.wake();
       } else
@@ -2053,9 +2218,6 @@ impl JsRuntime {
           .into_box(),
         ));
       } else {
-        // Delay the above error by one spin of the event loop. A dynamic import
-        // evaluation may complete during this, in which case the counter will
-        // reset.
         realm.increment_modules_idle();
         self.inner.state.waker.wake();
       }
@@ -2265,6 +2427,7 @@ pub(crate) struct EventLoopPendingState {
   has_pending_external_ops: bool,
   has_outstanding_immediates: bool,
   has_refed_immediates: u32,
+  has_uv_alive_handles: bool,
 }
 
 impl EventLoopPendingState {
@@ -2300,6 +2463,12 @@ impl EventLoopPendingState {
       let info = state.immediate_info.borrow();
       (info.has_outstanding, info.ref_count)
     };
+    let has_uv_alive_handles =
+      if let Some(uv_inner_ptr) = state.uv_loop_inner.get() {
+        unsafe { (*uv_inner_ptr).has_alive_handles() }
+      } else {
+        false
+      };
     EventLoopPendingState {
       has_pending_ops: has_pending_refed_ops
         || has_pending_timers
@@ -2314,6 +2483,7 @@ impl EventLoopPendingState {
       has_pending_external_ops: state.external_ops_tracker.has_pending_ops(),
       has_outstanding_immediates,
       has_refed_immediates,
+      has_uv_alive_handles,
     }
   }
 
@@ -2334,6 +2504,7 @@ impl EventLoopPendingState {
       || self.has_refed_immediates > 0
       || self.has_pending_promise_events
       || self.has_pending_external_ops
+      || self.has_uv_alive_handles
   }
 }
 
@@ -2561,55 +2732,139 @@ impl JsRuntime {
     Ok(())
   }
 
-  fn do_js_event_loop_tick_realm<'s, 'i>(
+  /// Phase 1 (Timers): Poll JS WebTimers, dispatch each callback directly
+  /// via v8::Function::call. Microtask checkpoint + nextTick drain between
+  /// each timer callback.
+  fn dispatch_timers<'s, 'i>(
     cx: &mut Context,
     scope: &mut v8::PinScope<'s, 'i>,
     context_state: &ContextState,
-    exception_state: &ExceptionState,
-  ) -> Result<(bool, bool), Box<JsError>> {
-    let mut dispatched_ops = false;
-    let mut did_work = false;
+  ) -> bool {
+    let expired = match context_state.timers.poll_timers(cx) {
+      Poll::Ready(expired) => expired,
+      _ => return false,
+    };
 
-    // Poll any pending task spawner tasks. Note that we need to poll separately because otherwise
-    // Rust will extend the lifetime of the borrow longer than we expect.
+    if expired.is_empty() {
+      return false;
+    }
+
+    let traces_enabled = context_state.activity_traces.is_enabled();
+    let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
+    let global_this = scope.get_current_context().global(scope).into();
+
+    for (timer_id, timer_type) in &expired {
+      // Extract the timer data; if it was cancelled during this dispatch
+      // loop (e.g. clearTimeout called from an earlier callback), skip it.
+      let Some((callback, depth)) =
+        context_state.timers.take_fired_timer(*timer_id, timer_type)
+      else {
+        continue;
+      };
+
+      if traces_enabled {
+        context_state
+          .activity_traces
+          .complete(RuntimeActivityType::Timer, *timer_id as _);
+      }
+
+      // Set timer depth via JS setter
+      {
+        let set_timer_depth_cb = context_state.js_set_timer_depth_cb.borrow();
+        let set_timer_depth_fn =
+          set_timer_depth_cb.as_ref().unwrap().open(scope);
+        let depth_val = v8::Integer::new(scope, depth as i32);
+        set_timer_depth_fn.call(scope, undefined, &[depth_val.into()]);
+      }
+
+      // Call the timer callback directly
+      {
+        v8::tc_scope!(let tc_scope, scope);
+        let cb = callback.open(tc_scope);
+        cb.call(tc_scope, global_this, &[]);
+
+        if let Some(exception) = tc_scope.exception() {
+          // Report exception but don't abort the timer loop.
+          // Globalize the exception value, then get report fn and call it.
+          let exc_global = v8::Global::new(tc_scope, exception);
+          {
+            let report_exception_cb =
+              context_state.js_report_exception_cb.borrow();
+            if let Some(report_fn_global) = report_exception_cb.as_ref() {
+              let report_fn = report_fn_global.open(tc_scope);
+              let exc_local = v8::Local::new(tc_scope, &exc_global);
+              report_fn.call(tc_scope, undefined, &[exc_local]);
+            }
+          }
+        }
+      }
+
+      // Microtask checkpoint between each timer
+      scope.perform_microtask_checkpoint();
+
+      // Drain nextTick between each timer callback
+      {
+        let has_tick = context_state.has_next_tick_scheduled.get();
+        let drain_cb =
+          context_state.js_drain_next_tick_and_macrotasks_cb.borrow();
+        let drain_fn = drain_cb.as_ref().unwrap().open(scope);
+        let has_tick_val = v8::Boolean::new(scope, has_tick);
+        drain_fn.call(scope, undefined, &[has_tick_val.into()]);
+      }
+
+      scope.perform_microtask_checkpoint();
+    }
+
+    // Reset timer depth to 0 after all timers
+    {
+      let set_timer_depth_cb = context_state.js_set_timer_depth_cb.borrow();
+      let set_timer_depth_fn = set_timer_depth_cb.as_ref().unwrap().open(scope);
+      let zero = v8::Integer::new(scope, 0);
+      set_timer_depth_fn.call(scope, undefined, &[zero.into()]);
+    }
+
+    true
+  }
+
+  /// Phase 2a: Poll and dispatch V8 task spawner tasks.
+  fn dispatch_task_spawner(
+    cx: &mut Context,
+    scope: &mut v8::PinScope,
+    context_state: &ContextState,
+  ) -> bool {
+    let mut dispatched = false;
     let mut retries = 3;
     while let Poll::Ready(tasks) =
       context_state.task_spawner_factory.poll_inner(cx)
     {
-      // TODO(mmastrac): we are using this flag
-      dispatched_ops = true;
+      dispatched = true;
       for task in tasks {
         task(scope);
       }
-      // We may need to perform a microtask checkpoint here
       scope.perform_microtask_checkpoint();
 
-      // We don't want tasks that spawn other tasks to starve the event loop, so break
-      // after three times around and allow the remainder of the event loop to spin.
       retries -= 1;
       if retries == 0 {
         cx.waker().wake_by_ref();
         break;
       }
     }
+    dispatched
+  }
 
-    // We return async responses to JS in bounded batches. Note that because
-    // we're passing these to JS as arguments, it is possible to overflow the
-    // JS stack by just passing too many.
+  /// Phase 2b: Poll completed async ops and batch-resolve via JS __resolveOps.
+  fn dispatch_pending_ops<'s, 'i>(
+    cx: &mut Context,
+    scope: &mut v8::PinScope<'s, 'i>,
+    context_state: &ContextState,
+  ) -> Result<bool, Box<JsError>> {
     const MAX_VEC_SIZE_FOR_OPS: usize = 1024;
 
-    // each batch is a flat vector of tuples:
-    // `[promise_id1, op_result1, promise_id2, op_result2, ...]`
-    // promise_id is a simple integer, op_result is an ops::OpResult
-    // which contains a value OR an error, encoded as a tuple.
-    // This batch is received in JS via the special `arguments` variable
-    // and then each tuple is used to resolve or reject promises
     let mut args: SmallVec<[v8::Local<v8::Value>; 32]> =
       SmallVec::with_capacity(32);
 
     loop {
       if args.len() >= MAX_VEC_SIZE_FOR_OPS {
-        // We have too many, bail for now but re-wake the waker
         cx.waker().wake_by_ref();
         break;
       }
@@ -2637,17 +2892,42 @@ impl JsRuntime {
       context_state
         .activity_traces
         .complete(RuntimeActivityType::AsyncOp, promise_id as _);
-      dispatched_ops |= true;
-      did_work |= true;
       args.push(v8::Integer::new(scope, promise_id).into());
       args.push(v8::Boolean::new(scope, res.is_ok()).into());
       args.push(res.unwrap_or_else(std::convert::identity));
     }
 
-    let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
-    let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
-    dispatched_ops |= has_tick_scheduled;
+    if args.is_empty() {
+      return Ok(false);
+    }
 
+    let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
+
+    v8::tc_scope!(let tc_scope, scope);
+
+    let resolve_ops_cb = context_state.js_resolve_ops_cb.borrow();
+    let resolve_ops_fn = resolve_ops_cb.as_ref().unwrap().open(tc_scope);
+    resolve_ops_fn.call(tc_scope, undefined, args.as_slice());
+
+    if let Some(exception) = tc_scope.exception() {
+      return exception_to_err_result(tc_scope, exception, false, true);
+    }
+    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
+      return Ok(false);
+    }
+
+    Ok(true)
+  }
+
+  /// Phase 2c: Handle promise rejections.
+  fn dispatch_rejections<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    context_state: &ContextState,
+    exception_state: &ExceptionState,
+  ) -> Result<(), Box<JsError>> {
+    let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
+
+    // First handle "handled" rejections
     while let Some((promise, result)) = exception_state
       .pending_handled_promise_rejections
       .borrow_mut()
@@ -2659,7 +2939,6 @@ impl JsRuntime {
         .as_ref()
       {
         let function = handler.open(scope);
-
         let args = [
           v8::Local::new(scope, promise).into(),
           v8::Local::new(scope, result),
@@ -2668,87 +2947,63 @@ impl JsRuntime {
       }
     }
 
-    let rejections = if !exception_state
+    // Then handle unhandled rejections
+    if exception_state
       .pending_promise_rejections
-      .borrow_mut()
+      .borrow()
       .is_empty()
     {
-      // Avoid holding the pending rejection lock longer than necessary
-      let mut pending_rejections =
-        exception_state.pending_promise_rejections.borrow_mut();
-      let mut rejections = VecDeque::default();
-      std::mem::swap(&mut *pending_rejections, &mut rejections);
-      drop(pending_rejections);
+      return Ok(());
+    }
 
-      let arr = v8::Array::new(scope, (rejections.len() * 3) as i32);
-      let mut index = 0;
-      for rejection in rejections.into_iter() {
-        let value = v8::Local::new(scope, rejection.0);
-        arr.set_index(scope, index, value.into());
-        index += 1;
-        let value = v8::Local::new(scope, rejection.1);
-        arr.set_index(scope, index, value);
-        index += 1;
-        let value = v8::Local::new(scope, rejection.2);
-        arr.set_index(scope, index, value);
-        index += 1;
-      }
-      arr.into()
-    } else {
-      undefined
-    };
+    let mut pending_rejections =
+      exception_state.pending_promise_rejections.borrow_mut();
+    let mut rejections = VecDeque::default();
+    std::mem::swap(&mut *pending_rejections, &mut rejections);
+    drop(pending_rejections);
 
-    args.push(rejections);
-
-    // TODO(mmastrac): timer dispatch should be done via direct function call, but we will have to start
-    // storing the exception-reporting callback.
-    let timers = match context_state.timers.poll_timers(cx) {
-      Poll::Ready(timers) => {
-        did_work |= true;
-        let traces_enabled = context_state.activity_traces.is_enabled();
-        let arr = v8::Array::new(scope, (timers.len() * 3) as _);
-        #[allow(clippy::needless_range_loop)]
-        for i in 0..timers.len() {
-          if traces_enabled {
-            // Timer and interval traces both use RuntimeActivityType::Timer
-            context_state
-              .activity_traces
-              .complete(RuntimeActivityType::Timer, timers[i].0 as _);
-          }
-          // depth, id, function
-          let value = v8::Integer::new(scope, timers[i].1.1 as _);
-          arr.set_index(scope, (i * 3) as _, value.into());
-          let value = v8::Number::new(scope, timers[i].0 as _);
-          arr.set_index(scope, (i * 3 + 1) as _, value.into());
-          let value = v8::Local::new(scope, timers[i].1.0.clone());
-          arr.set_index(scope, (i * 3 + 2) as _, value.into());
-        }
-        arr.into()
-      }
-      _ => undefined,
-    };
-    args.push(timers);
-
-    let has_tick_scheduled = v8::Boolean::new(scope, has_tick_scheduled);
-    args.push(has_tick_scheduled.into());
+    let mut args: SmallVec<[v8::Local<v8::Value>; 16]> =
+      SmallVec::with_capacity(rejections.len() * 3);
+    for rejection in rejections.into_iter() {
+      args.push(v8::Local::new(scope, rejection.0).into());
+      args.push(v8::Local::new(scope, rejection.1));
+      args.push(v8::Local::new(scope, rejection.2));
+    }
 
     v8::tc_scope!(let tc_scope, scope);
 
-    let js_event_loop_tick_cb = context_state.js_event_loop_tick_cb.borrow();
-    let js_event_loop_tick_cb =
-      js_event_loop_tick_cb.as_ref().unwrap().open(tc_scope);
-
-    js_event_loop_tick_cb.call(tc_scope, undefined, args.as_slice());
+    let handle_rejections_cb = context_state.js_handle_rejections_cb.borrow();
+    let handle_rejections_fn =
+      handle_rejections_cb.as_ref().unwrap().open(tc_scope);
+    handle_rejections_fn.call(tc_scope, undefined, args.as_slice());
 
     if let Some(exception) = tc_scope.exception() {
       return exception_to_err_result(tc_scope, exception, false, true);
     }
 
-    if tc_scope.has_terminated() || tc_scope.is_execution_terminating() {
-      return Ok((false, false));
+    Ok(())
+  }
+
+  /// Phase 5a: Drain nextTick queue and macrotask queue.
+  fn drain_next_tick_and_macrotasks<'s, 'i>(
+    scope: &mut v8::PinScope<'s, 'i>,
+    context_state: &ContextState,
+  ) -> Result<(), Box<JsError>> {
+    let undefined: v8::Local<v8::Value> = v8::undefined(scope).into();
+    let has_tick_scheduled = context_state.has_next_tick_scheduled.get();
+
+    v8::tc_scope!(let tc_scope, scope);
+
+    let drain_cb = context_state.js_drain_next_tick_and_macrotasks_cb.borrow();
+    let drain_fn = drain_cb.as_ref().unwrap().open(tc_scope);
+    let has_tick_val = v8::Boolean::new(tc_scope, has_tick_scheduled);
+    drain_fn.call(tc_scope, undefined, &[has_tick_val.into()]);
+
+    if let Some(exception) = tc_scope.exception() {
+      return exception_to_err_result(tc_scope, exception, false, true);
     }
 
-    Ok((dispatched_ops, did_work))
+    Ok(())
   }
 }
 

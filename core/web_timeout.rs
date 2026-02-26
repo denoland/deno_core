@@ -1,5 +1,8 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
+use crate::reactor::Reactor;
+use crate::reactor::ReactorInstant;
+use crate::reactor::ReactorTimer;
 use cooked_waker::IntoWaker;
 use cooked_waker::ViaRawPointer;
 use cooked_waker::Wake;
@@ -11,31 +14,29 @@ use std::cell::UnsafeCell;
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::collections::btree_set;
-use std::future::Future;
 use std::mem::MaybeUninit;
 use std::num::NonZeroU64;
+use std::ops::Deref;
 use std::pin::Pin;
 use std::task::Context;
 use std::task::Poll;
 use std::task::Waker;
 use std::task::ready;
 use std::time::Duration;
-use tokio::time::Instant;
-use tokio::time::Sleep;
 
 pub(crate) type WebTimerId = u64;
 
 /// The minimum number of tombstones required to trigger compaction
 const COMPACTION_MINIMUM: usize = 16;
 
-#[derive(PartialEq, Eq, PartialOrd, Ord)]
-enum TimerType {
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum TimerType {
   Repeat(NonZeroU64),
   Once,
 }
 
 #[derive(PartialEq, Eq, PartialOrd, Ord)]
-struct TimerKey(Instant, u64, TimerType, bool);
+struct TimerKey<I: ReactorInstant>(I, u64, TimerType, bool);
 
 struct TimerData<T> {
   data: T,
@@ -76,23 +77,31 @@ struct TimerData<T> {
 /// https://github.com/denoland/deno/pull/12862 -- Refactor timers to use one async op per timer
 ///
 /// https://github.com/denoland/deno/issues/11398 -- Spurious assertion error when the callback to setInterval lasts longer than the interval
-pub(crate) struct WebTimers<T> {
+pub(crate) struct WebTimers<T, R: Reactor> {
+  reactor: R,
   next_id: Cell<WebTimerId>,
-  timers: RefCell<BTreeSet<TimerKey>>,
+  timers: RefCell<BTreeSet<TimerKey<R::Instant>>>,
   /// We choose a `BTreeMap` over `HashMap` because of memory performance.
   data_map: RefCell<BTreeMap<WebTimerId, TimerData<T>>>,
   /// How many unref'd timers exist?
   unrefd_count: Cell<usize>,
-  /// A boxed MutableSleep that will allow us to change the Tokio sleep timeout as needed.
-  /// Because this is boxed, we can "safely" unsafely poll it.
-  sleep: Box<MutableSleep>,
+  /// A heap-allocated MutableSleep. Stored as a raw pointer (not Box) to avoid
+  /// Box's Unique retag conflicting with the self-referential waker pointer.
+  sleep: OwnedPtr<MutableSleep<R::Timer>>,
   /// The high-res timer lock. No-op on platforms other than Windows.
   high_res_timer_lock: HighResTimerLock,
 }
 
-impl<T> Default for WebTimers<T> {
+impl<T, R: Reactor + Default> Default for WebTimers<T, R> {
   fn default() -> Self {
+    Self::new(R::default())
+  }
+}
+
+impl<T, R: Reactor> WebTimers<T, R> {
+  pub fn new(reactor: R) -> Self {
     Self {
+      reactor,
       next_id: Default::default(),
       timers: Default::default(),
       data_map: Default::default(),
@@ -101,22 +110,22 @@ impl<T> Default for WebTimers<T> {
       high_res_timer_lock: Default::default(),
     }
   }
-}
 
-impl<T> WebTimers<T> {
   #[allow(unused)]
   pub fn has_pending(&self) -> bool {
     !self.timers.borrow().is_empty()
   }
 }
 
-pub(crate) struct WebTimersIterator<'a, T> {
+pub(crate) struct WebTimersIterator<'a, T, I: ReactorInstant> {
   data: Ref<'a, BTreeMap<WebTimerId, TimerData<T>>>,
-  timers: Ref<'a, BTreeSet<TimerKey>>,
+  timers: Ref<'a, BTreeSet<TimerKey<I>>>,
 }
 
-impl<'a, T> IntoIterator for &'a WebTimersIterator<'a, T> {
-  type IntoIter = WebTimersIteratorImpl<'a, T>;
+impl<'a, T, I: ReactorInstant> IntoIterator
+  for &'a WebTimersIterator<'a, T, I>
+{
+  type IntoIter = WebTimersIteratorImpl<'a, T, I>;
   type Item = (u64, bool, bool);
 
   fn into_iter(self) -> Self::IntoIter {
@@ -127,12 +136,12 @@ impl<'a, T> IntoIterator for &'a WebTimersIterator<'a, T> {
   }
 }
 
-pub(crate) struct WebTimersIteratorImpl<'a, T> {
+pub(crate) struct WebTimersIteratorImpl<'a, T, I: ReactorInstant> {
   data: &'a BTreeMap<WebTimerId, TimerData<T>>,
-  timers: btree_set::Iter<'a, TimerKey>,
+  timers: btree_set::Iter<'a, TimerKey<I>>,
 }
 
-impl<T> Iterator for WebTimersIteratorImpl<'_, T> {
+impl<T, I: ReactorInstant> Iterator for WebTimersIteratorImpl<'_, T, I> {
   type Item = (u64, bool, bool);
   fn next(&mut self) -> Option<Self::Item> {
     loop {
@@ -144,31 +153,65 @@ impl<T> Iterator for WebTimersIteratorImpl<'_, T> {
   }
 }
 
-struct MutableSleep {
-  sleep: UnsafeCell<Option<Sleep>>,
+/// Like a Box<T> but without Uniqueness semantics, which
+/// cause issues with self-referential waker pointers under Stacked Borrows.
+#[repr(transparent)]
+struct OwnedPtr<T> {
+  ptr: *mut T,
+}
+
+impl<T> OwnedPtr<T> {
+  fn from_box(b: Box<T>) -> Self {
+    Self {
+      ptr: Box::into_raw(b),
+    }
+  }
+}
+
+impl<T> Deref for OwnedPtr<T> {
+  type Target = T;
+  fn deref(&self) -> &T {
+    unsafe { &*self.ptr }
+  }
+}
+
+impl<T> std::ops::DerefMut for OwnedPtr<T> {
+  fn deref_mut(&mut self) -> &mut T {
+    unsafe { &mut *self.ptr }
+  }
+}
+
+impl<T> Drop for OwnedPtr<T> {
+  fn drop(&mut self) {
+    unsafe {
+      let _ = Box::from_raw(self.ptr);
+    }
+  }
+}
+
+struct MutableSleep<Tmr: ReactorTimer> {
+  sleep: UnsafeCell<Option<Tmr>>,
   ready: Cell<bool>,
   external_waker: UnsafeCell<Option<Waker>>,
   internal_waker: Waker,
 }
 
-#[allow(clippy::borrowed_box)]
-impl MutableSleep {
-  fn new() -> Box<Self> {
-    let mut new = Box::new(MaybeUninit::<Self>::uninit());
-
-    new.write(MutableSleep {
-      sleep: Default::default(),
-      ready: Cell::default(),
-      external_waker: UnsafeCell::default(),
-      internal_waker: MutableSleepWaker {
-        inner: new.as_ptr(),
-      }
-      .into_waker(),
-    });
-    unsafe { std::mem::transmute(new) }
+impl<Tmr: ReactorTimer + 'static> MutableSleep<Tmr> {
+  fn new() -> OwnedPtr<Self> {
+    unsafe {
+      let mut ptr = OwnedPtr::from_box(Box::new(MaybeUninit::<Self>::uninit()));
+      let raw = ptr.as_ptr();
+      ptr.write(MutableSleep {
+        sleep: Default::default(),
+        ready: Default::default(),
+        external_waker: Default::default(),
+        internal_waker: MutableSleepWaker::<Tmr> { inner: raw }.into_waker(),
+      });
+      std::mem::transmute(ptr)
+    }
   }
 
-  fn poll_ready(self: &Box<Self>, cx: &mut Context) -> Poll<()> {
+  fn poll_ready(&self, cx: &mut Context) -> Poll<()> {
     if self.ready.take() {
       Poll::Ready(())
     } else {
@@ -181,14 +224,14 @@ impl MutableSleep {
           external.clone_from(waker);
         }
 
-        // We do a manual deadline check here. Tokio's timer wheel may not immediately check the deadline if the
+        // We do a manual deadline check here. The timer wheel may not immediately check the deadline if the
         // executor was blocked.
         // Skip this check under Miri as it interferes with time simulation.
         #[cfg(not(miri))]
         {
           let sleep = unsafe { self.sleep.get().as_mut().unwrap_unchecked() };
           if let Some(sleep) = sleep
-            && Instant::now() >= sleep.deadline()
+            && Tmr::Instant::now() >= sleep.deadline()
           {
             return Poll::Ready(());
           }
@@ -201,17 +244,17 @@ impl MutableSleep {
     }
   }
 
-  fn clear(self: &Box<Self>) {
+  fn clear(&self) {
     unsafe {
       *self.sleep.get() = None;
     }
     self.ready.set(false);
   }
 
-  fn change(self: &Box<Self>, instant: Instant) {
+  fn change(&self, timer: Tmr) {
     let pin = unsafe {
-      // First replace the current sleep
-      *self.sleep.get() = Some(tokio::time::sleep_until(instant));
+      // First replace the current timer
+      *self.sleep.get() = Some(timer);
 
       // Then get ourselves a Pin to this
       Pin::new_unchecked(
@@ -235,15 +278,20 @@ impl MutableSleep {
 }
 
 #[repr(transparent)]
-#[derive(Clone)]
-struct MutableSleepWaker {
-  inner: *const MutableSleep,
+struct MutableSleepWaker<Tmr: ReactorTimer> {
+  inner: *const MutableSleep<Tmr>,
 }
 
-unsafe impl Send for MutableSleepWaker {}
-unsafe impl Sync for MutableSleepWaker {}
+impl<Tmr: ReactorTimer> Clone for MutableSleepWaker<Tmr> {
+  fn clone(&self) -> Self {
+    MutableSleepWaker { inner: self.inner }
+  }
+}
 
-impl WakeRef for MutableSleepWaker {
+unsafe impl<Tmr: ReactorTimer> Send for MutableSleepWaker<Tmr> {}
+unsafe impl<Tmr: ReactorTimer> Sync for MutableSleepWaker<Tmr> {}
+
+impl<Tmr: ReactorTimer> WakeRef for MutableSleepWaker<Tmr> {
   fn wake_by_ref(&self) {
     unsafe {
       let this = self.inner.as_ref().unwrap_unchecked();
@@ -256,17 +304,17 @@ impl WakeRef for MutableSleepWaker {
   }
 }
 
-impl Wake for MutableSleepWaker {
+impl<Tmr: ReactorTimer> Wake for MutableSleepWaker<Tmr> {
   fn wake(self) {
     self.wake_by_ref()
   }
 }
 
-impl Drop for MutableSleepWaker {
+impl<Tmr: ReactorTimer> Drop for MutableSleepWaker<Tmr> {
   fn drop(&mut self) {}
 }
 
-unsafe impl ViaRawPointer for MutableSleepWaker {
+unsafe impl<Tmr: ReactorTimer> ViaRawPointer for MutableSleepWaker<Tmr> {
   type Target = ();
 
   fn into_raw(self) -> *mut () {
@@ -278,10 +326,10 @@ unsafe impl ViaRawPointer for MutableSleepWaker {
   }
 }
 
-impl<T: Clone> WebTimers<T> {
+impl<T: Clone, R: Reactor> WebTimers<T, R> {
   /// Returns an internal iterator that locks the internal data structures for the period
   /// of iteration. Calling other methods on this collection will cause a panic.
-  pub(crate) fn iter(&self) -> WebTimersIterator<'_, T> {
+  pub(crate) fn iter(&self) -> WebTimersIterator<'_, T, R::Instant> {
     WebTimersIterator {
       data: self.data_map.borrow(),
       timers: self.timers.borrow(),
@@ -341,17 +389,19 @@ impl<T: Clone> WebTimers<T> {
     self.next_id.set(id);
 
     let mut timers = self.timers.borrow_mut();
-    let deadline = Instant::now()
+    let deadline = self
+      .reactor
+      .now()
       .checked_add(Duration::from_millis(timeout_ms))
       .unwrap();
     match timers.first() {
       Some(TimerKey(k, ..)) => {
         if &deadline < k {
-          self.sleep.change(deadline);
+          self.sleep.change(self.reactor.timer(deadline));
         }
       }
       _ => {
-        self.sleep.change(deadline);
+        self.sleep.change(self.reactor.timer(deadline));
       }
     }
 
@@ -409,40 +459,39 @@ impl<T: Clone> WebTimers<T> {
   }
 
   /// Poll for any timers that have completed.
-  pub fn poll_timers(&self, cx: &mut Context) -> Poll<Vec<(u64, T)>> {
+  ///
+  /// Returns the IDs and [`TimerType`]s of expired timers. The associated
+  /// data must be retrieved per-timer via
+  /// [`take_fired_timer`](Self::take_fired_timer), which allows
+  /// `cancel_timer` to prevent dispatch of timers that expired in the
+  /// same batch.
+  pub fn poll_timers(&self, cx: &mut Context) -> Poll<Vec<(u64, TimerType)>> {
     ready!(self.sleep.poll_ready(cx));
-    let now = Instant::now();
+    let now = R::Instant::now();
     let mut timers = self.timers.borrow_mut();
-    let mut data = self.data_map.borrow_mut();
+    let data = self.data_map.borrow();
     let mut output = vec![];
+    let mut fired_once_count: usize = 0;
 
     let mut split = timers.split_off(&TimerKey(now, 0, TimerType::Once, false));
     std::mem::swap(&mut split, &mut timers);
     for TimerKey(_, id, timer_type, is_system_timer) in split {
-      if let TimerType::Repeat(interval) = timer_type {
-        if let Some(TimerData { data, .. }) = data.get(&id) {
-          output.push((id, data.clone()));
-          timers.insert(TimerKey(
-            now
-              .checked_add(Duration::from_millis(interval.into()))
-              .unwrap(),
-            id,
-            timer_type,
-            is_system_timer,
-          ));
-        }
-      } else if let Some(TimerData {
-        data,
-        unrefd,
-        high_res,
-      }) = data.remove(&id)
-      {
-        self.high_res_timer_lock.maybe_unlock(high_res);
-        if unrefd {
-          self.unrefd_count.set(self.unrefd_count.get() - 1);
-        }
-        output.push((id, data));
+      if !data.contains_key(&id) {
+        continue; // tombstone
       }
+      if let TimerType::Repeat(interval) = &timer_type {
+        timers.insert(TimerKey(
+          now
+            .checked_add(Duration::from_millis((*interval).into()))
+            .unwrap(),
+          id,
+          timer_type.clone(),
+          is_system_timer,
+        ));
+      } else {
+        fired_once_count += 1;
+      }
+      output.push((id, timer_type));
     }
 
     // In-effective poll, run a front-compaction and try again later
@@ -458,29 +507,64 @@ impl<T: Clone> WebTimers<T> {
         }
       }
       if let Some(TimerKey(k, ..)) = timers.first() {
-        self.sleep.change(*k);
+        self.sleep.change(self.reactor.timer(*k));
       }
       return Poll::Pending;
     }
 
-    if data.is_empty() {
-      // When the # of running timers hits zero, clear the timer tree.
+    // Adjust for fired-once timers whose data is still in data_map
+    // (it will be removed by take_fired_timer).
+    let pending_data_count = data.len() - fired_once_count;
+
+    if pending_data_count == 0 {
+      // No more pending timers; clear the tree and sleep.
       if !timers.is_empty() {
         timers.clear();
       }
       self.sleep.clear();
     } else {
       // Run compaction when there are enough tombstones to justify cleanup.
-      let tombstone_count = timers.len() - data.len();
+      let tombstone_count = timers.len() - pending_data_count;
       if tombstone_count > COMPACTION_MINIMUM {
         timers.retain(|k| data.contains_key(&k.1));
       }
       if let Some(TimerKey(k, ..)) = timers.first() {
-        self.sleep.change(*k);
+        self.sleep.change(self.reactor.timer(*k));
       }
     }
 
     Poll::Ready(output)
+  }
+
+  /// Extracts the data for a previously-fired timer. Returns `None` if
+  /// the timer was cancelled between [`poll_timers`](Self::poll_timers)
+  /// and this call.
+  pub fn take_fired_timer(&self, id: u64, timer_type: &TimerType) -> Option<T> {
+    match timer_type {
+      TimerType::Repeat(_) => {
+        self.data_map.borrow().get(&id).map(|td| td.data.clone())
+      }
+      TimerType::Once => {
+        let mut data = self.data_map.borrow_mut();
+        let TimerData {
+          data: d,
+          unrefd,
+          high_res,
+        } = data.remove(&id)?;
+        if data.is_empty() {
+          self.high_res_timer_lock.clear();
+          self.unrefd_count.set(0);
+          self.timers.borrow_mut().clear();
+          self.sleep.clear();
+        } else {
+          self.high_res_timer_lock.maybe_unlock(high_res);
+          if unrefd {
+            self.unrefd_count.set(self.unrefd_count.get() - 1);
+          }
+        }
+        Some(d)
+      }
+    }
   }
 
   /// Is this set of timers empty?
@@ -613,8 +697,12 @@ impl HighResTimerLock {
 #[cfg(test)]
 mod tests {
   use super::*;
+  use crate::reactor_tokio::TokioReactor;
   use rstest::rstest;
+  use std::future::Future;
   use std::future::poll_fn;
+
+  type TestTimers = WebTimers<(), TokioReactor>;
 
   /// Miri is way too slow here on some of the larger tests.
   const TEN_THOUSAND: u64 = if cfg!(miri) { 100 } else { 10_000 };
@@ -628,17 +716,20 @@ mod tests {
     runtime.block_on(f)
   }
 
-  async fn poll_all(timers: &WebTimers<()>) -> Vec<(u64, ())> {
+  async fn poll_all(timers: &TestTimers) -> Vec<u64> {
     timers.assert_consistent();
     let len = timers.len();
     let mut v = vec![];
     while !timers.is_empty() {
-      let mut batch = poll_fn(|cx| {
+      let batch = poll_fn(|cx| {
         timers.assert_consistent();
         timers.poll_timers(cx)
       })
       .await;
-      v.append(&mut batch);
+      for (id, timer_type) in &batch {
+        timers.take_fired_timer(*id, timer_type);
+      }
+      v.extend(batch.into_iter().map(|(id, _)| id));
       #[allow(clippy::print_stderr)]
       {
         eprintln!(
@@ -667,7 +758,7 @@ mod tests {
     const TOMBSTONES: usize = 30; // > COMPACTION_MINIMUM but < ACTIVE_TIMERS
     const CLEANUP_THRESHOLD: usize = 5; // Threshold to determine if compaction happened
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
 
       // Create mostly long-lived timers, with a few immediate ones
       // The immediate timers ensure poll_timers returns non-empty output
@@ -699,7 +790,10 @@ mod tests {
       );
 
       // Poll timers to trigger potential compaction
-      let _ = poll_fn(|cx| timers.poll_timers(cx)).await;
+      let fired = poll_fn(|cx| timers.poll_timers(cx)).await;
+      for (id, timer_type) in &fired {
+        timers.take_fired_timer(*id, timer_type);
+      }
 
       let remaining_tombstones = count_tombstones();
 
@@ -717,7 +811,7 @@ mod tests {
   #[test]
   fn test_timer() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       let _a = timers.queue_timer(1, ());
 
       let v = poll_all(&timers).await;
@@ -728,7 +822,7 @@ mod tests {
   #[test]
   fn test_high_res_lock() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       assert!(!timers.high_res_timer_lock.is_locked());
       let _a = timers.queue_timer(1, ());
       assert!(timers.high_res_timer_lock.is_locked());
@@ -743,7 +837,7 @@ mod tests {
   #[test]
   fn test_timer_cancel_1(#[values(0, 1, 2, 3)] which: u64) {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       for i in 0..4 {
         let id = timers.queue_timer(i * 25, ());
         if i == which {
@@ -761,7 +855,7 @@ mod tests {
   #[test]
   fn test_timer_cancel_2(#[values(0, 1, 2)] which: u64) {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       for i in 0..4 {
         let id = timers.queue_timer(i * 25, ());
         if i == which || i == which + 1 {
@@ -778,7 +872,7 @@ mod tests {
   #[test]
   fn test_timers_10_random() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       for i in 0..10 {
         timers.queue_timer((i % 3) * 10, ());
       }
@@ -791,7 +885,7 @@ mod tests {
   #[test]
   fn test_timers_10_random_cancel() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       for i in 0..10 {
         let id = timers.queue_timer((i % 3) * 10, ());
         timers.cancel_timer(id);
@@ -806,7 +900,7 @@ mod tests {
   #[test]
   fn test_timers_10_random_cancel_after(#[values(true, false)] reverse: bool) {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       let mut ids = vec![];
       for i in 0..2 {
         ids.push(timers.queue_timer((i % 3) * 10, ()));
@@ -827,7 +921,7 @@ mod tests {
   #[test]
   fn test_timers_10() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       for _i in 0..10 {
         timers.queue_timer(1, ());
       }
@@ -840,7 +934,7 @@ mod tests {
   #[test]
   fn test_timers_10_000_random() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       for i in 0..TEN_THOUSAND {
         timers.queue_timer(i % 10, ());
       }
@@ -855,7 +949,7 @@ mod tests {
   #[test]
   fn test_timers_cancel_first() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       let mut ids = vec![];
       for _ in 0..TEN_THOUSAND {
         ids.push(timers.queue_timer(1, ()));
@@ -874,7 +968,7 @@ mod tests {
   #[test]
   fn test_timers_10_000_cancel_most() {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       let mut ids = vec![];
       for i in 0..TEN_THOUSAND {
         ids.push(timers.queue_timer(i % 100, ()));
@@ -896,7 +990,7 @@ mod tests {
   #[test]
   fn test_chaos(#[values(42, 99, 1000)] seed: u64) {
     async_test(async {
-      let timers = WebTimers::<()>::default();
+      let timers = TestTimers::default();
       fastrand::seed(seed);
 
       let mut count = 0;

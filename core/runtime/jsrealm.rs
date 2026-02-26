@@ -12,6 +12,7 @@ use crate::error::CreateCodeCacheError;
 use crate::error::JsError;
 use crate::error::exception_to_err;
 use crate::error::exception_to_err_result;
+use crate::event_loop::EventLoopPhases;
 use crate::module_specifier::ModuleSpecifier;
 use crate::modules::IntoModuleCodeString;
 use crate::modules::IntoModuleName;
@@ -22,8 +23,10 @@ use crate::modules::ModuleName;
 use crate::modules::script_origin;
 use crate::ops::ExternalOpsTracker;
 use crate::ops::OpCtx;
+use crate::reactor::DefaultReactor;
 use crate::stats::RuntimeActivityTraces;
 use crate::tasks::V8TaskSpawnerFactory;
+use crate::uv_compat::UvLoopInner;
 use crate::web_timeout::WebTimers;
 use futures::stream::StreamExt;
 use std::cell::Cell;
@@ -71,8 +74,14 @@ pub(crate) struct ImmediateInfo {
 
 pub struct ContextState {
   pub(crate) task_spawner_factory: Arc<V8TaskSpawnerFactory>,
-  pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32)>,
-  pub(crate) js_event_loop_tick_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) timers: WebTimers<(v8::Global<v8::Function>, u32), DefaultReactor>,
+  // Per-phase JS callbacks (replacing monolithic eventLoopTick)
+  pub(crate) js_resolve_ops_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_drain_next_tick_and_macrotasks_cb:
+    RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_handle_rejections_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_set_timer_depth_cb: RefCell<Option<v8::Global<v8::Function>>>,
+  pub(crate) js_report_exception_cb: RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) run_immediate_callbacks_cb:
     RefCell<Option<v8::Global<v8::Function>>>,
   pub(crate) js_wasm_streaming_cb: RefCell<Option<v8::Global<v8::Function>>>,
@@ -91,6 +100,26 @@ pub struct ContextState {
   pub(crate) immediate_info: RefCell<ImmediateInfo>,
   pub(crate) external_ops_tracker: ExternalOpsTracker,
   pub(crate) ext_import_meta_proto: RefCell<Option<v8::Global<v8::Object>>>,
+  /// Phase-specific state for the libuv-style event loop.
+  pub(crate) event_loop_phases: RefCell<EventLoopPhases>,
+  /// Pointer to the `UvLoopInner` for the libuv compat layer.
+  /// Set via [`JsRuntime::register_uv_loop`] when a `uv_loop_t` is
+  /// associated with this context.
+  ///
+  /// # Safety
+  /// The pointee is heap-allocated by `uv_loop_init` (boxed) and lives until
+  /// `uv_loop_close` destroys it. The caller of `register_uv_loop` must
+  /// guarantee the `uv_loop_t` outlives this `ContextState`. Both
+  /// `UvLoopInner` and `ContextState` are `!Send` -- all access is on the
+  /// event loop thread.
+  pub(crate) uv_loop_inner: Cell<Option<*const UvLoopInner>>,
+  /// Raw pointer to the `uv_loop_t` handle, used to set `loop_.data`
+  /// to the current `v8::Context` at the start of each event loop tick
+  /// so that libuv-style C callbacks can retrieve the context.
+  ///
+  /// # Safety
+  /// Same lifetime requirements as `uv_loop_inner` above.
+  pub(crate) uv_loop_ptr: Cell<Option<*mut crate::uv_compat::uv_loop_t>>,
 }
 
 impl ContextState {
@@ -108,7 +137,11 @@ impl ContextState {
       exception_state: Default::default(),
       has_next_tick_scheduled: Default::default(),
       immediate_info: Default::default(),
-      js_event_loop_tick_cb: Default::default(),
+      js_resolve_ops_cb: Default::default(),
+      js_drain_next_tick_and_macrotasks_cb: Default::default(),
+      js_handle_rejections_cb: Default::default(),
+      js_set_timer_depth_cb: Default::default(),
+      js_report_exception_cb: Default::default(),
       run_immediate_callbacks_cb: Default::default(),
       js_wasm_streaming_cb: Default::default(),
       wasm_instance_fn: Default::default(),
@@ -122,6 +155,9 @@ impl ContextState {
       unrefed_ops,
       external_ops_tracker,
       ext_import_meta_proto: Default::default(),
+      event_loop_phases: Default::default(),
+      uv_loop_inner: Cell::new(None),
+      uv_loop_ptr: Cell::new(None),
     }
   }
 }
@@ -209,7 +245,13 @@ impl JsRealmInner {
     v8::scope!(let scope, &mut isolate);
     // These globals will prevent snapshots from completing, take them
     state.exception_state.prepare_to_destroy();
-    std::mem::take(&mut *state.js_event_loop_tick_cb.borrow_mut());
+    std::mem::take(&mut *state.js_resolve_ops_cb.borrow_mut());
+    std::mem::take(
+      &mut *state.js_drain_next_tick_and_macrotasks_cb.borrow_mut(),
+    );
+    std::mem::take(&mut *state.js_handle_rejections_cb.borrow_mut());
+    std::mem::take(&mut *state.js_set_timer_depth_cb.borrow_mut());
+    std::mem::take(&mut *state.js_report_exception_cb.borrow_mut());
     std::mem::take(&mut *state.run_immediate_callbacks_cb.borrow_mut());
     std::mem::take(&mut *state.js_wasm_streaming_cb.borrow_mut());
 

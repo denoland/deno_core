@@ -16,7 +16,6 @@
     setQueueMicrotask,
     SafeMap,
     SafeWeakMap,
-    Set,
     StringPrototypeSlice,
     Symbol,
     SymbolFor,
@@ -55,7 +54,6 @@
     op_get_proxy_details,
     op_get_ext_import_meta_proto,
     op_has_tick_scheduled,
-    op_immediate_has_ref_count,
     op_lazy_load_esm,
     op_memory_usage,
     op_op_names,
@@ -122,7 +120,6 @@
   delete window.__infra;
 
   __initializeCoreMethods(
-    eventLoopTick,
     submitLeakTrace,
   );
 
@@ -143,8 +140,6 @@
 
   let unhandledPromiseRejectionHandler = () => false;
   let timerDepth = 0;
-  let timersRunning = false;
-  const cancelledTimers = new Set();
 
   const macrotaskCallbacks = [];
   const nextTickCallbacks = [];
@@ -162,24 +157,22 @@
     ArrayPrototypePush(immediateCallbacks, cb);
   }
 
-  // This function has variable number of arguments. The last argument describes
-  // if there's a "next tick" scheduled by the Node.js compat layer. Arguments
-  // before last are alternating integers and any values that describe the
-  // responses of async ops.
-  function eventLoopTick() {
-    let didAnyWork = false;
-
-    // First respond to all pending ops.
-    for (let i = 0; i < arguments.length - 3; i += 3) {
-      didAnyWork = true;
+  // Phase 2: Resolve completed async ops. Called from Rust with flat args:
+  // (promiseId, isOk, res, promiseId, isOk, res, ...)
+  function __resolveOps() {
+    for (let i = 0; i < arguments.length; i += 3) {
       const promiseId = arguments[i];
       const isOk = arguments[i + 1];
       const res = arguments[i + 2];
-
       __resolvePromise(promiseId, res, isOk);
     }
+  }
+
+  // Phase 5: Drain nextTick queue and macrotask queue.
+  // Called from Rust. hasTickScheduled indicates if nextTick was scheduled.
+  function __drainNextTickAndMacrotasks(hasTickScheduled) {
     // Drain nextTick queue if there's a tick scheduled.
-    if (arguments[arguments.length - 1]) {
+    if (hasTickScheduled) {
       for (let i = 0; i < nextTickCallbacks.length; i++) {
         nextTickCallbacks[i]();
       }
@@ -187,7 +180,7 @@
       op_run_microtasks();
     }
 
-    // Finally drain macrotask queue.
+    // Drain macrotask queue.
     for (let i = 0; i < macrotaskCallbacks.length; i++) {
       const cb = macrotaskCallbacks[i];
       while (true) {
@@ -207,61 +200,40 @@
         }
       }
     }
+  }
 
-    const timers = arguments[arguments.length - 2];
-    if (timers) {
-      didAnyWork = true;
-      timersRunning = true;
-      for (let i = 0; i < timers.length; i += 3) {
-        timerDepth = timers[i];
-        const id = timers[i + 1];
-        if (cancelledTimers.has(id)) {
-          continue;
+  // Phase 2: Handle unhandled promise rejections.
+  // Called from Rust with a flat array: [promise, reason, context, promise, reason, context, ...]
+  function __handleRejections() {
+    for (let i = 0; i < arguments.length; i += 3) {
+      // Restore the async context that was active when the promise was
+      // rejected, so that AsyncLocalStorage.getStore() works correctly
+      // inside unhandledrejection handlers (matching Node.js behavior).
+      const prevContext = getAsyncContext();
+      setAsyncContext(arguments[i + 2]);
+      try {
+        const handled = unhandledPromiseRejectionHandler(
+          arguments[i],
+          arguments[i + 1],
+        );
+        if (!handled) {
+          const err = arguments[i + 1];
+          op_dispatch_exception(err, true);
         }
-        try {
-          const f = timers[i + 2];
-          f.call(window);
-        } catch (e) {
-          reportExceptionCallback(e);
-        }
-        for (let i = 0; i < nextTickCallbacks.length; i++) {
-          nextTickCallbacks[i]();
-        }
-        op_run_microtasks();
-      }
-      timersRunning = false;
-      timerDepth = 0;
-      cancelledTimers.clear();
-    }
-
-    // Drain immediates queue.
-    if (didAnyWork && op_immediate_has_ref_count()) {
-      runImmediateCallbacks();
-    }
-
-    // If we have any rejections for this tick, attempt to process them
-    const rejections = arguments[arguments.length - 3];
-    if (rejections) {
-      for (let i = 0; i < rejections.length; i += 3) {
-        // Restore the async context that was active when the promise was
-        // rejected, so that AsyncLocalStorage.getStore() works correctly
-        // inside unhandledrejection handlers (matching Node.js behavior).
-        const prevContext = getAsyncContext();
-        setAsyncContext(rejections[i + 2]);
-        try {
-          const handled = unhandledPromiseRejectionHandler(
-            rejections[i],
-            rejections[i + 1],
-          );
-          if (!handled) {
-            const err = rejections[i + 1];
-            op_dispatch_exception(err, true);
-          }
-        } finally {
-          setAsyncContext(prevContext);
-        }
+      } finally {
+        setAsyncContext(prevContext);
       }
     }
+  }
+
+  // Set timer depth before each timer callback (called from Rust).
+  function __setTimerDepth(depth) {
+    timerDepth = depth;
+  }
+
+  // Report an exception (called from Rust for timer callback errors).
+  function __reportException(e) {
+    reportExceptionCallback(e);
   }
 
   function runImmediateCallbacks() {
@@ -697,7 +669,11 @@
     internalRidSymbol: Symbol("Deno.internal.rid"),
     internalFdSymbol: Symbol("Deno.internal.fd"),
     resources,
-    eventLoopTick,
+    __resolveOps,
+    __drainNextTickAndMacrotasks,
+    __handleRejections,
+    __setTimerDepth,
+    __reportException,
     runImmediateCallbacks,
     BadResource,
     BadResourcePrototype,
@@ -850,9 +826,6 @@
     queueSystemTimer: (_associatedOp, repeat, timeout, task) =>
       op_timer_queue_system(repeat, timeout, task),
     cancelTimer: (id) => {
-      if (timersRunning) {
-        cancelledTimers.add(id);
-      }
       op_timer_cancel(id);
     },
     refTimer: (id) => op_timer_ref(id),

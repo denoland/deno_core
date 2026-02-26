@@ -40,7 +40,6 @@
 
   let isLeakTracingEnabled = false;
   let submitLeakTrace;
-  let eventLoopTick;
 
   function __setLeakTracingEnabled(enabled) {
     isLeakTracingEnabled = enabled;
@@ -50,8 +49,7 @@
     return isLeakTracingEnabled;
   }
 
-  function __initializeCoreMethods(eventLoopTick_, submitLeakTrace_) {
-    eventLoopTick = eventLoopTick_;
+  function __initializeCoreMethods(submitLeakTrace_) {
     submitLeakTrace = submitLeakTrace_;
   }
 
@@ -143,9 +141,9 @@
     });
     const wrappedPromise = PromisePrototypeCatch(
       promise,
-      (res) => {
-        // recreate the stacktrace and strip eventLoopTick() calls from stack trace
-        ErrorCaptureStackTrace(res, eventLoopTick);
+      function __opRejectHandler(res) {
+        // recreate the stacktrace and strip internal event loop frames
+        ErrorCaptureStackTrace(res, __opRejectHandler);
         throw res;
       },
     );
