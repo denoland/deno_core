@@ -24,6 +24,7 @@ include_js_files_for_snapshotting = []
 unsafe_runtime_options = []
 unsafe_use_unprotected_platform = []
 snapshot_flags_eager_parse = []
+uv_compat_export = []
 
 [dependencies]
 anyhow.workspace = true
