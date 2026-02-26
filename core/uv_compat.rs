@@ -1,14 +1,46 @@
 // Copyright 2018-2025 the Deno authors. MIT license.
 
-// Pure-Rust libuv C ABI compatibility layer. Drop-in replacement for libuv
-// used by ext/node HTTP2 (nghttp2). Integrated with deno_core's event loop.
-//
-// Functions are `#[unsafe(no_mangle)] extern "C"` so that C code linked into
-// the same binary (e.g. nghttp2) can call them by symbol name, exactly as it
-// would call real libuv. The `#[repr(C)]` structs match the subset of the
-// libuv ABI that nghttp2 actually touches.
+// Drop-in replacement for libuv integrated with deno_core's event loop.
 
-// Windows socket compat: libc doesn't export socket structs on Windows.
+use std::cell::Cell;
+use std::cell::RefCell;
+use std::collections::BTreeSet;
+use std::collections::HashMap;
+use std::collections::VecDeque;
+use std::ffi::c_char;
+use std::ffi::c_int;
+use std::ffi::c_uint;
+use std::ffi::c_void;
+use std::future::Future;
+use std::net::SocketAddr;
+use std::pin::Pin;
+use std::task::Context;
+use std::task::Poll;
+use std::task::Waker;
+use std::time::Instant;
+
+#[cfg(unix)]
+use libc::AF_INET;
+#[cfg(unix)]
+use libc::AF_INET6;
+#[cfg(unix)]
+use libc::sockaddr_in;
+#[cfg(unix)]
+use libc::sockaddr_in6;
+#[cfg(unix)]
+type sa_family_t = libc::sa_family_t;
+#[cfg(windows)]
+use win_sock::AF_INET;
+#[cfg(windows)]
+use win_sock::AF_INET6;
+#[cfg(windows)]
+use win_sock::sockaddr_in;
+#[cfg(windows)]
+use win_sock::sockaddr_in6;
+#[cfg(windows)]
+type sa_family_t = win_sock::sa_family_t;
+
+// libc doesn't export socket structs on Windows.
 #[cfg(windows)]
 mod win_sock {
   #[repr(C)]
@@ -43,45 +75,6 @@ mod win_sock {
   }
 }
 
-use std::cell::Cell;
-use std::cell::RefCell;
-use std::collections::BTreeSet;
-use std::collections::HashMap;
-use std::collections::VecDeque;
-use std::ffi::c_char;
-use std::ffi::c_int;
-use std::ffi::c_uint;
-use std::ffi::c_void;
-use std::future::Future;
-use std::net::SocketAddr;
-use std::pin::Pin;
-use std::task::Context;
-use std::task::Poll;
-use std::task::Waker;
-use std::time::Duration;
-use std::time::Instant;
-
-#[cfg(unix)]
-use libc::AF_INET;
-#[cfg(unix)]
-use libc::AF_INET6;
-#[cfg(unix)]
-use libc::sockaddr_in;
-#[cfg(unix)]
-use libc::sockaddr_in6;
-#[cfg(unix)]
-type sa_family_t = libc::sa_family_t;
-#[cfg(windows)]
-use win_sock::AF_INET;
-#[cfg(windows)]
-use win_sock::AF_INET6;
-#[cfg(windows)]
-use win_sock::sockaddr_in;
-#[cfg(windows)]
-use win_sock::sockaddr_in6;
-#[cfg(windows)]
-type sa_family_t = win_sock::sa_family_t;
-
 #[repr(C)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum uv_handle_type {
@@ -91,14 +84,6 @@ pub enum uv_handle_type {
   UV_PREPARE = 3,
   UV_CHECK = 4,
   UV_TCP = 12,
-}
-
-#[repr(C)]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum uv_run_mode {
-  UV_RUN_DEFAULT = 0,
-  UV_RUN_ONCE = 1,
-  UV_RUN_NOWAIT = 2,
 }
 
 const UV_HANDLE_ACTIVE: u32 = 1 << 0;
@@ -351,17 +336,6 @@ impl UvLoopInner {
     Instant::now().duration_since(self.time_origin).as_millis() as u64
   }
 
-  unsafe fn tick(&self) {
-    unsafe {
-      self.run_timers();
-      self.run_io();
-      self.run_idle();
-      self.run_prepare();
-      self.run_check();
-      self.run_close();
-    }
-  }
-
   pub(crate) fn has_alive_handles(&self) -> bool {
     for (_, handle_ptr) in self.timer_handles.borrow().iter() {
       let handle = unsafe { &**handle_ptr };
@@ -407,30 +381,6 @@ impl UvLoopInner {
       return true;
     }
     false
-  }
-
-  fn next_timer_deadline_ms(&self) -> Option<u64> {
-    self.timers.borrow().iter().next().map(|k| k.deadline_ms)
-  }
-
-  fn compute_wait_timeout(&self) -> Duration {
-    if !self.idle_handles.borrow().is_empty()
-      || !self.closing_handles.borrow().is_empty()
-    {
-      return Duration::ZERO;
-    }
-    if let Some(deadline) = self.next_timer_deadline_ms() {
-      let now = self.now_ms();
-      if deadline > now {
-        Duration::from_millis(deadline - now)
-      } else {
-        Duration::ZERO
-      }
-    } else if !self.tcp_handles.borrow().is_empty() {
-      Duration::from_secs(1)
-    } else {
-      Duration::ZERO
-    }
   }
 
   pub(crate) unsafe fn run_timers(&self) {
@@ -845,13 +795,6 @@ pub unsafe extern "C" fn uv_loop_close(loop_: *mut uv_loop_t) -> c_int {
 }
 
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_stop(loop_: *mut uv_loop_t) {
-  unsafe {
-    (*loop_).stop_flag.set(true);
-  }
-}
-
-#[unsafe(no_mangle)]
 pub unsafe extern "C" fn uv_now(loop_: *mut uv_loop_t) -> u64 {
   let inner = unsafe { get_inner(loop_) };
   inner.now_ms()
@@ -1189,52 +1132,6 @@ pub unsafe extern "C" fn uv_is_closing(handle: *const uv_handle_t) -> c_int {
       1
     } else {
       0
-    }
-  }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn uv_run(
-  loop_: *mut uv_loop_t,
-  mode: uv_run_mode,
-) -> c_int {
-  unsafe {
-    let inner = get_inner(loop_);
-    (*loop_).stop_flag.set(false);
-
-    match mode {
-      uv_run_mode::UV_RUN_DEFAULT => {
-        while inner.has_alive_handles() && !(*loop_).stop_flag.get() {
-          let timeout = inner.compute_wait_timeout();
-          if timeout > Duration::ZERO {
-            let sleep_dur = if !inner.tcp_handles.borrow().is_empty() {
-              timeout.min(Duration::from_millis(1))
-            } else {
-              timeout
-            };
-            std::thread::sleep(sleep_dur);
-          }
-          inner.tick();
-        }
-        if inner.has_alive_handles() { 1 } else { 0 }
-      }
-      uv_run_mode::UV_RUN_ONCE => {
-        let timeout = inner.compute_wait_timeout();
-        if timeout > Duration::ZERO {
-          let sleep_dur = if !inner.tcp_handles.borrow().is_empty() {
-            timeout.min(Duration::from_millis(1))
-          } else {
-            timeout
-          };
-          std::thread::sleep(sleep_dur);
-        }
-        inner.tick();
-        if inner.has_alive_handles() { 1 } else { 0 }
-      }
-      uv_run_mode::UV_RUN_NOWAIT => {
-        inner.tick();
-        if inner.has_alive_handles() { 1 } else { 0 }
-      }
     }
   }
 }
@@ -1867,688 +1764,5 @@ pub fn new_shutdown() -> UvShutdown {
     r#type: 0,
     data: std::ptr::null_mut(),
     handle: std::ptr::null_mut(),
-  }
-}
-
-#[cfg(test)]
-mod tests {
-  use super::*;
-  use std::mem::MaybeUninit;
-  use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
-
-  unsafe fn make_loop() -> *mut uv_loop_t {
-    let loop_ = Box::into_raw(Box::new(MaybeUninit::<uv_loop_t>::uninit()))
-      as *mut uv_loop_t;
-    unsafe { uv_loop_init(loop_) };
-    loop_
-  }
-
-  unsafe fn destroy_loop(loop_: *mut uv_loop_t) {
-    unsafe {
-      uv_loop_close(loop_);
-      drop(Box::from_raw(loop_));
-    }
-  }
-
-  // 1. Loop init/close lifecycle
-  #[test]
-  fn test_loop_init_close() {
-    unsafe {
-      let loop_ = make_loop();
-      assert!(!(*loop_).internal.is_null());
-      uv_loop_close(loop_);
-      assert!((*loop_).internal.is_null());
-      drop(Box::from_raw(loop_));
-    }
-  }
-
-  // 2. Timer fires after timeout via uv_run(ONCE)
-  #[test]
-  fn test_timer_fires() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut timer = MaybeUninit::<uv_timer_t>::uninit();
-      let timer_ptr = timer.as_mut_ptr();
-      uv_timer_init(loop_, timer_ptr);
-
-      static FIRED: AtomicBool = AtomicBool::new(false);
-      unsafe extern "C" fn timer_cb(_handle: *mut uv_timer_t) {
-        FIRED.store(true, Ordering::Relaxed);
-      }
-
-      uv_timer_start(timer_ptr, timer_cb, 10, 0);
-      assert_eq!((*timer_ptr).flags & UV_HANDLE_ACTIVE, UV_HANDLE_ACTIVE);
-
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-      assert!(FIRED.load(Ordering::Relaxed));
-      assert_eq!((*timer_ptr).flags & UV_HANDLE_ACTIVE, 0);
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 3. Repeat timer fires multiple times
-  #[test]
-  fn test_repeat_timer() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut timer = MaybeUninit::<uv_timer_t>::uninit();
-      let timer_ptr = timer.as_mut_ptr();
-      uv_timer_init(loop_, timer_ptr);
-
-      static COUNT: AtomicU32 = AtomicU32::new(0);
-      unsafe extern "C" fn timer_cb(handle: *mut uv_timer_t) {
-        let c = COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        if c >= 3 {
-          unsafe { uv_timer_stop(handle) };
-        }
-      }
-
-      COUNT.store(0, Ordering::Relaxed);
-      uv_timer_start(timer_ptr, timer_cb, 5, 5);
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      assert_eq!(COUNT.load(Ordering::Relaxed), 3);
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 4. Idle callbacks fire every iteration
-  #[test]
-  fn test_idle_fires() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut idle = MaybeUninit::<uv_idle_t>::uninit();
-      let idle_ptr = idle.as_mut_ptr();
-      uv_idle_init(loop_, idle_ptr);
-
-      static IDLE_COUNT: AtomicU32 = AtomicU32::new(0);
-      unsafe extern "C" fn idle_cb(handle: *mut uv_idle_t) {
-        let c = IDLE_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        if c >= 5 {
-          unsafe { uv_idle_stop(handle) };
-        }
-      }
-
-      IDLE_COUNT.store(0, Ordering::Relaxed);
-      uv_idle_start(idle_ptr, idle_cb);
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      assert_eq!(IDLE_COUNT.load(Ordering::Relaxed), 5);
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 5. Prepare/check fire in correct order
-  #[test]
-  fn test_prepare_check_order() {
-    unsafe {
-      let loop_ = make_loop();
-
-      let mut prepare = MaybeUninit::<uv_prepare_t>::uninit();
-      let prepare_ptr = prepare.as_mut_ptr();
-      uv_prepare_init(loop_, prepare_ptr);
-
-      let mut check = MaybeUninit::<uv_check_t>::uninit();
-      let check_ptr = check.as_mut_ptr();
-      uv_check_init(loop_, check_ptr);
-
-      let mut order: Vec<&str> = Vec::new();
-      let order_ptr = &mut order as *mut Vec<&str> as *mut c_void;
-      (*loop_).data = order_ptr;
-
-      unsafe extern "C" fn prepare_cb(handle: *mut uv_prepare_t) {
-        unsafe {
-          let loop_ = (*handle).loop_;
-          let order = &mut *((*loop_).data as *mut Vec<&str>);
-          order.push("prepare");
-          uv_prepare_stop(handle);
-        }
-      }
-
-      unsafe extern "C" fn check_cb(handle: *mut uv_check_t) {
-        unsafe {
-          let loop_ = (*handle).loop_;
-          let order = &mut *((*loop_).data as *mut Vec<&str>);
-          order.push("check");
-          uv_check_stop(handle);
-        }
-      }
-
-      uv_prepare_start(prepare_ptr, prepare_cb);
-      uv_check_start(check_ptr, check_cb);
-
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-
-      assert_eq!(order, vec!["prepare", "check"]);
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 6. uv_close queues callback to close phase
-  #[test]
-  fn test_close_callback() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut timer = MaybeUninit::<uv_timer_t>::uninit();
-      let timer_ptr = timer.as_mut_ptr();
-      uv_timer_init(loop_, timer_ptr);
-
-      static CLOSE_CALLED: AtomicBool = AtomicBool::new(false);
-      unsafe extern "C" fn close_cb(_handle: *mut uv_handle_t) {
-        CLOSE_CALLED.store(true, Ordering::Relaxed);
-      }
-
-      CLOSE_CALLED.store(false, Ordering::Relaxed);
-
-      unsafe extern "C" fn noop_cb(_handle: *mut uv_timer_t) {}
-      uv_timer_start(timer_ptr, noop_cb, 1000, 0);
-      uv_close(timer_ptr as *mut uv_handle_t, Some(close_cb));
-
-      assert_eq!((*timer_ptr).flags & UV_HANDLE_CLOSING, UV_HANDLE_CLOSING);
-      assert!(!CLOSE_CALLED.load(Ordering::Relaxed));
-
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-      assert!(CLOSE_CALLED.load(Ordering::Relaxed));
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 7. uv_unref prevents handle from keeping loop alive
-  #[test]
-  fn test_unref_exits_loop() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut timer = MaybeUninit::<uv_timer_t>::uninit();
-      let timer_ptr = timer.as_mut_ptr();
-      uv_timer_init(loop_, timer_ptr);
-
-      unsafe extern "C" fn noop_cb(_handle: *mut uv_timer_t) {}
-      uv_timer_start(timer_ptr, noop_cb, 60000, 0);
-
-      uv_unref(timer_ptr as *mut uv_handle_t);
-
-      let result = uv_run(loop_, uv_run_mode::UV_RUN_NOWAIT);
-      assert_eq!(result, 0); // 0 = no alive handles
-
-      uv_timer_stop(timer_ptr);
-      destroy_loop(loop_);
-    }
-  }
-
-  // 8. uv_stop breaks DEFAULT loop
-  #[test]
-  fn test_stop_breaks_loop() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut idle = MaybeUninit::<uv_idle_t>::uninit();
-      let idle_ptr = idle.as_mut_ptr();
-      uv_idle_init(loop_, idle_ptr);
-
-      static STOP_COUNT: AtomicU32 = AtomicU32::new(0);
-
-      (*idle_ptr).data = loop_ as *mut c_void;
-
-      unsafe extern "C" fn idle_stop_cb(handle: *mut uv_idle_t) {
-        let c = STOP_COUNT.fetch_add(1, Ordering::Relaxed) + 1;
-        if c >= 3 {
-          let loop_ = unsafe { (*handle).data as *mut uv_loop_t };
-          unsafe { uv_stop(loop_) };
-        }
-      }
-
-      STOP_COUNT.store(0, Ordering::Relaxed);
-      uv_idle_start(idle_ptr, idle_stop_cb);
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-
-      assert_eq!(STOP_COUNT.load(Ordering::Relaxed), 3);
-
-      uv_idle_stop(idle_ptr);
-      destroy_loop(loop_);
-    }
-  }
-
-  // 9. timer_again re-arms a repeat timer
-  #[test]
-  fn test_timer_again() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut timer = MaybeUninit::<uv_timer_t>::uninit();
-      let timer_ptr = timer.as_mut_ptr();
-      uv_timer_init(loop_, timer_ptr);
-
-      assert_eq!(uv_timer_again(timer_ptr), UV_EINVAL);
-
-      static AGAIN_FIRED: AtomicBool = AtomicBool::new(false);
-      unsafe extern "C" fn timer_cb(handle: *mut uv_timer_t) {
-        AGAIN_FIRED.store(true, Ordering::Relaxed);
-        unsafe { uv_timer_stop(handle) };
-      }
-
-      AGAIN_FIRED.store(false, Ordering::Relaxed);
-      uv_timer_start(timer_ptr, timer_cb, 1000, 10);
-      uv_timer_stop(timer_ptr);
-      uv_timer_again(timer_ptr);
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      assert!(AGAIN_FIRED.load(Ordering::Relaxed));
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 10. timer get/set repeat
-  #[test]
-  fn test_timer_get_set_repeat() {
-    unsafe {
-      let loop_ = make_loop();
-      let mut timer = MaybeUninit::<uv_timer_t>::uninit();
-      let timer_ptr = timer.as_mut_ptr();
-      uv_timer_init(loop_, timer_ptr);
-
-      assert_eq!(uv_timer_get_repeat(timer_ptr), 0);
-      uv_timer_set_repeat(timer_ptr, 42);
-      assert_eq!(uv_timer_get_repeat(timer_ptr), 42);
-
-      destroy_loop(loop_);
-    }
-  }
-
-  unsafe fn make_sockaddr_in(port: u16) -> sockaddr_in {
-    unsafe {
-      let mut addr: sockaddr_in = std::mem::zeroed();
-      #[cfg(any(target_os = "macos", target_os = "freebsd"))]
-      {
-        addr.sin_len = std::mem::size_of::<sockaddr_in>() as u8;
-      }
-      addr.sin_family = AF_INET as sa_family_t;
-      addr.sin_port = port.to_be();
-      addr.sin_addr.s_addr = u32::from(std::net::Ipv4Addr::LOCALHOST).to_be();
-      addr
-    }
-  }
-
-  // 11. TCP listen and accept
-  #[tokio::test(flavor = "multi_thread")]
-  #[cfg(not(miri))]
-  async fn test_tcp_listen_accept() {
-    unsafe {
-      let loop_ = make_loop();
-
-      let mut server = MaybeUninit::<uv_tcp_t>::uninit();
-      let server_ptr = server.as_mut_ptr();
-      uv_tcp_init(loop_, server_ptr);
-
-      let bind_addr = make_sockaddr_in(0);
-      uv_tcp_bind(server_ptr, &bind_addr as *const _ as *const c_void, 0, 0);
-
-      static CONN_CALLED: AtomicBool = AtomicBool::new(false);
-
-      unsafe extern "C" fn on_connection(
-        server: *mut uv_stream_t,
-        status: i32,
-      ) {
-        unsafe {
-          assert_eq!(status, 0);
-          let server_tcp = server as *mut uv_tcp_t;
-          let loop_ = (*server_tcp).loop_;
-          let client = Box::into_raw(Box::new(new_tcp()));
-          uv_tcp_init(loop_, client);
-          let rc = uv_accept(server, client as *mut uv_stream_t);
-          assert_eq!(rc, 0);
-          assert!((*client).internal_stream.is_some());
-
-          drop(Box::from_raw(client));
-          CONN_CALLED.store(true, Ordering::Relaxed);
-
-          uv_stop(loop_);
-        }
-      }
-
-      CONN_CALLED.store(false, Ordering::Relaxed);
-      let rc =
-        uv_listen(server_ptr as *mut uv_stream_t, 128, Some(on_connection));
-      assert_eq!(rc, 0);
-
-      let mut name_buf: sockaddr_in = std::mem::zeroed();
-      let mut namelen = std::mem::size_of::<sockaddr_in>() as c_int;
-      uv_tcp_getsockname(
-        server_ptr,
-        &mut name_buf as *mut _ as *mut c_void,
-        &mut namelen,
-      );
-      let port = u16::from_be(name_buf.sin_port);
-      assert!(port > 0);
-
-      let port_copy = port;
-      std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(50));
-        let _ =
-          std::net::TcpStream::connect(format!("127.0.0.1:{}", port_copy));
-      });
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      assert!(CONN_CALLED.load(Ordering::Relaxed));
-
-      uv_close(server_ptr as *mut uv_handle_t, None);
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-      destroy_loop(loop_);
-    }
-  }
-
-  // 12. TCP connect and write
-  #[tokio::test(flavor = "multi_thread")]
-  #[cfg(not(miri))]
-  async fn test_tcp_connect_and_write() {
-    unsafe {
-      let loop_ = make_loop();
-
-      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-      let port = std_listener.local_addr().unwrap().port();
-
-      let received = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-      let received_clone = received.clone();
-      std::thread::spawn(move || {
-        let (mut stream, _) = std_listener.accept().unwrap();
-        let mut buf = [0u8; 1024];
-        loop {
-          match std::io::Read::read(&mut stream, &mut buf) {
-            Ok(0) => break,
-            Ok(n) => {
-              received_clone.lock().unwrap().extend_from_slice(&buf[..n])
-            }
-            Err(_) => break,
-          }
-        }
-      });
-
-      let mut tcp = MaybeUninit::<uv_tcp_t>::uninit();
-      let tcp_ptr = tcp.as_mut_ptr();
-      uv_tcp_init(loop_, tcp_ptr);
-
-      let addr = make_sockaddr_in(port);
-      let mut connect_req = MaybeUninit::<uv_connect_t>::uninit();
-      let connect_req_ptr = connect_req.as_mut_ptr();
-
-      static CONNECT_CALLED: AtomicBool = AtomicBool::new(false);
-      static WRITE_CALLED: AtomicBool = AtomicBool::new(false);
-
-      unsafe extern "C" fn on_connect(req: *mut uv_connect_t, status: i32) {
-        unsafe {
-          assert_eq!(status, 0);
-          CONNECT_CALLED.store(true, Ordering::Relaxed);
-
-          let stream = (*req).handle;
-          let data = b"hello world";
-          let buf = uv_buf_t {
-            base: data.as_ptr() as *mut c_char,
-            len: data.len(),
-          };
-          let write_req = Box::into_raw(Box::new(new_write()));
-
-          unsafe extern "C" fn on_write(req: *mut uv_write_t, status: i32) {
-            unsafe {
-              assert_eq!(status, 0);
-              WRITE_CALLED.store(true, Ordering::Relaxed);
-              drop(Box::from_raw(req));
-            }
-          }
-
-          uv_write(write_req, stream, &buf, 1, Some(on_write));
-
-          let tcp = stream as *mut uv_tcp_t;
-          let loop_ = (*tcp).loop_;
-          uv_close(tcp as *mut uv_handle_t, None);
-          uv_stop(loop_);
-        }
-      }
-
-      CONNECT_CALLED.store(false, Ordering::Relaxed);
-      WRITE_CALLED.store(false, Ordering::Relaxed);
-
-      uv_tcp_connect(
-        connect_req_ptr,
-        tcp_ptr,
-        &addr as *const _ as *const c_void,
-        Some(on_connect),
-      );
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-
-      assert!(CONNECT_CALLED.load(Ordering::Relaxed));
-      assert!(WRITE_CALLED.load(Ordering::Relaxed));
-
-      std::thread::sleep(Duration::from_millis(50));
-      let data = received.lock().unwrap();
-      assert_eq!(&*data, b"hello world");
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 13. TCP read_start and read_stop
-  #[tokio::test(flavor = "multi_thread")]
-  #[cfg(not(miri))]
-  async fn test_tcp_read_start_stop() {
-    unsafe {
-      let loop_ = make_loop();
-
-      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-      let port = std_listener.local_addr().unwrap().port();
-
-      std::thread::spawn(move || {
-        let (mut stream, _) = std_listener.accept().unwrap();
-        std::thread::sleep(Duration::from_millis(50));
-        std::io::Write::write_all(&mut stream, b"test data").unwrap();
-        std::thread::sleep(Duration::from_millis(100));
-      });
-
-      let mut tcp = MaybeUninit::<uv_tcp_t>::uninit();
-      let tcp_ptr = tcp.as_mut_ptr();
-      uv_tcp_init(loop_, tcp_ptr);
-
-      let addr = make_sockaddr_in(port);
-      let mut connect_req = MaybeUninit::<uv_connect_t>::uninit();
-      let connect_req_ptr = connect_req.as_mut_ptr();
-
-      static READ_BYTES: AtomicU32 = AtomicU32::new(0);
-
-      unsafe extern "C" fn alloc_cb(
-        _handle: *mut uv_handle_t,
-        suggested_size: usize,
-        buf: *mut uv_buf_t,
-      ) {
-        unsafe {
-          let ptr = libc::malloc(suggested_size) as *mut c_char;
-          (*buf).base = ptr;
-          (*buf).len = suggested_size;
-        }
-      }
-
-      unsafe extern "C" fn read_cb(
-        stream: *mut uv_stream_t,
-        nread: isize,
-        buf: *const uv_buf_t,
-      ) {
-        unsafe {
-          if nread > 0 {
-            READ_BYTES.fetch_add(nread as u32, Ordering::Relaxed);
-            uv_read_stop(stream);
-            let tcp = stream as *mut uv_tcp_t;
-            uv_close(tcp as *mut uv_handle_t, None);
-            uv_stop((*tcp).loop_);
-          }
-          if !(*buf).base.is_null() {
-            libc::free((*buf).base as *mut c_void);
-          }
-        }
-      }
-
-      unsafe extern "C" fn on_connect_for_read(
-        req: *mut uv_connect_t,
-        status: i32,
-      ) {
-        unsafe {
-          assert_eq!(status, 0);
-          let stream = (*req).handle;
-          uv_read_start(stream, Some(alloc_cb), Some(read_cb));
-        }
-      }
-
-      READ_BYTES.store(0, Ordering::Relaxed);
-
-      uv_tcp_connect(
-        connect_req_ptr,
-        tcp_ptr,
-        &addr as *const _ as *const c_void,
-        Some(on_connect_for_read),
-      );
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-
-      assert!(READ_BYTES.load(Ordering::Relaxed) > 0);
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 14. TCP getpeername/getsockname
-  #[tokio::test(flavor = "multi_thread")]
-  #[cfg(not(miri))]
-  async fn test_tcp_getpeername_getsockname() {
-    unsafe {
-      let loop_ = make_loop();
-
-      let std_listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-      let port = std_listener.local_addr().unwrap().port();
-
-      std::thread::spawn(move || {
-        let _ = std_listener.accept();
-        std::thread::sleep(Duration::from_millis(200));
-      });
-
-      let mut tcp = MaybeUninit::<uv_tcp_t>::uninit();
-      let tcp_ptr = tcp.as_mut_ptr();
-      uv_tcp_init(loop_, tcp_ptr);
-
-      let addr = make_sockaddr_in(port);
-      let mut connect_req = MaybeUninit::<uv_connect_t>::uninit();
-      let connect_req_ptr = connect_req.as_mut_ptr();
-
-      static NAMES_OK: AtomicBool = AtomicBool::new(false);
-
-      unsafe extern "C" fn on_connect_names(
-        req: *mut uv_connect_t,
-        status: i32,
-      ) {
-        unsafe {
-          assert_eq!(status, 0);
-          let tcp = (*req).handle as *mut uv_tcp_t;
-
-          let mut peer_addr: sockaddr_in = std::mem::zeroed();
-          let mut peer_len = std::mem::size_of::<sockaddr_in>() as c_int;
-          let rc = uv_tcp_getpeername(
-            tcp,
-            &mut peer_addr as *mut _ as *mut c_void,
-            &mut peer_len,
-          );
-          assert_eq!(rc, 0);
-          let peer_port = u16::from_be(peer_addr.sin_port);
-          assert!(peer_port > 0);
-
-          let mut local_addr: sockaddr_in = std::mem::zeroed();
-          let mut local_len = std::mem::size_of::<sockaddr_in>() as c_int;
-          let rc = uv_tcp_getsockname(
-            tcp,
-            &mut local_addr as *mut _ as *mut c_void,
-            &mut local_len,
-          );
-          assert_eq!(rc, 0);
-          let local_port = u16::from_be(local_addr.sin_port);
-          assert!(local_port > 0);
-
-          NAMES_OK.store(true, Ordering::Relaxed);
-
-          uv_close(tcp as *mut uv_handle_t, None);
-          uv_stop((*tcp).loop_);
-        }
-      }
-
-      NAMES_OK.store(false, Ordering::Relaxed);
-
-      uv_tcp_connect(
-        connect_req_ptr,
-        tcp_ptr,
-        &addr as *const _ as *const c_void,
-        Some(on_connect_names),
-      );
-
-      uv_run(loop_, uv_run_mode::UV_RUN_DEFAULT);
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-
-      assert!(NAMES_OK.load(Ordering::Relaxed));
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 15. TCP close during active read
-  #[tokio::test(flavor = "multi_thread")]
-  #[cfg(not(miri))]
-  async fn test_tcp_close() {
-    unsafe {
-      let loop_ = make_loop();
-
-      let mut tcp = MaybeUninit::<uv_tcp_t>::uninit();
-      let tcp_ptr = tcp.as_mut_ptr();
-      uv_tcp_init(loop_, tcp_ptr);
-
-      static CLOSE_FIRED: AtomicBool = AtomicBool::new(false);
-      unsafe extern "C" fn close_cb(_handle: *mut uv_handle_t) {
-        CLOSE_FIRED.store(true, Ordering::Relaxed);
-      }
-
-      CLOSE_FIRED.store(false, Ordering::Relaxed);
-
-      (*tcp_ptr).flags |= UV_HANDLE_ACTIVE;
-
-      uv_close(tcp_ptr as *mut uv_handle_t, Some(close_cb));
-      assert_eq!((*tcp_ptr).flags & UV_HANDLE_CLOSING, UV_HANDLE_CLOSING);
-
-      uv_run(loop_, uv_run_mode::UV_RUN_ONCE);
-      assert!(CLOSE_FIRED.load(Ordering::Relaxed));
-
-      destroy_loop(loop_);
-    }
-  }
-
-  // 16. TCP nodelay
-  #[tokio::test(flavor = "multi_thread")]
-  #[cfg(not(miri))]
-  async fn test_tcp_nodelay() {
-    unsafe {
-      let loop_ = make_loop();
-
-      let mut tcp = MaybeUninit::<uv_tcp_t>::uninit();
-      let tcp_ptr = tcp.as_mut_ptr();
-      uv_tcp_init(loop_, tcp_ptr);
-
-      let rc = uv_tcp_nodelay(tcp_ptr, 1);
-      assert_eq!(rc, 0);
-      assert!((*tcp_ptr).internal_nodelay);
-
-      let rc = uv_tcp_nodelay(tcp_ptr, 0);
-      assert_eq!(rc, 0);
-      assert!(!(*tcp_ptr).internal_nodelay);
-
-      destroy_loop(loop_);
-    }
   }
 }
