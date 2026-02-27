@@ -1,7 +1,0 @@
-name: No-op
-runs:
-  using: "composite"
-  steps:
-    - name: No-op
-      shell: bash
-      run: echo 'Doing nothing (intentionally)!'

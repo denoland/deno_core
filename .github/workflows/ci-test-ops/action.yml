@@ -1,8 +1,0 @@
-name: Test workflow
-runs:
-  using: "composite"
-  steps:
-    - name: Cargo test (ops)
-      shell: bash
-      run: |-
-        cargo nextest run --workspace --release -p deno_ops_compile_test_runner
