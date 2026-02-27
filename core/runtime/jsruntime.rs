@@ -1545,8 +1545,9 @@ impl JsRuntime {
   /// (timers, I/O, idle, prepare, check, close) are driven by
   /// `poll_event_loop`.
   ///
-  /// The v8::Context pointer is stored in `loop_.data` at the start of each
-  /// event loop tick so that libuv-style callbacks can retrieve it.
+  /// A `v8::Global<v8::Context>` is created via `Global::into_raw()` and
+  /// stored in `loop_.data` so that libuv-style callbacks can retrieve
+  /// the context. The raw Global is dropped during realm cleanup.
   ///
   /// # Safety
   /// `loop_ptr` must be a valid, initialized `uv_loop_t` pointer that
@@ -1555,12 +1556,19 @@ impl JsRuntime {
     &mut self,
     loop_ptr: *mut crate::uv_compat::uv_loop_t,
   ) {
-    let context_state = &self.inner.main_realm.0.context_state;
+    let realm = &self.inner.main_realm;
+    let context_state = &realm.0.context_state;
     let inner_ptr =
       unsafe { crate::uv_compat::uv_loop_get_inner_ptr(loop_ptr) };
     let uv_inner = inner_ptr as *const crate::uv_compat::UvLoopInner;
     context_state.uv_loop_inner.set(Some(uv_inner));
     context_state.uv_loop_ptr.set(Some(loop_ptr));
+
+    let global_ctx = realm.0.context().clone();
+    let raw = global_ctx.into_raw();
+    unsafe {
+      (*loop_ptr).data = raw.as_ptr() as *mut std::ffi::c_void;
+    }
   }
 
   /// Returns the runtime's op names, ordered by OpId.
@@ -2010,24 +2018,6 @@ impl JsRuntime {
     let modules = &realm.0.module_map;
     let context_state = &realm.0.context_state;
 
-    // Set the v8::Context pointer in the uv_loop so libuv-style callbacks
-    // can retrieve it via context_from_loop().
-    if let Some(loop_ptr) = context_state.uv_loop_ptr.get() {
-      let context = scope.get_current_context();
-      // SAFETY: `v8::Local<v8::Context>` is a thin pointer (one pointer
-      // wide). We store it as `*mut c_void` in `loop_.data` for the
-      // duration of this event loop tick. Callbacks reconstruct it via
-      // `std::mem::transmute` in `context_from_loop()`. The context is
-      // alive for the entire tick because `scope` holds it.
-      const _: () = assert!(
-        std::mem::size_of::<v8::Local<v8::Context>>()
-          == std::mem::size_of::<*mut std::ffi::c_void>()
-      );
-      unsafe {
-        let ctx_ptr: *mut std::ffi::c_void = std::mem::transmute(context);
-        (*loop_ptr).data = ctx_ptr;
-      }
-    }
     let exception_state = &context_state.exception_state;
 
     // Tight I/O loop: when run_io does work, re-run I/O phases immediately
