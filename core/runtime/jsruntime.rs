@@ -1566,6 +1566,10 @@ impl JsRuntime {
 
     let global_ctx = realm.0.context().clone();
     let raw = global_ctx.into_raw();
+    // SAFETY: `loop_ptr` is a valid, initialized `uv_loop_t` guaranteed
+    // by the caller. `raw` is a persistent-handle slot pointer from
+    // `Global::into_raw()` — V8 keeps it updated across GC cycles.
+    // The raw Global is reconstructed and dropped in `JsRealmInner::destroy`.
     unsafe {
       (*loop_ptr).data = raw.as_ptr() as *mut std::ffi::c_void;
     }

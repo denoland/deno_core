@@ -243,9 +243,14 @@ impl JsRealmInner {
     // SAFETY: We know the isolate outlives the realm
     let mut isolate = unsafe { v8::Isolate::from_raw_isolate_ptr(raw_ptr) };
 
-    // Drop the raw v8::Global<v8::Context> that was stored in loop_.data
-    // via Global::into_raw() during register_uv_loop.
     if let Some(loop_ptr) = state.uv_loop_ptr.get() {
+      // SAFETY: `loop_ptr` is valid for the lifetime of the runtime
+      // (guaranteed by `register_uv_loop`). `data` was set to a
+      // `Global::into_raw()` pointer during registration. We
+      // reconstruct the Global via `from_raw` so it is properly
+      // dropped. `NonNull::new_unchecked` is safe because we checked
+      // `!is_null()`. `isolate` is valid because we just obtained it
+      // from the raw isolate pointer above.
       unsafe {
         let data = (*loop_ptr).data;
         if !data.is_null() {
